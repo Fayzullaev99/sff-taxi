@@ -1,6 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { randomInt } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/app.setup.js';
@@ -179,4 +179,44 @@ export async function createDriver(
         .expect(204);
   }
   return { id, session, http };
+}
+
+/** Points inside Guliston: ~1.35 km, ~2.9 km and ~7.3 km (estimated road) from the centre. */
+export const NEAR = { lat: 40.505, lng: 68.7759 };
+export const MID = { lat: 40.49, lng: 68.8 };
+export const FAR = { lat: 40.54, lng: 68.75 };
+
+/** Quote and order a ride the way the rider app does. */
+export async function orderRide(
+  app: INestApplication,
+  rider: Session,
+  opts: {
+    pickup?: { lat: number; lng: number };
+    dropoff?: { lat: number; lng: number };
+    class?: 'economy' | 'comfort';
+    options?: string[];
+    comment?: string;
+  } = {},
+) {
+  const http = api(app, rider.accessToken);
+  const quote = await http
+    .post('/v1/rides/quote')
+    .send({
+      pickup: opts.pickup ?? GULISTON,
+      dropoff: opts.dropoff ?? MID,
+      options: opts.options ?? [],
+    })
+    .expect(200);
+  const ride = await http
+    .post('/v1/rides')
+    .send({
+      quoteId: quote.body.quoteId,
+      class: opts.class ?? 'economy',
+      pickup: { address: 'Guliston, Mustaqillik 12', landmark: 'Bozor yonida' },
+      dropoff: { address: 'Guliston temir yo‘l vokzali', landmark: null },
+      comment: opts.comment ?? null,
+      clientRequestId: randomUUID(),
+    })
+    .expect(201);
+  return { quote: quote.body, ride: ride.body, id: ride.body.id as string };
 }

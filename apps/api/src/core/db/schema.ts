@@ -12,6 +12,9 @@ export interface UsersTable {
   phone: string;
   full_name: string | null;
   status: Generated<'active' | 'blocked'>;
+  rider_rating_sum: Generated<number>;
+  rider_rating_count: Generated<number>;
+  no_show_count: Generated<number>;
   created_at: CreatedAt;
 }
 
@@ -194,6 +197,177 @@ export interface DriverPassesTable {
   created_at: CreatedAt;
 }
 
+export const RIDE_STATUSES = [
+  'searching',
+  'driver_assigned',
+  'driver_arrived',
+  'in_progress',
+  'completed',
+  'cancelled',
+] as const;
+export type RideStatus = (typeof RIDE_STATUSES)[number];
+/** A driver is busy with a ride in these. */
+export const ACTIVE_RIDE_STATUSES = ['driver_assigned', 'driver_arrived', 'in_progress'] as const;
+/** Not finished yet. */
+export const OPEN_RIDE_STATUSES = ['searching', ...ACTIVE_RIDE_STATUSES] as const;
+export type RideActor = 'rider' | 'driver' | 'operator' | 'system';
+export type OfferStatus = 'pending' | 'accepted' | 'declined' | 'expired' | 'withdrawn';
+export type DispatchStage = 'direct' | 'broadcast' | 'operator';
+
+export interface Place {
+  address: string | null;
+  /** Orientir: "opposite school No. 5". */
+  landmark: string | null;
+}
+
+export interface VehicleSnapshot {
+  make: string;
+  model: string;
+  colour: string;
+  plate: string;
+  class: RideClassColumn;
+}
+
+type Json<T> = ColumnType<T, string, string>;
+type NullableJson<T> = ColumnType<T | null, string | null, string | null>;
+
+export interface QuotesTable {
+  id: string;
+  user_id: string;
+  city_id: string;
+  pickup_lat: number;
+  pickup_lng: number;
+  dropoff_lat: number;
+  dropoff_lng: number;
+  options: Generated<string[]>;
+  distance_m: number;
+  duration_s: number | null;
+  route_source: string;
+  kind: 'city' | 'intercity';
+  fares: Json<Record<string, unknown>>;
+  tariff: Json<Record<string, unknown>>;
+  expires_at: Timestamp;
+  created_at: CreatedAt;
+}
+
+export interface RidesTable {
+  id: string;
+  number: Generated<number>;
+  rider_id: string;
+  rider_phone: string;
+  rider_name: string | null;
+  channel: Generated<'app' | 'phone'>;
+  created_by: string;
+  client_request_id: string | null;
+  quote_id: string | null;
+  city_id: string;
+  kind: 'city' | 'intercity';
+  class: RideClassColumn;
+  pickup: Json<Place>;
+  pickup_lat: number;
+  pickup_lng: number;
+  dropoff: Json<Place>;
+  dropoff_lat: number;
+  dropoff_lng: number;
+  options: Generated<string[]>;
+  comment: string | null;
+  distance_m: number;
+  duration_s: number | null;
+  fare: Json<Record<string, unknown>>;
+  tariff: Json<Record<string, unknown>>;
+  fare_quoted: number;
+  waiting_fee: Generated<number>;
+  fare_total: number | null;
+  cancellation_fee: Generated<number>;
+  commission: Generated<number>;
+  commission_note: string | null;
+  tax: Generated<number>;
+  payment_method: Generated<'cash' | 'card'>;
+  payment_status: Generated<'pending' | 'paid' | 'not_charged'>;
+  status: RideStatus;
+  driver_id: string | null;
+  vehicle: NullableJson<VehicleSnapshot>;
+  dispatch_stage: Generated<DispatchStage>;
+  direct_offers: Generated<number>;
+  broadcast_at: Timestamp | null;
+  attention_at: Timestamp | null;
+  cancelled_by: RideActor | null;
+  cancel_reason: string | null;
+  share_token: string | null;
+  requested_at: Generated<Date>;
+  assigned_at: Timestamp | null;
+  arrived_at: Timestamp | null;
+  started_at: Timestamp | null;
+  completed_at: Timestamp | null;
+  cancelled_at: Timestamp | null;
+  updated_at: Timestamp;
+}
+
+export interface RideEventsTable {
+  id: string;
+  ride_id: string;
+  type: string;
+  actor: RideActor;
+  actor_id: string | null;
+  data: Json<Record<string, unknown>>;
+  created_at: Generated<Date>;
+}
+
+export interface RideOffersTable {
+  id: string;
+  ride_id: string;
+  driver_id: string;
+  kind: 'direct' | 'broadcast';
+  status: Generated<OfferStatus>;
+  eta_s: number | null;
+  distance_m: number | null;
+  score: number | null;
+  created_at: Generated<Date>;
+  expires_at: Timestamp;
+  responded_at: Timestamp | null;
+}
+
+export interface RatingsTable {
+  id: string;
+  ride_id: string;
+  author_role: 'rider' | 'driver';
+  author_id: string;
+  subject_id: string;
+  stars: number;
+  tags: Generated<string[]>;
+  comment: string | null;
+  created_at: CreatedAt;
+}
+
+export interface SosEventsTable {
+  id: string;
+  ride_id: string;
+  user_id: string;
+  role: 'rider' | 'driver';
+  lat: number | null;
+  lng: number | null;
+  note: string | null;
+  created_at: CreatedAt;
+  resolved_at: Timestamp | null;
+  resolved_by: string | null;
+  resolution_note: string | null;
+}
+
+export interface TaxWithholdingsTable {
+  id: string;
+  ride_id: string;
+  driver_id: string;
+  pinfl: string;
+  period: string;
+  base_amount: number;
+  rate_percent: number;
+  amount: number;
+  ledger_id: string | null;
+  remitted_at: Timestamp | null;
+  remittance_ref: string | null;
+  created_at: CreatedAt;
+}
+
 export interface DB {
   users: UsersTable;
   admins: AdminsTable;
@@ -209,4 +383,11 @@ export interface DB {
   driver_status_changes: DriverStatusChangesTable;
   driver_ledger: DriverLedgerTable;
   driver_passes: DriverPassesTable;
+  quotes: QuotesTable;
+  rides: RidesTable;
+  ride_events: RideEventsTable;
+  ride_offers: RideOffersTable;
+  ratings: RatingsTable;
+  sos_events: SosEventsTable;
+  tax_withholdings: TaxWithholdingsTable;
 }

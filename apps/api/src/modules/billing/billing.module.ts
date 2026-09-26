@@ -15,9 +15,14 @@ import { z } from 'zod';
 import { AdminOnly, type AuthUser, CurrentUser } from '../../core/auth/auth-context.js';
 import { Database } from '../../core/db/database.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
+import { tashkentDayStart, tashkentWeekStart } from '../../lib/commission.js';
+import { RideChargesService } from './charges.service.js';
 import { LedgerService } from './ledger.service.js';
 
 const Cursor = z.object({ cursor: z.uuid().optional() });
+const EarningsQuery = z.object({ period: z.enum(['day', 'week']).default('day') });
+const TaxQuery = z.object({ period: z.string().regex(/^d{4}-(0[1-9]|1[0-2])$/, 'YYYY-MM') });
+const RemitBody = TaxQuery.extend({ reference: z.string().trim().min(3).max(100) });
 const PassBody = z.object({ kind: z.enum(['day', 'week']) });
 const EntryBody = z.object({
   kind: z.enum(['topup', 'adjustment']),
@@ -34,8 +39,21 @@ const EntryBody = z.object({
 export class DriverBillingController {
   constructor(
     private readonly ledger: LedgerService,
+    private readonly charges: RideChargesService,
     private readonly db: Database,
   ) {}
+
+  /** Today's or this week's rides, fares, cash collected, commission, tax and net (Tashkent time). */
+  @Get('earnings')
+  async earnings(
+    @CurrentUser() user: AuthUser,
+    @Query(new ZodPipe(EarningsQuery)) q: z.output<typeof EarningsQuery>,
+  ) {
+    await this.assertDriver(user.userId);
+    const now = new Date();
+    const from = q.period === 'day' ? tashkentDayStart(now) : tashkentWeekStart(now);
+    return this.charges.earnings(user.userId, from, now);
+  }
 
   /** Balance, whether it allows working, the running pass and the latest entries. */
   @Get('balance')
@@ -88,7 +106,22 @@ export class DriverBillingController {
 @Controller('admin/billing')
 @AdminOnly()
 export class AdminBillingController {
-  constructor(private readonly ledger: LedgerService) {}
+  constructor(
+    private readonly ledger: LedgerService,
+    private readonly charges: RideChargesService,
+  ) {}
+
+  /** The 1% tax withheld per driver for a Tashkent month, for remittance by the 15th. */
+  @Get('taxes')
+  taxes(@Query(new ZodPipe(TaxQuery)) q: z.output<typeof TaxQuery>) {
+    return this.charges.taxReport(q.period);
+  }
+
+  @Post('taxes/remit')
+  @HttpCode(HttpStatus.OK)
+  remit(@Body(new ZodPipe(RemitBody)) body: z.output<typeof RemitBody>) {
+    return this.charges.markRemitted(body.period, body.reference);
+  }
 
   @Get('drivers/:id/ledger')
   entries(
@@ -112,7 +145,7 @@ export class AdminBillingController {
 
 @Module({
   controllers: [DriverBillingController, AdminBillingController],
-  providers: [LedgerService],
-  exports: [LedgerService],
+  providers: [LedgerService, RideChargesService],
+  exports: [LedgerService, RideChargesService],
 })
 export class BillingModule {}

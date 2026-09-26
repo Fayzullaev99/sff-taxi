@@ -11,6 +11,7 @@ import { HealthController } from './health/health.controller.js';
 import { BillingModule } from './modules/billing/billing.module.js';
 import { DriversModule } from './modules/drivers/drivers.module.js';
 import { GeoModule } from './modules/geo/geo.module.js';
+import { RidesModule } from './modules/rides/rides.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
 
 @Module({
@@ -35,6 +36,7 @@ import { SettingsModule } from './modules/settings/settings.module.js';
     GeoModule,
     BillingModule,
     DriversModule,
+    RidesModule,
   ],
   controllers: [HealthController],
 })
