@@ -209,6 +209,8 @@ export interface DriverPassesTable {
 }
 
 export const RIDE_STATUSES = [
+  /** Ordered for later: dispatch starts 15 minutes before scheduled_for. */
+  'scheduled',
   /** A card ride waiting for its prepayment (Payme/Click) before dispatch. */
   'awaiting_payment',
   'searching',
@@ -264,6 +266,8 @@ export interface QuotesTable {
   fares: Json<Record<string, unknown>>;
   tariff: Json<Record<string, unknown>>;
   expires_at: Timestamp;
+  /** A quote for later: priced at this time (night add-on). */
+  scheduled_for: Timestamp | null;
   created_at: CreatedAt;
 }
 
@@ -311,6 +315,7 @@ export interface RidesTable {
   cancelled_by: RideActor | null;
   cancel_reason: string | null;
   share_token: string | null;
+  scheduled_for: Timestamp | null;
   requested_at: Generated<Date>;
   assigned_at: Timestamp | null;
   arrived_at: Timestamp | null;

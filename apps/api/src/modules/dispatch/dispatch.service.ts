@@ -62,6 +62,8 @@ export class DispatchService {
   /** One dispatcher cycle: expire answered-too-late offers, then move every waiting ride on. */
   async tick(now = new Date()): Promise<void> {
     await this.expireOffers(now);
+    // rides ordered for later whose search is due join the queue below
+    await this.rides.activateScheduled(now);
     const waiting = await this.db.kysely
       .selectFrom('rides')
       .select('id')

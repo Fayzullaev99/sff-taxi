@@ -47,6 +47,16 @@ export const push = {
     l === 'ru'
       ? { title: 'Заказ отменён', body: reason ?? 'Свободных машин не нашлось' }
       : { title: 'Buyurtma bekor qilindi', body: reason ?? 'Bo‘sh mashina topilmadi' },
+  scheduledStarted: (l: Locale): PushText =>
+    l === 'ru'
+      ? {
+          title: 'Ищем машину к вашему времени',
+          body: 'Заказ на потом: водитель скоро будет назначен.',
+        }
+      : {
+          title: 'Belgilangan vaqtga mashina qidirilmoqda',
+          body: 'Oldindan buyurtmangiz: haydovchi tez orada tayinlanadi.',
+        },
   searchingAgain: (l: Locale): PushText =>
     l === 'ru'
       ? { title: 'Ищем другого водителя', body: 'Водитель не сможет приехать, ищем замену.' }

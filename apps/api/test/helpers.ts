@@ -241,7 +241,7 @@ export async function quiesce(app: INestApplication): Promise<void> {
   await db
     .updateTable('rides')
     .set({ status: 'cancelled', cancelled_by: 'system', cancelled_at: new Date() })
-    .where('status', '=', 'searching')
+    .where('status', 'in', ['searching', 'scheduled'])
     .execute();
   await db.updateTable('drivers').set({ is_online: false }).execute();
 }

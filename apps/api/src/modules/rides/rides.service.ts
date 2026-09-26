@@ -72,7 +72,15 @@ export interface QuoteInput {
   pickup: Point;
   dropoff: Point;
   options: RideOption[];
+  /** Ordering for later (30 min to 24 h ahead); null = now. */
+  scheduledFor?: Date | null;
 }
+
+/** Scheduled rides: how far ahead, when dispatch starts, how many a rider may hold. */
+export const SCHEDULE_MIN_AHEAD_MINUTES = 30;
+export const SCHEDULE_MAX_AHEAD_HOURS = 24;
+export const SCHEDULE_DISPATCH_BEFORE_MINUTES = 15;
+export const SCHEDULED_PER_RIDER = 3;
 
 export interface OrderInput {
   quoteId: string;
@@ -118,6 +126,7 @@ const isOpen = (s: RideStatus) => (OPEN_RIDE_STATUSES as readonly string[]).incl
 const isUnfinished = (s: RideStatus) => (UNFINISHED_RIDE_STATUSES as readonly string[]).includes(s);
 /** The rider may cancel until the trip starts. */
 const RIDER_CANCELLABLE: readonly RideStatus[] = [
+  'scheduled',
   'awaiting_payment',
   'searching',
   'driver_assigned',
@@ -154,7 +163,26 @@ export class RidesService {
 
   /** Prices a trip in every class. The quote is stored so the order uses exactly this price. */
   async quote(user: AuthUser, input: QuoteInput, now = new Date()) {
-    const priced = await this.price(input.pickup, input.dropoff, input.options, now);
+    const scheduledFor = input.scheduledFor ?? null;
+    if (scheduledFor) {
+      const ahead = (scheduledFor.getTime() - now.getTime()) / 60_000;
+      if (ahead < SCHEDULE_MIN_AHEAD_MINUTES || ahead > SCHEDULE_MAX_AHEAD_HOURS * 60) {
+        throw new BadRequestException(
+          msg(
+            'Oldindan buyurtma {0} daqiqadan {1} soatgacha oldin beriladi',
+            SCHEDULE_MIN_AHEAD_MINUTES,
+            SCHEDULE_MAX_AHEAD_HOURS,
+          ),
+        );
+      }
+    }
+    // a ride for later is priced for its own time (the night add-on), fixed now
+    const priced = await this.price(
+      input.pickup,
+      input.dropoff,
+      input.options,
+      scheduledFor ?? now,
+    );
     const id = uuidv7();
     const expiresAt = new Date(now.getTime() + QUOTE_TTL_SECONDS * 1000);
     await this.db.kysely
@@ -175,11 +203,13 @@ export class RidesService {
         fares: JSON.stringify(priced.fares),
         tariff: JSON.stringify(priced.tariff),
         expires_at: expiresAt,
+        scheduled_for: scheduledFor,
       })
       .execute();
     return {
       quoteId: id,
       expiresAt,
+      scheduledFor,
       city: publicCity(priced.city),
       kind: priced.kind,
       distanceM: priced.route.distanceM,
@@ -191,7 +221,7 @@ export class RidesService {
       waiting: priced.tariff.waiting,
       cancellationFee: priced.tariff.cancellation_fee,
       // the nearest free car per class, by road: "~4 min" on the class buttons
-      availability: await this.availability.near(input.pickup, user.userId),
+      availability: scheduledFor ? null : await this.availability.near(input.pickup, user.userId),
     };
   }
 
@@ -252,6 +282,9 @@ export class RidesService {
     if (!quote) throw new NotFoundException('Narx topilmadi: qayta hisoblang');
     if (quote.expires_at <= now) throw new GoneException('Narx eskirdi: qayta hisoblang');
     const fare = (quote.fares as unknown as Record<RideClass, Fare>)[input.class];
+    if (quote.scheduled_for && input.paymentMethod !== 'cash') {
+      throw new BadRequestException('Oldindan buyurtma hozircha faqat naqd to‘lov bilan');
+    }
 
     const rider = await this.db.kysely
       .selectFrom('users')
@@ -268,7 +301,22 @@ export class RidesService {
         .where('client_request_id', '=', input.clientRequestId)
         .executeTakeFirst();
       if (again) return again.id;
-      await this.assertNoOpenRide(trx, user.userId);
+      if (quote.scheduled_for) {
+        // a ride for later does not block riding now; a few may wait at once
+        const waiting = await trx
+          .selectFrom('rides')
+          .select((eb) => eb.fn.countAll<string>().as('n'))
+          .where('rider_id', '=', user.userId)
+          .where('status', '=', 'scheduled')
+          .executeTakeFirstOrThrow();
+        if (Number(waiting.n) >= SCHEDULED_PER_RIDER) {
+          throw new ConflictException(
+            msg('Oldindan {0} tadan ortiq buyurtma berib bo‘lmaydi', SCHEDULED_PER_RIDER),
+          );
+        }
+      } else {
+        await this.assertNoOpenRide(trx, user.userId);
+      }
       return this.createRide(trx, {
         riderId: user.userId,
         riderPhone: rider.phone,
@@ -289,6 +337,7 @@ export class RidesService {
         fare,
         tariff: quote.tariff,
         paymentMethod: input.paymentMethod,
+        scheduledFor: quote.scheduled_for,
       });
     });
     return { created: true, ride: await this.riderView(user, id) };
@@ -453,12 +502,18 @@ export class RidesService {
       fare: Fare;
       tariff: unknown;
       paymentMethod: PaymentMethod;
+      scheduledFor?: Date | null;
     },
   ): Promise<string> {
     const id = uuidv7();
     const place = (p: PlaceInput): Place => ({ address: p.address, landmark: p.landmark });
     // a card ride is dispatched once its fixed fare is prepaid (docs/payments.md)
-    const status = r.paymentMethod === 'card' ? 'awaiting_payment' : 'searching';
+    // a ride for later waits until 15 minutes before its time
+    const status = r.scheduledFor
+      ? 'scheduled'
+      : r.paymentMethod === 'card'
+        ? 'awaiting_payment'
+        : 'searching';
     await trx
       .insertInto('rides')
       .values({
@@ -487,6 +542,7 @@ export class RidesService {
         tariff: JSON.stringify(r.tariff),
         fare_quoted: r.fare.total,
         payment_method: r.paymentMethod,
+        scheduled_for: r.scheduledFor ?? null,
         status,
         updated_at: new Date(),
       })
@@ -499,6 +555,8 @@ export class RidesService {
     });
     if (status === 'awaiting_payment') {
       await this.intents.createForRide(trx, { id, riderId: r.riderId, amount: r.fare.total });
+    } else if (status === 'scheduled') {
+      await emit(trx, 'ride.status_changed', { rideId: id, from: null, to: 'scheduled' });
     } else {
       await emit(trx, 'ride.requested', { rideId: id });
     }
@@ -767,7 +825,7 @@ export class RidesService {
   async cancelByOperator(operator: AuthUser, rideId: string, reason: string) {
     await this.db.transaction(async (trx) => {
       const ride = await this.lockRide(trx, rideId);
-      if (!isUnfinished(ride.status)) {
+      if (!isUnfinished(ride.status) && ride.status !== 'scheduled') {
         throw new ConflictException('Buyurtma allaqachon yakunlangan');
       }
       await this.cancel(trx, ride, 'operator', operator.userId, reason, 0);
@@ -1018,6 +1076,82 @@ export class RidesService {
     };
   }
 
+  // Scheduled rides --------------------------------------------------------------------
+
+  /** The rider's rides for later, soonest first. */
+  async riderScheduled(user: AuthUser) {
+    const rows = await this.db.kysely
+      .selectFrom('rides')
+      .selectAll()
+      .where('rider_id', '=', user.userId)
+      .where('status', '=', 'scheduled')
+      .orderBy('scheduled_for')
+      .execute();
+    return rows.map((r) => this.baseView(r));
+  }
+
+  /**
+   * Starts the search for scheduled rides whose time is near (the dispatch loop calls it
+   * every tick). A rider who is on another ride by then gets the scheduled one cancelled
+   * with a reason (one open ride per rider).
+   */
+  async activateScheduled(now = new Date()): Promise<number> {
+    const due = await this.db.kysely
+      .selectFrom('rides')
+      .select('id')
+      .where('status', '=', 'scheduled')
+      .where(
+        'scheduled_for',
+        '<=',
+        new Date(now.getTime() + SCHEDULE_DISPATCH_BEFORE_MINUTES * 60_000),
+      )
+      .orderBy('scheduled_for')
+      .limit(100)
+      .execute();
+    let started = 0;
+    for (const { id } of due) {
+      const done = await this.db.transaction(async (trx) => {
+        const ride = await trx
+          .selectFrom('rides')
+          .selectAll()
+          .where('id', '=', id)
+          .where('status', '=', 'scheduled')
+          .forUpdate()
+          .skipLocked()
+          .executeTakeFirst();
+        if (!ride) return false;
+        await sql`select pg_advisory_xact_lock(hashtext(${ride.rider_id}))`.execute(trx);
+        const busy = await trx
+          .selectFrom('rides')
+          .select('id')
+          .where('rider_id', '=', ride.rider_id)
+          .where('status', 'in', [...UNFINISHED_RIDE_STATUSES])
+          .executeTakeFirst();
+        if (busy) {
+          await this.cancel(trx, ride, 'system', null, 'Boshqa safaringiz davom etmoqda', 0);
+          return false;
+        }
+        await trx
+          .updateTable('rides')
+          .set({ status: 'searching', requested_at: now, updated_at: now })
+          .where('id', '=', ride.id)
+          .execute();
+        await this.event(trx, ride.id, 'dispatch_started', 'system', null, {
+          scheduledFor: ride.scheduled_for,
+        });
+        await emit(trx, 'ride.status_changed', {
+          rideId: ride.id,
+          from: 'scheduled',
+          to: 'searching',
+        });
+        await emit(trx, 'ride.requested', { rideId: ride.id });
+        return true;
+      });
+      if (done) started++;
+    }
+    return started;
+  }
+
   // Card rides not paid in time -------------------------------------------------------
 
   /**
@@ -1258,6 +1392,7 @@ export class RidesService {
       startedAt: ride.started_at,
       completedAt: ride.completed_at,
       cancelledAt: ride.cancelled_at,
+      scheduledFor: ride.scheduled_for,
     };
   }
 
@@ -1461,6 +1596,7 @@ export class RidesService {
 /** Event types riders see in their ride's timeline. */
 const RIDER_EVENTS = [
   'requested',
+  'dispatch_started',
   'paid',
   'refunded',
   'assigned',

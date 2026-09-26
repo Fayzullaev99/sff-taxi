@@ -130,6 +130,10 @@ export class NotificationsHandler implements OutboxHandler {
       case 'searching':
         // a card ride just paid starts its first search: nothing to tell
         if (from === 'awaiting_payment') return;
+        if (from === 'scheduled') {
+          await toRider('scheduled_started', (l) => push.scheduledStarted(l));
+          return;
+        }
         await toRider('searching_again', (l) => push.searchingAgain(l));
         return;
       case 'cancelled':

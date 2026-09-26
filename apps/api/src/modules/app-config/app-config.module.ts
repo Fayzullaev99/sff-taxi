@@ -37,7 +37,7 @@ export class AppConfigService {
         uploads: storageConfig(this.env) !== null,
         intercity: true,
         maskedCalls: false,
-        scheduledRides: false,
+        scheduledRides: true,
       },
       cardProviders: providers,
       shareBaseUrl: this.env.SHARE_BASE_URL,

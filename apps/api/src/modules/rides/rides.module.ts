@@ -39,7 +39,17 @@ const PlaceText = z
 const Options = z.array(z.enum(RIDE_OPTIONS)).max(4).default([]);
 const Comment = z.string().trim().min(1).max(500).nullable().default(null);
 
-const QuoteBody = z.object({ pickup: PointBody, dropoff: PointBody, options: Options });
+const QuoteBody = z.object({
+  pickup: PointBody,
+  dropoff: PointBody,
+  options: Options,
+  /** Order for later: 30 minutes to 24 hours ahead, cash (dispatch starts 15 min before). */
+  scheduledFor: z.iso
+    .datetime({ offset: true })
+    .transform((v) => new Date(v))
+    .nullable()
+    .default(null),
+});
 const OrderBody = z.object({
   quoteId: z.uuid(),
   class: z.enum(RIDE_CLASSES),
@@ -131,6 +141,12 @@ export class RidesController {
   @Get()
   history(@CurrentUser() user: AuthUser, @Query(new ZodPipe(Cursor)) q: z.output<typeof Cursor>) {
     return this.rides.riderHistory(user, q.cursor);
+  }
+
+  /** The rider's rides for later, soonest first. */
+  @Get('scheduled')
+  scheduled(@CurrentUser() user: AuthUser) {
+    return this.rides.riderScheduled(user);
   }
 
   /** The rider's open ride, or null. */

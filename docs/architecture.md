@@ -96,12 +96,17 @@ Cobalts/Nexias carry a CNG tank in the trunk (MA §5.5).
 
 ```
 (awaiting_payment, card rides) ──paid──> searching
+(scheduled, rides for later) ──15 min before──> searching
 searching ──> driver_assigned ──> driver_arrived ──> in_progress ──> completed
     │  ^              │  │               │
     │  └── driver drops (not a no-show) ─┘
     └──────────┴──────┴─> cancelled (rider · driver no-show · operator · system)
 ```
 
+- **For later**: a quote with `scheduledFor` (30 minutes to 24 hours ahead) is priced at that
+  time (night add-on) and ordered as `scheduled` (cash only for now, up to three per rider, not
+  blocking a ride now); the dispatch loop starts its search 15 minutes before (a rider who is on
+  another ride by then gets it cancelled with the reason). Riders cancel it free.
 - **Ordering** is idempotent: the app sends a `clientRequestId`; a repeat returns the same ride
   (200 instead of 201). An advisory lock per rider serialises double taps.
 - **Invariants in the database**, not only in code: a partial unique index allows one active
@@ -264,7 +269,7 @@ Backend backlog:
 
 - **Legal integrations switched on**: the OFD provider and the Ministry of Transport registry
   (the adapters are ready; [fiscal-and-licence.md](fiscal-and-licence.md) lists what is needed).
-- **Scheduled rides** (order for later, dispatch 15 minutes before), promo codes, masked calls
+- Promo codes, masked calls
   (a telephony provider's number masking; today riders and drivers see each other's phones only
   within a ride or a booking), tips by card, collecting owed cancellation fees, automatic payouts.
 - The shared driver pool with SFF Eats (A9); a load test before launch.
