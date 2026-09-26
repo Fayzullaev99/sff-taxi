@@ -1,0 +1,11 @@
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+.metro-health-check*
+
+# generated native folders (npx expo prebuild)
+/ios
+/android
+
+.env*.local

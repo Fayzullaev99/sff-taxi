@@ -13,7 +13,7 @@ tax rules of Cabinet Resolution No. 200 built in.
 | Path          | What                                                  |
 | ------------- | ----------------------------------------------------- |
 | `apps/api`    | NestJS 12 API + worker (Kysely, PostgreSQL 17, Redis) |
-| `apps/rider`  | Rider app (Expo) — planned                            |
+| `apps/rider`  | Rider app (Expo), see apps/rider/README.md            |
 | `apps/driver` | Driver app (Expo) — planned                           |
 | `apps/web`    | Operator / dispatcher panel (React) — planned         |
 | `infra`       | Local Postgres init (roles, test databases)           |
