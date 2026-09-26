@@ -11,6 +11,7 @@ import { RedisModule } from './core/redis/redis.module.js';
 import { SmsModule } from './core/sms/sms.module.js';
 import { DispatchHandler } from './modules/dispatch/dispatch.handler.js';
 import { DispatchModule } from './modules/dispatch/dispatch.module.js';
+import { IntercityNotificationsHandler } from './modules/notifications/intercity-notifications.handler.js';
 import { NotificationsHandler } from './modules/notifications/notifications.handler.js';
 import { NotificationsWorkerModule } from './modules/notifications/notifications.module.js';
 import { PaymentsCoreModule } from './modules/payments/payments.module.js';
@@ -49,7 +50,12 @@ import { WorkerRuntime } from './worker-runtime.js';
     RealtimePublisher,
     {
       provide: OUTBOX_HANDLERS,
-      inject: [DispatchHandler, RealtimePublisher, NotificationsHandler],
+      inject: [
+        DispatchHandler,
+        RealtimePublisher,
+        NotificationsHandler,
+        IntercityNotificationsHandler,
+      ],
       useFactory: (...handlers: OutboxHandler[]) => handlers,
     },
     { provide: WORKER_METRICS, useFactory: () => createRegistry('worker') },

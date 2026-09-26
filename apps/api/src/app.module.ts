@@ -17,6 +17,7 @@ import { BillingModule } from './modules/billing/billing.module.js';
 import { DispatchModule } from './modules/dispatch/dispatch.module.js';
 import { DriversModule } from './modules/drivers/drivers.module.js';
 import { GeoModule } from './modules/geo/geo.module.js';
+import { IntercityModule } from './modules/intercity/intercity.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { PaymentsModule } from './modules/payments/payments.module.js';
 import { RealtimeModule } from './modules/realtime/realtime.module.js';
@@ -89,6 +90,7 @@ export function logRequest<T extends { url?: unknown }>(req: T): T {
     UploadsModule,
     PaymentsModule,
     AppConfigModule,
+    IntercityModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_INTERCEPTOR, useClass: RateLimitInterceptor }],

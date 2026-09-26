@@ -18,7 +18,11 @@ export type OutboxTopic =
   /** A driver was approved, rejected, blocked or unblocked. { driverId, from, to, reason } */
   | 'driver.status_changed'
   /** A rejected or blocked driver asked for a review. { appealId, driverId } */
-  | 'driver.appeal';
+  | 'driver.appeal'
+  /** An intercity trip changed status. { tripId, from, to } */
+  | 'intercity.trip_changed'
+  /** A seat booking was made, cancelled, boarded, ... { bookingId, tripId, status, by } */
+  | 'intercity.booking_changed';
 
 /**
  * Records an event in the caller's transaction: it is delivered by the worker

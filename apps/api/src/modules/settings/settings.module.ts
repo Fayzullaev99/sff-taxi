@@ -88,10 +88,37 @@ export const DEFAULT_BILLING: BillingRules = {
   min_balance: -10_000,
 };
 
+/** The intercity trip board (src/modules/intercity). */
+export const IntercityRules = z.object({
+  /** A driver may ask this much more or less than the reference seat price. */
+  price_band_percent: z.number().int().min(0).max(50),
+  /** How far ahead a trip may be published. */
+  publish_max_days_ahead: z.number().int().min(1).max(30),
+  /** A trip is published at least this long before it leaves. */
+  publish_min_minutes_ahead: z.number().int().min(0).max(720),
+  /** Riders cancel free until this long before departure. */
+  free_cancel_minutes: z.number().int().min(0).max(1440),
+  /** A later cancellation owes this share of the booking (recorded, like ride fees). */
+  late_cancel_fee_percent: z.number().int().min(0).max(100),
+  /** The driver may open boarding this long before departure. */
+  boarding_opens_minutes: z.number().int().min(0).max(240),
+});
+export type IntercityRules = z.infer<typeof IntercityRules>;
+
+export const DEFAULT_INTERCITY: IntercityRules = {
+  price_band_percent: 15,
+  publish_max_days_ahead: 7,
+  publish_min_minutes_ahead: 15,
+  free_cancel_minutes: 60,
+  late_cancel_fee_percent: 30,
+  boarding_opens_minutes: 60,
+};
+
 const RULES = {
   tariff: { key: 'tariff', schema: Tariff, fallback: DEFAULT_TARIFF },
   dispatch: { key: 'dispatch', schema: DispatchRules, fallback: DEFAULT_DISPATCH },
   billing: { key: 'billing', schema: BillingRules, fallback: DEFAULT_BILLING },
+  intercity: { key: 'intercity', schema: IntercityRules, fallback: DEFAULT_INTERCITY },
 } as const;
 type RuleName = keyof typeof RULES;
 type RuleValue<N extends RuleName> = z.infer<(typeof RULES)[N]['schema']>;
@@ -136,6 +163,10 @@ export class SettingsService {
   billing(db?: Db) {
     return this.get('billing', db);
   }
+
+  intercity(db?: Db) {
+    return this.get('intercity', db);
+  }
 }
 
 @Controller('admin/settings')
@@ -172,6 +203,16 @@ export class SettingsController {
   @Put('billing')
   setBilling(@Body(new ZodPipe(BillingRules)) body: BillingRules) {
     return this.settings.set('billing', body);
+  }
+
+  @Get('intercity')
+  intercity() {
+    return this.settings.intercity();
+  }
+
+  @Put('intercity')
+  setIntercity(@Body(new ZodPipe(IntercityRules)) body: IntercityRules) {
+    return this.settings.set('intercity', body);
   }
 }
 

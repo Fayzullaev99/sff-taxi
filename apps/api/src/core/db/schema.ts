@@ -191,6 +191,7 @@ export interface DriverLedgerTable {
   note: string | null;
   created_by: string | null;
   payment_intent_id: string | null;
+  booking_id: string | null;
   created_at: CreatedAt;
 }
 
@@ -370,7 +371,9 @@ export interface SosEventsTable {
 
 export interface TaxWithholdingsTable {
   id: string;
-  ride_id: string;
+  /** A ride or an intercity booking: exactly one is set. */
+  ride_id: string | null;
+  booking_id: string | null;
   driver_id: string;
   pinfl: string;
   period: string;
@@ -473,6 +476,90 @@ export interface DriverAppealsTable {
   created_at: CreatedAt;
 }
 
+export interface IntercityPointsTable {
+  id: Generated<string>;
+  slug: string;
+  name_uz: string;
+  name_ru: string;
+  lat: number;
+  lng: number;
+  city_id: string | null;
+  meeting_point: string;
+  is_active: Generated<boolean>;
+  sort: Generated<number>;
+}
+
+export interface IntercityFaresTable {
+  from_point_id: string;
+  to_point_id: string;
+  price_rear: number;
+  price_front: number;
+  updated_at: Timestamp;
+}
+
+export const TRIP_STATUSES = ['scheduled', 'boarding', 'departed', 'arrived', 'cancelled'] as const;
+export type TripStatus = (typeof TRIP_STATUSES)[number];
+export const BOOKING_STATUSES = ['booked', 'boarded', 'completed', 'cancelled', 'no_show'] as const;
+export type BookingStatus = (typeof BOOKING_STATUSES)[number];
+
+export interface IntercityTripsTable {
+  id: string;
+  number: Generated<number>;
+  driver_id: string;
+  from_point_id: string;
+  to_point_id: string;
+  departure_at: Timestamp;
+  meeting_point: string;
+  comment: string | null;
+  class: RideClassColumn;
+  vehicle: Json<VehicleSnapshot>;
+  distance_m: number;
+  seats_total: number;
+  seats_booked: Generated<number>;
+  front_seat: boolean;
+  front_booked: Generated<boolean>;
+  price_rear: number;
+  price_front: number;
+  reference_rear: number;
+  status: Generated<TripStatus>;
+  cancelled_by: 'driver' | 'operator' | null;
+  cancel_reason: string | null;
+  boarding_at: Timestamp | null;
+  departed_at: Timestamp | null;
+  arrived_at: Timestamp | null;
+  cancelled_at: Timestamp | null;
+  created_at: CreatedAt;
+  updated_at: Timestamp;
+}
+
+export interface IntercityBookingsTable {
+  id: string;
+  number: Generated<number>;
+  trip_id: string;
+  rider_id: string;
+  rider_phone: string;
+  rider_name: string | null;
+  channel: Generated<'app' | 'phone'>;
+  created_by: string;
+  client_request_id: string | null;
+  seats: number;
+  front: Generated<boolean>;
+  price: number;
+  pickup_note: string | null;
+  status: Generated<BookingStatus>;
+  cancelled_by: 'rider' | 'driver' | 'operator' | null;
+  cancel_reason: string | null;
+  cancellation_fee: Generated<number>;
+  commission: Generated<number>;
+  commission_note: string | null;
+  tax: Generated<number>;
+  created_at: CreatedAt;
+  boarded_at: Timestamp | null;
+  completed_at: Timestamp | null;
+  cancelled_at: Timestamp | null;
+  updated_at: Timestamp;
+}
+
 export interface DB {
   users: UsersTable;
   admins: AdminsTable;
@@ -501,4 +588,8 @@ export interface DB {
   payment_intents: PaymentIntentsTable;
   payment_transactions: PaymentTransactionsTable;
   driver_appeals: DriverAppealsTable;
+  intercity_points: IntercityPointsTable;
+  intercity_fares: IntercityFaresTable;
+  intercity_trips: IntercityTripsTable;
+  intercity_bookings: IntercityBookingsTable;
 }

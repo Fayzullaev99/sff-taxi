@@ -21,6 +21,8 @@ export interface LedgerEntryInput {
   rideId?: string | null;
   note?: string | null;
   createdBy?: string | null;
+  /** An intercity booking's charges (one of each kind per booking). */
+  bookingId?: string | null;
   /** A top-up paid online: credited once per payment. */
   paymentIntentId?: string | null;
 }
@@ -67,6 +69,7 @@ export class LedgerService {
         note: e.note ?? null,
         created_by: e.createdBy ?? null,
         payment_intent_id: e.paymentIntentId ?? null,
+        booking_id: e.bookingId ?? null,
       })
       .onConflict((oc) => oc.doNothing())
       .returning('id')

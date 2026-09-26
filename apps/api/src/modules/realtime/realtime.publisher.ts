@@ -24,6 +24,7 @@ export type RealtimeEvent =
   | { type: 'sos'; sosId: string; rideId: string }
   | { type: 'driver.updated'; driverId: string; status: string }
   | { type: 'driver.appeal'; appealId: string; driverId: string }
+  | { type: 'intercity.updated'; tripId: string; bookingId: string | null; status: string }
   | {
       type: 'driver.location';
       rideId: string;
@@ -62,7 +63,9 @@ export class RealtimePublisher implements OutboxHandler {
   }
 
   handles(topic: string): boolean {
-    return topic.startsWith('ride.') || topic.startsWith('driver.');
+    return (
+      topic.startsWith('ride.') || topic.startsWith('driver.') || topic.startsWith('intercity.')
+    );
   }
 
   async handle(event: OutboxEvent): Promise<void> {
@@ -125,7 +128,34 @@ export class RealtimePublisher implements OutboxHandler {
       case 'ride.requested':
       case 'ride.status_changed':
         return this.rideUpdated(String(p.rideId), p.previousDriverId);
+      case 'intercity.trip_changed':
+      case 'intercity.booking_changed':
+        return this.tripUpdated(
+          String(p.tripId),
+          typeof p.bookingId === 'string' ? p.bookingId : null,
+          String(p.to ?? p.status),
+        );
     }
+  }
+
+  /** A trip or one of its bookings changed: its driver, its riders and operators refetch. */
+  private async tripUpdated(tripId: string, bookingId: string | null, status: string) {
+    const trip = await this.db.kysely
+      .selectFrom('intercity_trips')
+      .select(['id', 'driver_id'])
+      .where('id', '=', tripId)
+      .executeTakeFirst();
+    if (!trip) return;
+    const riders = await this.db.kysely
+      .selectFrom('intercity_bookings')
+      .select('rider_id')
+      .where('trip_id', '=', tripId)
+      .$if(Boolean(bookingId), (q) => q.where('id', '=', bookingId!))
+      .execute();
+    await this.bus.publish({
+      to: { userIds: [trip.driver_id, ...new Set(riders.map((r) => r.rider_id))], admins: true },
+      event: { type: 'intercity.updated', tripId, bookingId, status },
+    });
   }
 
   /** The ride as it is now: a late or repeated event still sends the current state. */
