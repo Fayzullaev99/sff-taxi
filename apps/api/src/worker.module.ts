@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 import { ConfigModule } from './config/config.module.js';
 import { ENV, type Env } from './config/env.js';
+import { CalendarModule } from './core/clock/business-calendar.js';
 import { DatabaseModule } from './core/db/database.js';
 import { createRegistry } from './core/observability/metrics.js';
 import { OutboxDispatcher, WORKER_METRICS } from './core/outbox/dispatcher.js';
@@ -12,7 +13,9 @@ import { DispatchHandler } from './modules/dispatch/dispatch.handler.js';
 import { DispatchModule } from './modules/dispatch/dispatch.module.js';
 import { NotificationsHandler } from './modules/notifications/notifications.handler.js';
 import { NotificationsWorkerModule } from './modules/notifications/notifications.module.js';
+import { PaymentsCoreModule } from './modules/payments/payments.module.js';
 import { RealtimePublisher } from './modules/realtime/realtime.publisher.js';
+import { RidesModule } from './modules/rides/rides.module.js';
 import { HousekeepingJob } from './modules/housekeeping/housekeeping.job.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
 import { UploadsModule } from './modules/uploads/uploads.module.js';
@@ -32,10 +35,13 @@ import { WorkerRuntime } from './worker-runtime.js';
       }),
     }),
     DatabaseModule,
+    CalendarModule,
     RedisModule,
     SmsModule,
     SettingsModule,
     UploadsModule,
+    RidesModule,
+    PaymentsCoreModule,
     DispatchModule,
     NotificationsWorkerModule,
   ],

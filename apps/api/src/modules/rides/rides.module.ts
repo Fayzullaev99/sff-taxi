@@ -22,6 +22,7 @@ import { RIDE_CLASSES, RIDE_OPTIONS } from '../../lib/tariff.js';
 import { BillingModule } from '../billing/billing.module.js';
 import { GeoCoreModule } from '../geo/geo-core.module.js';
 import { GeoService } from '../geo/geo.service.js';
+import { PaymentsCoreModule } from '../payments/payments.module.js';
 import { PaymentsService } from '../payments/payments.service.js';
 import { DRIVER_CANCEL_REASONS, type DriverCancelReason, RidesService } from './rides.service.js';
 
@@ -159,6 +160,7 @@ export class TariffsController {
           city: service.city.nameUz,
           tariff: service.tariff,
           paymentMethods: this.payments.methods(),
+          cardProviders: this.payments.providers(),
         }
       : { serviceable: false, cityId: null, city: null, tariff: null, paymentMethods: [] };
   }
@@ -270,9 +272,9 @@ export class AdminRidesController {
 }
 
 @Module({
-  imports: [GeoCoreModule, BillingModule],
+  imports: [GeoCoreModule, BillingModule, PaymentsCoreModule],
   controllers: [RidesController, TariffsController, DriverRidesController, AdminRidesController],
-  providers: [RidesService, PaymentsService],
+  providers: [RidesService],
   exports: [RidesService],
 })
 export class RidesModule {}

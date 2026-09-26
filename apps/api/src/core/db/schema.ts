@@ -108,7 +108,8 @@ export const DOCUMENT_KINDS = [
   'selfie',
 ] as const;
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
-export type LedgerKind = 'topup' | 'commission' | 'tax' | 'pass' | 'adjustment';
+export type LedgerKind =
+  'topup' | 'commission' | 'tax' | 'pass' | 'adjustment' | 'card_fare' | 'payout';
 export type RideClassColumn = 'economy' | 'comfort';
 
 /** Dates (Postgres `date`) are read as "YYYY-MM-DD" strings: see database.ts. */
@@ -187,6 +188,7 @@ export interface DriverLedgerTable {
   ride_id: string | null;
   note: string | null;
   created_by: string | null;
+  payment_intent_id: string | null;
   created_at: CreatedAt;
 }
 
@@ -202,6 +204,8 @@ export interface DriverPassesTable {
 }
 
 export const RIDE_STATUSES = [
+  /** A card ride waiting for its prepayment (Payme/Click) before dispatch. */
+  'awaiting_payment',
   'searching',
   'driver_assigned',
   'driver_arrived',
@@ -212,8 +216,12 @@ export const RIDE_STATUSES = [
 export type RideStatus = (typeof RIDE_STATUSES)[number];
 /** A driver is busy with a ride in these. */
 export const ACTIVE_RIDE_STATUSES = ['driver_assigned', 'driver_arrived', 'in_progress'] as const;
-/** Not finished yet. */
+/** Not finished yet, but dispatched: a driver is searched for or busy with it. */
 export const OPEN_RIDE_STATUSES = ['searching', ...ACTIVE_RIDE_STATUSES] as const;
+/** Not finished yet, including a card ride still waiting for its payment. */
+export const UNFINISHED_RIDE_STATUSES = ['awaiting_payment', ...OPEN_RIDE_STATUSES] as const;
+export type RidePaymentStatus =
+  'pending' | 'paid' | 'not_charged' | 'failed' | 'refund_pending' | 'refunded';
 export type RideActor = 'rider' | 'driver' | 'operator' | 'system';
 export type OfferStatus = 'pending' | 'accepted' | 'declined' | 'expired' | 'withdrawn';
 export type DispatchStage = 'direct' | 'broadcast' | 'operator';
@@ -287,7 +295,7 @@ export interface RidesTable {
   commission_note: string | null;
   tax: Generated<number>;
   payment_method: Generated<'cash' | 'card'>;
-  payment_status: Generated<'pending' | 'paid' | 'not_charged'>;
+  payment_status: Generated<RidePaymentStatus>;
   status: RideStatus;
   driver_id: string | null;
   vehicle: NullableJson<VehicleSnapshot>;
@@ -414,6 +422,42 @@ export interface UploadsTable {
   completed_at: Timestamp | null;
 }
 
+export type PaymentProvider = 'payme' | 'click';
+export type PaymentIntentStatus =
+  'pending' | 'paid' | 'expired' | 'cancelled' | 'refund_pending' | 'refunded';
+
+export interface PaymentIntentsTable {
+  id: string;
+  purpose: 'ride' | 'topup';
+  ride_id: string | null;
+  driver_id: string | null;
+  user_id: string;
+  amount: number;
+  status: Generated<PaymentIntentStatus>;
+  provider: PaymentProvider | null;
+  expires_at: Timestamp;
+  paid_at: Timestamp | null;
+  refund_requested_at: Timestamp | null;
+  refunded_at: Timestamp | null;
+  refund_reference: string | null;
+  created_at: CreatedAt;
+}
+
+export interface PaymentTransactionsTable {
+  id: string;
+  seq: Generated<number>;
+  provider: PaymentProvider;
+  external_id: string;
+  intent_id: string;
+  amount: number;
+  state: Generated<'created' | 'performed' | 'cancelled' | 'refunded'>;
+  provider_time: number | null;
+  performed_at: Timestamp | null;
+  cancelled_at: Timestamp | null;
+  cancel_reason: number | null;
+  created_at: CreatedAt;
+}
+
 export interface DB {
   users: UsersTable;
   admins: AdminsTable;
@@ -439,4 +483,6 @@ export interface DB {
   push_devices: PushDevicesTable;
   notifications: NotificationsTable;
   uploads: UploadsTable;
+  payment_intents: PaymentIntentsTable;
+  payment_transactions: PaymentTransactionsTable;
 }

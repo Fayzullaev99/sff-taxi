@@ -4,6 +4,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { ConfigModule } from './config/config.module.js';
 import { ENV, type Env } from './config/env.js';
 import { AuthModule } from './core/auth/auth.module.js';
+import { CalendarModule } from './core/clock/business-calendar.js';
 import { DatabaseModule } from './core/db/database.js';
 import { RateLimitInterceptor } from './core/http/rate-limit.js';
 import { MetricsModule } from './core/observability/metrics.module.js';
@@ -16,6 +17,7 @@ import { DispatchModule } from './modules/dispatch/dispatch.module.js';
 import { DriversModule } from './modules/drivers/drivers.module.js';
 import { GeoModule } from './modules/geo/geo.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
+import { PaymentsModule } from './modules/payments/payments.module.js';
 import { RealtimeModule } from './modules/realtime/realtime.module.js';
 import { RidesModule } from './modules/rides/rides.module.js';
 import { SafetyModule } from './modules/safety/safety.module.js';
@@ -69,6 +71,7 @@ export function logRequest<T extends { url?: unknown }>(req: T): T {
     }),
     MetricsModule,
     DatabaseModule,
+    CalendarModule,
     RedisModule,
     SmsModule,
     AuthModule,
@@ -83,6 +86,7 @@ export function logRequest<T extends { url?: unknown }>(req: T): T {
     NotificationsModule,
     OutboxAdminModule,
     UploadsModule,
+    PaymentsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_INTERCEPTOR, useClass: RateLimitInterceptor }],

@@ -61,7 +61,7 @@ describe('rides', () => {
         city: { slug: 'guliston' },
         routeSource: 'estimate',
         options: ['luggage'],
-        paymentMethods: ['cash'],
+        paymentMethods: ['cash', 'card'],
         waiting: { free_minutes: 2, per_minute: 500 },
         cancellationFee: 3000,
         fares: {
@@ -119,7 +119,7 @@ describe('rides', () => {
       expect(here.body).toMatchObject({
         serviceable: true,
         city: 'Guliston',
-        paymentMethods: ['cash'],
+        paymentMethods: ['cash', 'card'],
       });
       expect(here.body.tariff.classes.economy.bands[0]).toEqual({ up_to_m: 2000, price: 5000 });
       const there = await api(app)
@@ -174,7 +174,7 @@ describe('rides', () => {
       expect((await r.get('/v1/rides/current').expect(200)).body.ride.id).toBe(first.body.id);
     });
 
-    it('refuses an expired or foreign quote and card payment for now', async () => {
+    it('refuses an expired or foreign quote', async () => {
       const rider = await signIn(app);
       const r = api(app, rider.accessToken);
       const quote = await r
@@ -187,11 +187,7 @@ describe('rides', () => {
         clientRequestId: randomUUID(),
         ...over,
       });
-      const card = await r
-        .post('/v1/rides')
-        .send(order({ paymentMethod: 'card' }))
-        .expect(400);
-      expect(card.body.message).toMatch(/Karta/);
+      // card rides: test/payments.test.ts (prepaid before dispatch)
       const stranger = api(app, (await signIn(app)).accessToken);
       await stranger.post('/v1/rides').send(order()).expect(404);
       await db

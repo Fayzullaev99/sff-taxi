@@ -78,7 +78,7 @@ const EnvSchema = z
     /** IP-keyed limits are multiplied by this (tests run from one IP). */
     RATE_LIMIT_IP_MULTIPLIER: z.coerce.number().min(1).max(1000).default(1),
 
-    // Card payments (hooks only for now: see src/modules/payments) -------------------
+    // Card payments (docs/payments.md): rides prepaid by card, driver top-ups ---------
     /** The platform's Payme merchant (cabinet → "ID кассы") and its key for the Merchant API. */
     PAYME_MERCHANT_ID: z
       .string()
@@ -89,6 +89,13 @@ const EnvSchema = z
     CLICK_SERVICE_ID: z.string().regex(/^\d+$/, 'digits').optional(),
     CLICK_MERCHANT_ID: z.string().regex(/^\d+$/, 'digits').optional(),
     CLICK_SECRET: z.string().min(8).optional(),
+    /** Payme's sandbox checkout (checkout.test.paycom.uz) instead of the real one. */
+    PAYME_TEST: bool('false'),
+    /**
+     * Where the provider's page sends the payer back: the app's deep link or a web page.
+     * "{intentId}" is replaced with the payment's id. Unset = the providers' default page.
+     */
+    PAYMENT_RETURN_URL: z.string().min(8).max(500).optional(),
 
     // Uploads (S3-compatible, private bucket; all or none: uploads answer 503 until set) -------
     /** Omit for AWS S3; set for any other S3-compatible service (SeaweedFS, MinIO...). */
@@ -138,6 +145,12 @@ const EnvSchema = z
     /** SMS to riders who ordered by phone (no app): car, plate and arrival. Costs money. */
     NOTIFY_SMS_PHONE_ORDERS: bool('true'),
 
+    /**
+     * Tests only: the instant the business calendar (night add-on, commission day/week, tax
+     * month, promo) reads as "now" when the process starts. Refused in production.
+     */
+    TEST_CALENDAR_AT: z.iso.datetime({ offset: true }).optional(),
+
     // Observability ------------------------------------------------------------
     METRICS_TOKEN: z.string().min(16).optional(),
     SENTRY_DSN: z.url().optional(),
@@ -175,6 +188,13 @@ const EnvSchema = z
       require(['GEOCODER_CONTACT_EMAIL'], 'for GEOCODER=nominatim (usage policy)');
     }
     if (env.ROUTER === 'osrm') require(['OSRM_URL'], 'for ROUTER=osrm');
+    if (env.NODE_ENV === 'production' && env.TEST_CALENDAR_AT) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['TEST_CALENDAR_AT'],
+        message: 'a pinned business calendar is for tests only',
+      });
+    }
     // /metrics lists routes, error rates and queue sizes: never open in production
     if (env.NODE_ENV === 'production') require(['METRICS_TOKEN'], 'in production');
     if (env.NODE_ENV === 'production' && env.SMS_PROVIDER === 'console') {

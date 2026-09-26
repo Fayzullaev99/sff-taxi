@@ -21,6 +21,17 @@ const testEnv = {
   // every test request comes from 127.0.0.1; phone-keyed limits stay at production values
   RATE_LIMIT_IP_MULTIPLIER: '1000',
   SHARE_BASE_URL: 'https://taxi.example.uz',
+  // fares and commission caps read the business calendar: pin it to a daytime Wednesday
+  // during the launch promo, so the suite passes at any hour and on any date
+  TEST_CALENDAR_AT: '2026-10-14T12:00:00+05:00',
+  // card payments (test/payments.test.ts): sandbox checkout, made-up credentials
+  PAYME_MERCHANT_ID: '5e730e8e0b852a417aa49ceb',
+  PAYME_KEY: 'test-payme-merchant-key',
+  PAYME_TEST: 'true',
+  CLICK_SERVICE_ID: '12345',
+  CLICK_MERCHANT_ID: '999',
+  CLICK_SECRET: 'test-click-secret-key',
+  PAYMENT_RETURN_URL: 'sfftaxi://payments/{intentId}',
 };
 // globalSetup runs in this process, not in a test worker, so it reads process.env directly
 Object.assign(process.env, testEnv);

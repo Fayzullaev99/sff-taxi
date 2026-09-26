@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { sql } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
+import { BusinessCalendar } from '../../core/clock/business-calendar.js';
 import { Database, type Tx } from '../../core/db/database.js';
 import {
   type Charges,
@@ -32,6 +33,7 @@ export class RideChargesService {
     private readonly db: Database,
     private readonly settings: SettingsService,
     private readonly ledger: LedgerService,
+    private readonly calendar: BusinessCalendar,
   ) {}
 
   async charge(trx: Tx, ride: CompletedRide): Promise<Charges> {
@@ -45,14 +47,16 @@ export class RideChargesService {
       this.ledger.activePass(ride.driverId, ride.completedAt, trx),
     ]);
     if (!driver) throw new NotFoundException('Haydovchi topilmadi');
+    // the Tashkent day, week and month the ride counts in (the business calendar)
+    const at = this.calendar.at(ride.completedAt);
     const [chargedToday, chargedThisWeek] = await Promise.all([
-      this.cityCommissionSince(trx, ride.driverId, tashkentDayStart(ride.completedAt)),
-      this.cityCommissionSince(trx, ride.driverId, tashkentWeekStart(ride.completedAt)),
+      this.cityCommissionSince(trx, ride.driverId, this.calendar.real(tashkentDayStart(at))),
+      this.cityCommissionSince(trx, ride.driverId, this.calendar.real(tashkentWeekStart(at))),
     ]);
     const charges = rideCharges({
       fare: ride.fareTotal,
       kind: ride.kind,
-      completedAt: ride.completedAt,
+      completedAt: at,
       rules,
       hasPass: pass !== null,
       chargedToday,
@@ -80,7 +84,7 @@ export class RideChargesService {
         ride_id: ride.id,
         driver_id: ride.driverId,
         pinfl: driver.pinfl,
-        period: tashkentMonth(ride.completedAt),
+        period: tashkentMonth(at),
         base_amount: ride.fareTotal,
         rate_percent: rules.tax_percent,
         amount: charges.tax,
@@ -96,7 +100,7 @@ export class RideChargesService {
     return charges;
   }
 
-  /** Commission charged on city rides completed since `since` (for the daily and weekly caps). */
+  /** Commission charged on city rides completed since `since` (real time; daily and weekly caps). */
   private async cityCommissionSince(trx: Tx, driverId: string, since: Date): Promise<number> {
     const row = await trx
       .selectFrom('driver_ledger as l')
@@ -119,7 +123,8 @@ export class RideChargesService {
         sql<string>`coalesce(sum(fare_total), 0)`.as('fares'),
         sql<string>`coalesce(sum(commission), 0)`.as('commission'),
         sql<string>`coalesce(sum(tax), 0)`.as('tax'),
-        sql<string>`coalesce(sum(case when payment_method = 'cash' then fare_total else 0 end), 0)`.as(
+        // card rides were prepaid; only their paid waiting is collected in cash
+        sql<string>`coalesce(sum(case when payment_method = 'cash' then fare_total else waiting_fee end), 0)`.as(
           'cash',
         ),
       ])

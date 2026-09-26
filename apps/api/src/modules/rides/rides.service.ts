@@ -13,6 +13,7 @@ import { randomBytes } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
 import { ENV, type Env } from '../../config/env.js';
 import type { AuthUser } from '../../core/auth/auth-context.js';
+import { BusinessCalendar } from '../../core/clock/business-calendar.js';
 import { Database, type Tx } from '../../core/db/database.js';
 import { containsPattern } from '../../core/db/like.js';
 import {
@@ -20,8 +21,10 @@ import {
   OPEN_RIDE_STATUSES,
   type Place,
   type RideActor,
+  type RidePaymentStatus,
   type RidesTable,
   type RideStatus,
+  UNFINISHED_RIDE_STATUSES,
 } from '../../core/db/schema.js';
 import { msg } from '../../core/http/messages.js';
 import { emit } from '../../core/outbox/outbox.js';
@@ -40,8 +43,10 @@ import {
   waitingFee,
 } from '../../lib/tariff.js';
 import { RideChargesService } from '../billing/charges.service.js';
+import { LedgerService } from '../billing/ledger.service.js';
 import { GeoService, publicCity } from '../geo/geo.service.js';
 import { RoutingService } from '../geo/routing.service.js';
+import { IntentsService } from '../payments/intents.service.js';
 import { type PaymentMethod, PaymentsService } from '../payments/payments.service.js';
 import { SettingsService } from '../settings/settings.module.js';
 import { UploadsService } from '../uploads/uploads.service.js';
@@ -96,6 +101,14 @@ export type DriverCancelReason = keyof typeof DRIVER_CANCEL_REASONS;
 
 const isActive = (s: RideStatus) => (ACTIVE_RIDE_STATUSES as readonly string[]).includes(s);
 const isOpen = (s: RideStatus) => (OPEN_RIDE_STATUSES as readonly string[]).includes(s);
+const isUnfinished = (s: RideStatus) => (UNFINISHED_RIDE_STATUSES as readonly string[]).includes(s);
+/** The rider may cancel until the trip starts. */
+const RIDER_CANCELLABLE: readonly RideStatus[] = [
+  'awaiting_payment',
+  'searching',
+  'driver_assigned',
+  'driver_arrived',
+];
 
 /**
  * Rides: fixed-price quotes, ordering (by the rider or by an operator for a caller), the
@@ -111,8 +124,11 @@ export class RidesService {
     private readonly routing: RoutingService,
     private readonly settings: SettingsService,
     private readonly charges: RideChargesService,
+    private readonly ledger: LedgerService,
     private readonly payments: PaymentsService,
+    private readonly intents: IntentsService,
     private readonly uploads: UploadsService,
+    private readonly calendar: BusinessCalendar,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -159,7 +175,9 @@ export class RidesService {
     };
   }
 
-  private async price(pickup: Point, dropoff: Point, options: RideOption[], at: Date) {
+  /** Prices a trip; `now` is real time, read through the business calendar for the night add-on. */
+  private async price(pickup: Point, dropoff: Point, options: RideOption[], now: Date) {
+    const at = this.calendar.at(now);
     const service = await this.geo.serviceCity(pickup);
     if (!service) {
       const where = await this.geo.resolve(pickup);
@@ -306,7 +324,7 @@ export class RidesService {
       .selectFrom('rides')
       .select(['id', 'number'])
       .where('rider_id', '=', riderId)
-      .where('status', 'in', [...OPEN_RIDE_STATUSES])
+      .where('status', 'in', [...UNFINISHED_RIDE_STATUSES])
       .executeTakeFirst();
     if (open) {
       throw new ConflictException({
@@ -342,6 +360,8 @@ export class RidesService {
   ): Promise<string> {
     const id = uuidv7();
     const place = (p: PlaceInput): Place => ({ address: p.address, landmark: p.landmark });
+    // a card ride is dispatched once its fixed fare is prepaid (docs/payments.md)
+    const status = r.paymentMethod === 'card' ? 'awaiting_payment' : 'searching';
     await trx
       .insertInto('rides')
       .values({
@@ -370,7 +390,7 @@ export class RidesService {
         tariff: JSON.stringify(r.tariff),
         fare_quoted: r.fare.total,
         payment_method: r.paymentMethod,
-        status: 'searching',
+        status,
         updated_at: new Date(),
       })
       .execute();
@@ -378,8 +398,13 @@ export class RidesService {
       channel: r.channel,
       fare: r.fare.total,
       class: r.rideClass,
+      paymentMethod: r.paymentMethod,
     });
-    await emit(trx, 'ride.requested', { rideId: id });
+    if (status === 'awaiting_payment') {
+      await this.intents.createForRide(trx, { id, riderId: r.riderId, amount: r.fare.total });
+    } else {
+      await emit(trx, 'ride.requested', { rideId: id });
+    }
     return id;
   }
 
@@ -487,7 +512,7 @@ export class RidesService {
     await this.db.transaction(async (trx) => {
       const ride = await this.lockRide(trx, rideId);
       if (ride.rider_id !== user.userId) throw new NotFoundException('Buyurtma topilmadi');
-      if (!isOpen(ride.status) || ride.status === 'in_progress') {
+      if (!RIDER_CANCELLABLE.includes(ride.status)) {
         throw new ConflictException('Bu bosqichda buyurtmani bekor qilib bo‘lmaydi');
       }
       const tariff = this.tariffOf(ride);
@@ -533,6 +558,17 @@ export class RidesService {
   async complete(user: AuthUser, rideId: string) {
     await this.driverStep(user, rideId, 'in_progress', 'completed', async (trx, ride, now) => {
       const total = ride.fare_quoted + ride.waiting_fee;
+      if (ride.payment_method === 'card') {
+        // the rider prepaid the quoted fare to the platform: it is the driver's money now
+        // (paid waiting on a card ride is collected in cash)
+        await this.ledger.post(trx, {
+          driverId: ride.driver_id!,
+          kind: 'card_fare',
+          amount: ride.fare_quoted,
+          rideId: ride.id,
+          note: `Karta orqali to‘langan safar #${ride.number}`,
+        });
+      }
       await trx
         .updateTable('drivers')
         .set((eb) => ({ rides_completed: eb('rides_completed', '+', 1) }))
@@ -550,7 +586,8 @@ export class RidesService {
         set: {
           completed_at: now,
           fare_total: total,
-          payment_status: ride.payment_method === 'cash' ? ('paid' as const) : ('pending' as const),
+          // cash went to the driver; a card fare was prepaid before dispatch
+          payment_status: 'paid' as const,
         },
         data: { fare: total, commission: charged.commission, tax: charged.tax },
       };
@@ -629,7 +666,9 @@ export class RidesService {
   async cancelByOperator(operator: AuthUser, rideId: string, reason: string) {
     await this.db.transaction(async (trx) => {
       const ride = await this.lockRide(trx, rideId);
-      if (!isOpen(ride.status)) throw new ConflictException('Buyurtma allaqachon yakunlangan');
+      if (!isUnfinished(ride.status)) {
+        throw new ConflictException('Buyurtma allaqachon yakunlangan');
+      }
       await this.cancel(trx, ride, 'operator', operator.userId, reason, 0);
     });
     return this.adminView(rideId);
@@ -645,8 +684,15 @@ export class RidesService {
     actorId: string | null,
     reason: string | null,
     fee: number,
+    opts: { paymentStatus?: RidePaymentStatus } = {},
   ): Promise<void> {
     const now = new Date();
+    // a card ride's unpaid intent closes; a paid one is queued for a full refund
+    const paymentStatus =
+      opts.paymentStatus ??
+      (ride.payment_method === 'card'
+        ? await this.intents.onRideCancelled(trx, ride.id)
+        : 'not_charged');
     await trx
       .updateTable('rides')
       .set({
@@ -654,7 +700,7 @@ export class RidesService {
         cancelled_by: by,
         cancel_reason: reason,
         cancellation_fee: fee,
-        payment_status: 'not_charged',
+        payment_status: paymentStatus,
         cancelled_at: now,
         updated_at: now,
       })
@@ -775,6 +821,37 @@ export class RidesService {
     return Tariff.parse(ride.tariff);
   }
 
+  // Card rides not paid in time -------------------------------------------------------
+
+  /**
+   * Cancels card rides whose payment window closed (worker housekeeping); returns how many.
+   * Each ride is re-checked under its lock: the payment may have completed since the scan.
+   */
+  async expireUnpaid(now = new Date(), limit = 100): Promise<number> {
+    const due = await this.intents.dueRideIntents(now, limit);
+    let expired = 0;
+    for (const rideId of due) {
+      const done = await this.db.transaction(async (trx) => {
+        const ride = await trx
+          .selectFrom('rides')
+          .selectAll()
+          .where('id', '=', rideId)
+          .where('status', '=', 'awaiting_payment')
+          .forUpdate()
+          .skipLocked()
+          .executeTakeFirst();
+        if (!ride) return false;
+        await this.intents.expireRideIntent(trx, ride.id);
+        await this.cancel(trx, ride, 'system', null, 'To‘lov vaqtida amalga oshirilmadi', 0, {
+          paymentStatus: 'failed',
+        });
+        return true;
+      });
+      if (done) expired++;
+    }
+    return expired;
+  }
+
   // Share link ---------------------------------------------------------------------------
 
   /** A link anyone can open to follow the ride live; it stops working when the ride ends. */
@@ -838,8 +915,10 @@ export class RidesService {
     return {
       ...base,
       driver,
-      canCancel: ['searching', 'driver_assigned', 'driver_arrived'].includes(ride.status),
+      canCancel: RIDER_CANCELLABLE.includes(ride.status),
       cancelFeeNow,
+      // card rides: the prepayment, with where to pay while it is pending
+      payment: ride.payment_method === 'card' ? await this.intents.forRide(ride.id) : null,
       events: await this.events(ride.id, RIDER_EVENTS),
     };
   }
@@ -1048,7 +1127,7 @@ export class RidesService {
       .selectFrom('rides')
       .select('id')
       .where('rider_id', '=', user.userId)
-      .where('status', 'in', [...OPEN_RIDE_STATUSES])
+      .where('status', 'in', [...UNFINISHED_RIDE_STATUSES])
       .executeTakeFirst();
     return open ? this.riderView(user, open.id) : null;
   }
@@ -1082,7 +1161,7 @@ export class RidesService {
   /** Operators' list: open rides by default, or by status, newest first. */
   async adminList(filter: { status?: RideStatus | 'open'; q?: string }) {
     const statuses =
-      !filter.status || filter.status === 'open' ? [...OPEN_RIDE_STATUSES] : [filter.status];
+      !filter.status || filter.status === 'open' ? [...UNFINISHED_RIDE_STATUSES] : [filter.status];
     const rows = await this.db.kysely
       .selectFrom('rides')
       .selectAll()
@@ -1112,6 +1191,8 @@ export class RidesService {
 /** Event types riders see in their ride's timeline. */
 const RIDER_EVENTS = [
   'requested',
+  'paid',
+  'refunded',
   'assigned',
   'driver_released',
   'arrived',

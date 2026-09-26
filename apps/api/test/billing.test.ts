@@ -1,5 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { BusinessCalendar } from '../src/core/clock/business-calendar.js';
 import { tashkentMonth } from '../src/lib/commission.js';
 import { DEFAULT_BILLING } from '../src/modules/settings/settings.module.js';
 import {
@@ -119,7 +120,8 @@ describe('billing', () => {
     const d = await createDriver(app, { topup: 10_000 });
     await ride(d);
     await ride(d);
-    const period = tashkentMonth(new Date());
+    // the month of the business calendar (pinned in vitest.config.ts)
+    const period = tashkentMonth(app.get(BusinessCalendar).at());
     const report = await admin.get(`/v1/admin/billing/taxes?period=${period}`).expect(200);
     const mine = report.body.drivers.find((r: { driverId: string }) => r.driverId === d.id);
     const view = await admin.get(`/v1/admin/drivers/${d.id}`).expect(200);

@@ -21,6 +21,8 @@ export interface LedgerEntryInput {
   rideId?: string | null;
   note?: string | null;
   createdBy?: string | null;
+  /** A top-up paid online: credited once per payment. */
+  paymentIntentId?: string | null;
 }
 
 const PASS_DAYS = { day: 1, week: 7 } as const;
@@ -47,7 +49,10 @@ export class LedgerService {
     return Number(row.balance);
   }
 
-  /** Appends one entry; a ride's charge of the same kind is recorded once (unique index). */
+  /**
+   * Appends one entry. A ride's charge of one kind and an online payment's credit are
+   * recorded once (unique indexes): a retry appends nothing and returns null.
+   */
   async post(trx: Tx, e: LedgerEntryInput): Promise<string | null> {
     if (e.amount === 0) return null;
     const id = uuidv7();
@@ -61,10 +66,9 @@ export class LedgerService {
         ride_id: e.rideId ?? null,
         note: e.note ?? null,
         created_by: e.createdBy ?? null,
+        payment_intent_id: e.paymentIntentId ?? null,
       })
-      .onConflict((oc) =>
-        oc.columns(['ride_id', 'kind']).where('ride_id', 'is not', null).doNothing(),
-      )
+      .onConflict((oc) => oc.doNothing())
       .returning('id')
       .executeTakeFirst();
     return inserted?.id ?? null;
@@ -95,8 +99,15 @@ export class LedgerService {
   async record(
     adminId: string,
     driverId: string,
-    input: { kind: 'topup' | 'adjustment'; amount: number; note: string | null },
+    input: { kind: 'topup' | 'adjustment' | 'payout'; amount: number; note: string | null },
   ) {
+    if (input.kind === 'payout' && (input.amount <= 0 || !input.note)) {
+      throw new BadRequestException(
+        'To‘lov summasini musbat son bilan va izoh (karta/hisob, o‘tkazma raqami) bilan yozing',
+      );
+    }
+    // paid out to the driver: a debit of the balance
+    const amount = input.kind === 'payout' ? -input.amount : input.amount;
     if (input.kind === 'topup' && input.amount <= 0) {
       throw new BadRequestException('To‘ldirish summasi musbat bo‘lishi kerak');
     }
@@ -112,14 +123,22 @@ export class LedgerService {
         .select('id')
         .where('driver_id', '=', driverId)
         .where('kind', '=', input.kind)
-        .where('amount', '=', input.amount)
+        .where('amount', '=', amount)
         .where('created_by', '=', adminId)
         .where('created_at', '>', sql<Date>`now() - interval '60 seconds'`)
         .executeTakeFirst();
       if (repeat) {
         throw new ConflictException('Xuddi shunday yozuv hozirgina qo‘shildi: takrorlanmadimi?');
       }
-      await this.post(trx, { driverId, ...input, createdBy: adminId });
+      if (input.kind === 'payout') {
+        const balance = await this.balance(driverId, trx);
+        if (balance < input.amount) {
+          throw new ConflictException(
+            msg('Balansda {0} so‘m bor: undan ko‘p to‘lab bo‘lmaydi', balance),
+          );
+        }
+      }
+      await this.post(trx, { driverId, ...input, amount, createdBy: adminId });
     });
     return this.standing(driverId);
   }

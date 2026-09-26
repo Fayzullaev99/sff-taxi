@@ -42,10 +42,22 @@ export class NotificationsHandler implements OutboxHandler {
       return this.driverStatus(key, String(p.driverId), String(p.from), String(p.to), reason);
     }
     if (event.topic === 'ride.sos') return this.sos(key, String(p.sosId));
-    return this.rideChanged(key, String(p.rideId), String(p.to), p.previousDriverId);
+    return this.rideChanged(
+      key,
+      String(p.rideId),
+      String(p.from),
+      String(p.to),
+      p.previousDriverId,
+    );
   }
 
-  private async rideChanged(key: string, rideId: string, to: string, previousDriverId: unknown) {
+  private async rideChanged(
+    key: string,
+    rideId: string,
+    from: string,
+    to: string,
+    previousDriverId: unknown,
+  ) {
     const ride = await this.db.kysely
       .selectFrom('rides')
       .selectAll()
@@ -116,6 +128,8 @@ export class NotificationsHandler implements OutboxHandler {
         await toRider('completed', (l) => push.completed(l, ride.fare_total ?? ride.fare_quoted));
         return;
       case 'searching':
+        // a card ride just paid starts its first search: nothing to tell
+        if (from === 'awaiting_payment') return;
         await toRider('searching_again', (l) => push.searchingAgain(l));
         return;
       case 'cancelled':
