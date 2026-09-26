@@ -12,6 +12,15 @@ const PG_ERROR_STATUS: Record<string, { status: HttpStatus; message: string }> =
   // exclusion constraint: e.g. two bookings of one table at overlapping times
   '23P01': { status: HttpStatus.CONFLICT, message: 'Vaqt boshqa yozuv bilan to‘qnashadi' },
   '22P02': { status: HttpStatus.BAD_REQUEST, message: 'Noto‘g‘ri qiymat' },
+  // two requests raced for the same rows (deadlock, serialization): the client may retry
+  '40P01': {
+    status: HttpStatus.CONFLICT,
+    message: 'Bir vaqtda o‘zgartirildi, qayta urinib ko‘ring',
+  },
+  '40001': {
+    status: HttpStatus.CONFLICT,
+    message: 'Bir vaqtda o‘zgartirildi, qayta urinib ko‘ring',
+  },
 };
 
 /**

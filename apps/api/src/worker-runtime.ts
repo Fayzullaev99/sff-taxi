@@ -6,6 +6,7 @@ import { ENV, type Env } from './config/env.js';
 import { Database } from './core/db/database.js';
 import { OutboxDispatcher, WORKER_METRICS } from './core/outbox/dispatcher.js';
 import { reportError } from './core/observability/sentry.js';
+import { DispatchJob } from './modules/dispatch/dispatch.job.js';
 
 /** Starts the dispatcher, periodic jobs and a small HTTP server for the container health check and Prometheus. */
 @Injectable()
@@ -18,10 +19,12 @@ export class WorkerRuntime implements OnApplicationShutdown {
     private readonly db: Database,
     @Inject(WORKER_METRICS) private readonly registry: Registry,
     @Inject(ENV) private readonly env: Env,
+    private readonly dispatch: DispatchJob,
   ) {}
 
   async start(): Promise<void> {
     this.dispatcher.start();
+    this.dispatch.start();
     this.server = createServer((req, res) => void this.serve(req.url ?? '', res));
     await new Promise<void>((resolve) => this.server!.listen(this.env.WORKER_HTTP_PORT, resolve));
     this.logger.log(`Worker health and metrics on :${this.env.WORKER_HTTP_PORT}`);
@@ -30,7 +33,7 @@ export class WorkerRuntime implements OnApplicationShutdown {
   /** SIGTERM: stop taking work and finish the current batch before pools close. */
   async onApplicationShutdown(): Promise<void> {
     await new Promise((resolve) => (this.server ? this.server.close(resolve) : resolve(null)));
-    await this.dispatcher.stop();
+    await Promise.all([this.dispatcher.stop(), this.dispatch.stop()]);
   }
 
   private async serve(url: string, res: ServerResponse): Promise<void> {

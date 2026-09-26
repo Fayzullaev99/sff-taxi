@@ -7,6 +7,8 @@ import { createRegistry } from './core/observability/metrics.js';
 import { OutboxDispatcher, WORKER_METRICS } from './core/outbox/dispatcher.js';
 import { OUTBOX_HANDLERS, type OutboxHandler } from './core/outbox/handler.js';
 import { RedisModule } from './core/redis/redis.module.js';
+import { DispatchHandler } from './modules/dispatch/dispatch.handler.js';
+import { DispatchModule } from './modules/dispatch/dispatch.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
 import { WorkerRuntime } from './worker-runtime.js';
 
@@ -26,11 +28,12 @@ import { WorkerRuntime } from './worker-runtime.js';
     DatabaseModule,
     RedisModule,
     SettingsModule,
+    DispatchModule,
   ],
   providers: [
     {
       provide: OUTBOX_HANDLERS,
-      inject: [],
+      inject: [DispatchHandler],
       useFactory: (...handlers: OutboxHandler[]) => handlers,
     },
     { provide: WORKER_METRICS, useFactory: () => createRegistry('worker') },

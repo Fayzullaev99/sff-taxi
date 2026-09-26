@@ -218,6 +218,7 @@ export class DriversService {
           .set({ is_online: false, online_since: null, updated_at: new Date() })
           .where('user_id', '=', user.userId)
           .execute();
+        await this.withdrawOffers(trx, user.userId);
         return;
       }
       if (d.status !== 'active')
@@ -364,9 +365,29 @@ export class DriversService {
         .where('user_id', '=', driverId)
         .execute();
       await this.logStatus(trx, driverId, d.status, rule.to, reason, admin.userId);
+      if (rule.to === 'blocked') await this.withdrawOffers(trx, driverId);
       await emit(trx, 'driver.status_changed', { driverId, from: d.status, to: rule.to });
     });
     return this.adminView(driverId);
+  }
+
+  /** A driver going off shift (or blocked) stops holding up rides offered to them. */
+  private async withdrawOffers(trx: Tx, driverId: string): Promise<void> {
+    const withdrawn = await trx
+      .updateTable('ride_offers')
+      .set({ status: 'withdrawn', responded_at: new Date() })
+      .where('driver_id', '=', driverId)
+      .where('status', '=', 'pending')
+      .returning(['id', 'ride_id'])
+      .execute();
+    for (const o of withdrawn) {
+      await emit(trx, 'ride.offer_closed', {
+        offerId: o.id,
+        rideId: o.ride_id,
+        driverId,
+        status: 'withdrawn',
+      });
+    }
   }
 
   /** Operators may re-class a car or correct its features after an inspection. */
