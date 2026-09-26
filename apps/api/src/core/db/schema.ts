@@ -91,6 +91,109 @@ export interface CitiesTable {
   updated_at: Timestamp;
 }
 
+export const DRIVER_STATUSES = ['pending', 'active', 'rejected', 'blocked'] as const;
+export type DriverStatus = (typeof DRIVER_STATUSES)[number];
+export const VEHICLE_FEATURES = ['ac', 'child_seat', 'pets', 'big_trunk'] as const;
+export type VehicleFeature = (typeof VEHICLE_FEATURES)[number];
+export const DOCUMENT_KINDS = [
+  'licence_card',
+  'driver_licence',
+  'passport',
+  'vehicle_registration',
+  'insurance',
+  'vehicle_photo',
+  'selfie',
+] as const;
+export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
+export type LedgerKind = 'topup' | 'commission' | 'tax' | 'pass' | 'adjustment';
+export type RideClassColumn = 'economy' | 'comfort';
+
+/** Dates (Postgres `date`) are read as "YYYY-MM-DD" strings: see database.ts. */
+type DateOnly = ColumnType<string, string, string>;
+
+export interface DriversTable {
+  user_id: string;
+  full_name: string;
+  birth_date: DateOnly;
+  pinfl: string;
+  licence_number: string;
+  licence_categories: string[];
+  licence_issued_on: DateOnly;
+  licence_card_number: string;
+  licence_card_expires_on: DateOnly;
+  status: Generated<DriverStatus>;
+  status_reason: string | null;
+  approved_at: Timestamp | null;
+  approved_by: string | null;
+  is_online: Generated<boolean>;
+  online_since: Timestamp | null;
+  lat: number | null;
+  lng: number | null;
+  heading: number | null;
+  located_at: Timestamp | null;
+  offers_received: Generated<number>;
+  offers_accepted: Generated<number>;
+  rides_completed: Generated<number>;
+  rides_cancelled: Generated<number>;
+  rating_sum: Generated<number>;
+  rating_count: Generated<number>;
+  created_at: CreatedAt;
+  updated_at: Timestamp;
+}
+
+export interface VehiclesTable {
+  driver_id: string;
+  make: string;
+  model: string;
+  colour: string;
+  plate: string;
+  year: number;
+  seats: number;
+  class: RideClassColumn;
+  features: Generated<VehicleFeature[]>;
+  updated_at: Timestamp;
+}
+
+export interface DriverDocumentsTable {
+  driver_id: string;
+  kind: DocumentKind;
+  url: string;
+  expires_on: DateOnly | null;
+  uploaded_at: Timestamp;
+}
+
+export interface DriverStatusChangesTable {
+  id: string;
+  driver_id: string;
+  from_status: string;
+  to_status: string;
+  reason: string | null;
+  actor_id: string | null;
+  created_at: CreatedAt;
+}
+
+export interface DriverLedgerTable {
+  id: string;
+  driver_id: string;
+  kind: LedgerKind;
+  amount: number;
+  ride_id: string | null;
+  note: string | null;
+  created_by: string | null;
+  created_at: CreatedAt;
+}
+
+export interface DriverPassesTable {
+  id: string;
+  driver_id: string;
+  kind: 'day' | 'week';
+  starts_at: Timestamp;
+  ends_at: Timestamp;
+  price: number;
+  ledger_id: string | null;
+  created_at: CreatedAt;
+}
+
 export interface DB {
   users: UsersTable;
   admins: AdminsTable;
@@ -100,4 +203,10 @@ export interface DB {
   outbox: OutboxTable;
   outbox_deliveries: OutboxDeliveriesTable;
   cities: CitiesTable;
+  drivers: DriversTable;
+  vehicles: VehiclesTable;
+  driver_documents: DriverDocumentsTable;
+  driver_status_changes: DriverStatusChangesTable;
+  driver_ledger: DriverLedgerTable;
+  driver_passes: DriverPassesTable;
 }

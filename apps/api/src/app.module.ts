@@ -8,6 +8,8 @@ import { MetricsModule } from './core/observability/metrics.module.js';
 import { RedisModule } from './core/redis/redis.module.js';
 import { SmsModule } from './core/sms/sms.module.js';
 import { HealthController } from './health/health.controller.js';
+import { BillingModule } from './modules/billing/billing.module.js';
+import { DriversModule } from './modules/drivers/drivers.module.js';
 import { GeoModule } from './modules/geo/geo.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
 
@@ -31,6 +33,8 @@ import { SettingsModule } from './modules/settings/settings.module.js';
     AuthModule,
     SettingsModule,
     GeoModule,
+    BillingModule,
+    DriversModule,
   ],
   controllers: [HealthController],
 })

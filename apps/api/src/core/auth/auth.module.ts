@@ -69,11 +69,18 @@ export class MeController {
   /** The account and every role it holds, so each app knows what to show. */
   @Get()
   async me(@CurrentUser() user: AuthUser) {
+    const driver = await this.db.kysely
+      .selectFrom('drivers')
+      .select(['status', 'status_reason as statusReason', 'is_online as isOnline'])
+      .where('user_id', '=', user.userId)
+      .executeTakeFirst();
     return {
       id: user.userId,
       phone: user.phone,
       fullName: user.fullName,
       isAdmin: user.isAdmin,
+      // every account can ride; driving needs an approved application
+      driver: driver ?? null,
     };
   }
 

@@ -86,3 +86,97 @@ export function api(app: INestApplication, token?: string) {
 
 /** Central Guliston, the launch city (migrations/0002_geo.sql). */
 export const GULISTON = { lat: 40.49598, lng: 68.77587 };
+
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const pick = () => LETTERS[randomInt(LETTERS.length)]!;
+const digits = (n: number) => String(randomInt(10 ** n)).padStart(n, '0');
+
+/** A valid driver application with unique documents and plate. */
+export function application(
+  over: Record<string, unknown> = {},
+  vehicle: Record<string, unknown> = {},
+) {
+  return {
+    fullName: 'Aziz Karimov',
+    birthDate: '1990-05-01',
+    pinfl: `3${digits(13)}`,
+    licenceNumber: `A${pick()}${digits(7)}`,
+    licenceCategories: ['B'],
+    licenceIssuedOn: '2012-03-01',
+    licenceCardNumber: `LK-${digits(8)}`,
+    licenceCardExpiresOn: '2030-01-01',
+    ...over,
+    vehicle: {
+      make: 'Chevrolet',
+      model: 'Cobalt',
+      colour: 'oq',
+      plate: `20 ${pick()} ${digits(3)} ${pick()}${pick()}`,
+      year: 2021,
+      seats: 4,
+      class: 'economy',
+      features: ['ac'],
+      ...vehicle,
+    },
+  };
+}
+
+export const ALL_DOCUMENTS = [
+  'licence_card',
+  'driver_licence',
+  'passport',
+  'vehicle_registration',
+  'insurance',
+  'vehicle_photo',
+  'selfie',
+] as const;
+
+export interface DriverFixture {
+  id: string;
+  session: Session;
+  http: ReturnType<typeof api>;
+}
+
+/**
+ * A driver through the real flow: application, documents, operator approval, optionally
+ * a balance top-up, then online at `at` (Guliston centre by default).
+ */
+export async function createDriver(
+  app: INestApplication,
+  opts: {
+    at?: { lat: number; lng: number } | null;
+    vehicle?: Record<string, unknown>;
+    topup?: number;
+    online?: boolean;
+  } = {},
+): Promise<DriverFixture> {
+  const session = await signIn(app, uniquePhone(), 'driver');
+  const http = api(app, session.accessToken);
+  const applied = await http
+    .post('/v1/driver/application')
+    .send(application({}, opts.vehicle))
+    .expect(200);
+  const id = applied.body.id as string;
+  for (const kind of ALL_DOCUMENTS) {
+    await http
+      .put(`/v1/driver/documents/${kind}`)
+      .send({ url: `https://files.example.uz/${id}/${kind}.jpg` })
+      .expect(200);
+  }
+  const admin = api(app, (await signInAdmin(app)).accessToken);
+  await admin.post(`/v1/admin/drivers/${id}/approve`).send({}).expect(200);
+  if (opts.topup) {
+    await admin
+      .post(`/v1/admin/billing/drivers/${id}/ledger`)
+      .send({ kind: 'topup', amount: opts.topup })
+      .expect(201);
+  }
+  if (opts.online !== false) {
+    await http.post('/v1/driver/shift').send({ online: true }).expect(200);
+    if (opts.at !== null)
+      await http
+        .post('/v1/driver/location')
+        .send(opts.at ?? GULISTON)
+        .expect(204);
+  }
+  return { id, session, http };
+}

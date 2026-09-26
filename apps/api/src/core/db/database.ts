@@ -8,8 +8,10 @@ export type Tx = Transaction<DB>;
 
 // bigint columns hold so'm amounts and sequence numbers, far below 2^53: read them as numbers
 pg.types.setTypeParser(pg.types.builtins.INT8, (v) => Number(v));
-// numeric is used for percentages only
+// numeric is used for percentages and scores only
 pg.types.setTypeParser(pg.types.builtins.NUMERIC, (v) => Number(v));
+// calendar dates (birth date, licence expiry) stay "YYYY-MM-DD": no time zone to shift them
+pg.types.setTypeParser(pg.types.builtins.DATE, (v) => v);
 
 @Injectable()
 export class Database implements OnModuleDestroy {
