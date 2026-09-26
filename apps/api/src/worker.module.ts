@@ -7,8 +7,12 @@ import { createRegistry } from './core/observability/metrics.js';
 import { OutboxDispatcher, WORKER_METRICS } from './core/outbox/dispatcher.js';
 import { OUTBOX_HANDLERS, type OutboxHandler } from './core/outbox/handler.js';
 import { RedisModule } from './core/redis/redis.module.js';
+import { SmsModule } from './core/sms/sms.module.js';
 import { DispatchHandler } from './modules/dispatch/dispatch.handler.js';
 import { DispatchModule } from './modules/dispatch/dispatch.module.js';
+import { NotificationsHandler } from './modules/notifications/notifications.handler.js';
+import { NotificationsWorkerModule } from './modules/notifications/notifications.module.js';
+import { RealtimePublisher } from './modules/realtime/realtime.publisher.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
 import { WorkerRuntime } from './worker-runtime.js';
 
@@ -27,13 +31,16 @@ import { WorkerRuntime } from './worker-runtime.js';
     }),
     DatabaseModule,
     RedisModule,
+    SmsModule,
     SettingsModule,
     DispatchModule,
+    NotificationsWorkerModule,
   ],
   providers: [
+    RealtimePublisher,
     {
       provide: OUTBOX_HANDLERS,
-      inject: [DispatchHandler],
+      inject: [DispatchHandler, RealtimePublisher, NotificationsHandler],
       useFactory: (...handlers: OutboxHandler[]) => handlers,
     },
     { provide: WORKER_METRICS, useFactory: () => createRegistry('worker') },

@@ -11,6 +11,7 @@ import { v7 as uuidv7 } from 'uuid';
 import type { AuthUser } from '../../core/auth/auth-context.js';
 import { Database, type Tx } from '../../core/db/database.js';
 import {
+  ACTIVE_RIDE_STATUSES,
   DOCUMENT_KINDS,
   type DocumentKind,
   type DriverStatus,
@@ -28,6 +29,7 @@ import {
 } from '../../lib/driver-rules.js';
 import { priority } from '../../lib/priority.js';
 import { DriverTrackService } from '../geo/driver-track.service.js';
+import { RealtimeBus } from '../realtime/realtime.publisher.js';
 import { LedgerService } from '../billing/ledger.service.js';
 
 type Db = Tx | Database['kysely'];
@@ -87,6 +89,7 @@ export class DriversService {
     private readonly db: Database,
     private readonly track: DriverTrackService,
     private readonly ledger: LedgerService,
+    private readonly realtime: RealtimeBus,
   ) {}
 
   // Driver side ------------------------------------------------------------------------
@@ -274,6 +277,26 @@ export class DriversService {
       heading: fix.heading ?? null,
       speed: fix.speed ?? null,
     });
+    // the rider of the driver's ride watches the car come
+    const ride = await this.db.kysely
+      .selectFrom('rides')
+      .select(['id', 'rider_id'])
+      .where('driver_id', '=', user.userId)
+      .where('status', 'in', [...ACTIVE_RIDE_STATUSES])
+      .executeTakeFirst();
+    if (ride) {
+      await this.realtime.publish({
+        to: { userIds: [ride.rider_id] },
+        event: {
+          type: 'driver.location',
+          rideId: ride.id,
+          lat: fix.lat,
+          lng: fix.lng,
+          heading: fix.heading ?? null,
+          at: now.toISOString(),
+        },
+      });
+    }
     return { lat: fix.lat, lng: fix.lng, at: now };
   }
 
@@ -366,7 +389,7 @@ export class DriversService {
         .execute();
       await this.logStatus(trx, driverId, d.status, rule.to, reason, admin.userId);
       if (rule.to === 'blocked') await this.withdrawOffers(trx, driverId);
-      await emit(trx, 'driver.status_changed', { driverId, from: d.status, to: rule.to });
+      await emit(trx, 'driver.status_changed', { driverId, from: d.status, to: rule.to, reason });
     });
     return this.adminView(driverId);
   }

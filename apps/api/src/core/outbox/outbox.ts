@@ -15,7 +15,7 @@ export type OutboxTopic =
   | 'ride.attention'
   /** { sosId, rideId } */
   | 'ride.sos'
-  /** A driver was approved, rejected, blocked or unblocked. { driverId, from, to } */
+  /** A driver was approved, rejected, blocked or unblocked. { driverId, from, to, reason } */
   | 'driver.status_changed';
 
 /**

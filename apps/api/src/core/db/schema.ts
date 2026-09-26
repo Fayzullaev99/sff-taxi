@@ -368,6 +368,32 @@ export interface TaxWithholdingsTable {
   created_at: CreatedAt;
 }
 
+export type PushApp = 'rider' | 'driver';
+
+export interface PushDevicesTable {
+  id: string;
+  user_id: string;
+  token: string;
+  app: PushApp;
+  platform: 'ios' | 'android' | 'web';
+  locale: Generated<'uz' | 'ru'>;
+  created_at: CreatedAt;
+  last_seen_at: Timestamp;
+}
+
+export interface NotificationsTable {
+  id: string;
+  dedupe_key: string;
+  user_id: string | null;
+  channel: 'push' | 'sms';
+  kind: string;
+  ride_id: string | null;
+  status: 'sent' | 'failed' | 'skipped';
+  error: string | null;
+  provider_ref: string | null;
+  created_at: CreatedAt;
+}
+
 export interface DB {
   users: UsersTable;
   admins: AdminsTable;
@@ -390,4 +416,6 @@ export interface DB {
   ratings: RatingsTable;
   sos_events: SosEventsTable;
   tax_withholdings: TaxWithholdingsTable;
+  push_devices: PushDevicesTable;
+  notifications: NotificationsTable;
 }

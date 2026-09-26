@@ -19,6 +19,7 @@ import { ZodPipe } from '../../core/http/zod.pipe.js';
 import { isUzPlate, normalizeLicenceNumber, normalizePlate } from '../../lib/driver-rules.js';
 import { BillingModule } from '../billing/billing.module.js';
 import { GeoCoreModule } from '../geo/geo-core.module.js';
+import { RealtimeBus } from '../realtime/realtime.publisher.js';
 import { type DriverDecision, DriversService } from './drivers.service.js';
 
 const DateString = z.iso.date('Sana YYYY-MM-DD ko‘rinishida');
@@ -172,7 +173,7 @@ export class AdminDriversController {
 @Module({
   imports: [GeoCoreModule, BillingModule],
   controllers: [DriverController, AdminDriversController],
-  providers: [DriversService],
+  providers: [DriversService, RealtimeBus],
   exports: [DriversService],
 })
 export class DriversModule {}

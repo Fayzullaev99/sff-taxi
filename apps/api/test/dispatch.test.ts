@@ -12,6 +12,7 @@ import {
   type DriverFixture,
   GULISTON,
   orderRide,
+  quiesce,
   type Session,
   signIn,
   signInAdmin,
@@ -47,17 +48,7 @@ describe('dispatch', () => {
   // every test starts with nobody on shift and nothing waiting
   beforeEach(async () => {
     fake.osrm = defaultOsrm;
-    await db
-      .updateTable('ride_offers')
-      .set({ status: 'withdrawn' })
-      .where('status', '=', 'pending')
-      .execute();
-    await db
-      .updateTable('rides')
-      .set({ status: 'cancelled', cancelled_by: 'system', cancelled_at: new Date() })
-      .where('status', '=', 'searching')
-      .execute();
-    await db.updateTable('drivers').set({ is_online: false }).execute();
+    await quiesce(app);
   });
 
   async function offersOf(d: DriverFixture) {

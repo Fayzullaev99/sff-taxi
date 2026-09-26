@@ -12,6 +12,8 @@ import { BillingModule } from './modules/billing/billing.module.js';
 import { DispatchModule } from './modules/dispatch/dispatch.module.js';
 import { DriversModule } from './modules/drivers/drivers.module.js';
 import { GeoModule } from './modules/geo/geo.module.js';
+import { NotificationsModule } from './modules/notifications/notifications.module.js';
+import { RealtimeModule } from './modules/realtime/realtime.module.js';
 import { RidesModule } from './modules/rides/rides.module.js';
 import { SafetyModule } from './modules/safety/safety.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
@@ -41,6 +43,8 @@ import { SettingsModule } from './modules/settings/settings.module.js';
     RidesModule,
     DispatchModule,
     SafetyModule,
+    RealtimeModule,
+    NotificationsModule,
   ],
   controllers: [HealthController],
 })

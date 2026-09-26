@@ -4,6 +4,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/app.setup.js';
+import { Database } from '../src/core/db/database.js';
 import { ConsoleSmsProvider } from '../src/core/sms/console.provider.js';
 import { SMS_PROVIDER } from '../src/core/sms/sms.provider.js';
 
@@ -219,4 +220,23 @@ export async function orderRide(
     })
     .expect(201);
   return { quote: quote.body, ride: ride.body, id: ride.body.id as string };
+}
+
+/**
+ * Test files share one database: before looking at dispatch, clear what earlier files left
+ * behind — pending offers, rides still searching and drivers on shift.
+ */
+export async function quiesce(app: INestApplication): Promise<void> {
+  const db = app.get(Database).kysely;
+  await db
+    .updateTable('ride_offers')
+    .set({ status: 'withdrawn' })
+    .where('status', '=', 'pending')
+    .execute();
+  await db
+    .updateTable('rides')
+    .set({ status: 'cancelled', cancelled_by: 'system', cancelled_at: new Date() })
+    .where('status', '=', 'searching')
+    .execute();
+  await db.updateTable('drivers').set({ is_online: false }).execute();
 }

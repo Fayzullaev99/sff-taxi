@@ -171,9 +171,18 @@ export async function startFake(): Promise<Fake> {
       }
       if (url.pathname === '/expo/send') {
         if (fake.mode.expo === 'fail') return json(503, { errors: [{ message: 'down' }] });
-        const messages = body as unknown[];
+        // a token containing "Dead" belongs to an uninstalled app
+        const messages = body as { to: string }[];
         return json(200, {
-          data: messages.map((_, i) => ({ status: 'ok', id: `ticket-${Date.now()}-${i}` })),
+          data: messages.map((m, i) =>
+            m.to.includes('Dead')
+              ? {
+                  status: 'error',
+                  message: 'not registered',
+                  details: { error: 'DeviceNotRegistered' },
+                }
+              : { status: 'ok', id: `ticket-${Date.now()}-${i}` },
+          ),
         });
       }
       if (url.pathname === '/expo/getReceipts') return json(200, { data: {} });
