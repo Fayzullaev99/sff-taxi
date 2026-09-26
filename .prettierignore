@@ -1,0 +1,8 @@
+node_modules
+dist
+coverage
+.vitest
+.expo
+package-lock.json
+.claude
+docs/market-analysis.md
