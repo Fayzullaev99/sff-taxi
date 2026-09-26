@@ -1,0 +1,92 @@
+/**
+ * The rider's side of the server-sent event stream, without React Native (unit-tested):
+ * reading an event, the reconnect back-off and the car's recent track.
+ */
+import type { RealtimeEvent } from './types';
+
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isStr = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+
+/** One `data:` payload of the stream as an event the app knows, else null (ignored). */
+export function parseRealtimeEvent(raw: string): RealtimeEvent | null {
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof data !== 'object' || data === null) return null;
+  const d = data as Record<string, unknown>;
+  switch (d.type) {
+    case 'ready':
+    case 'ping':
+      return { type: d.type };
+    case 'ride.updated':
+      return isStr(d.rideId) && isStr(d.status)
+        ? { type: 'ride.updated', rideId: d.rideId, status: d.status }
+        : null;
+    case 'driver.location':
+      if (!isStr(d.rideId) || !isNum(d.lat) || !isNum(d.lng)) return null;
+      if (Math.abs(d.lat) > 90 || Math.abs(d.lng) > 180) return null;
+      return {
+        type: 'driver.location',
+        rideId: d.rideId,
+        lat: d.lat,
+        lng: d.lng,
+        heading: isNum(d.heading) ? d.heading : null,
+        at: isStr(d.at) ? d.at : new Date().toISOString(),
+      };
+    default:
+      return null;
+  }
+}
+
+export const MAX_BACKOFF_MS = 30_000;
+
+/** Exponential back-off with jitter: 1 s, 2 s, 4 s ... up to 30 s. */
+export function backoffMs(attempt: number, random: number = Math.random()): number {
+  return Math.min(MAX_BACKOFF_MS, 1000 * 2 ** Math.max(0, attempt)) + random * 500;
+}
+
+export interface TrackPoint {
+  lat: number;
+  lng: number;
+  heading: number | null;
+  at: string;
+}
+
+/** How many recent fixes the map draws behind the car. */
+export const TRAIL_LENGTH = 20;
+
+/**
+ * Adds a fix to the car's track. Fixes arriving out of order (older than the newest)
+ * are dropped, as are exact repeats; the track keeps the newest TRAIL_LENGTH points.
+ */
+export function appendTrack(track: readonly TrackPoint[], fix: TrackPoint): TrackPoint[] {
+  const last = track[track.length - 1];
+  if (last) {
+    if (new Date(fix.at).getTime() < new Date(last.at).getTime()) return track as TrackPoint[];
+    if (last.lat === fix.lat && last.lng === fix.lng) {
+      return [...track.slice(0, -1), { ...fix, heading: fix.heading ?? last.heading }];
+    }
+  }
+  const next = [...track, fix];
+  return next.length > TRAIL_LENGTH ? next.slice(next.length - TRAIL_LENGTH) : next;
+}
+
+/**
+ * The car's position to show: the newest live fix if it is newer than the one in the
+ * fetched ride, else the fetched one.
+ */
+export function carPosition(
+  track: readonly TrackPoint[],
+  fetched: { lat: number; lng: number; heading: number | null; at: string | null } | null,
+): TrackPoint | null {
+  const live = track[track.length - 1] ?? null;
+  if (!fetched) return live;
+  if (!live) return { ...fetched, at: fetched.at ?? new Date(0).toISOString() };
+  const fetchedAt = fetched.at ? new Date(fetched.at).getTime() : 0;
+  return new Date(live.at).getTime() >= fetchedAt
+    ? live
+    : { ...fetched, at: fetched.at ?? new Date(0).toISOString() };
+}

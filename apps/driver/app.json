@@ -1,0 +1,59 @@
+{
+  "expo": {
+    "name": "SFF Taxi Haydovchi",
+    "slug": "sff-taxi-driver",
+    "scheme": "sff-taxi-driver",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "primaryColor": "#FFC400",
+    "backgroundColor": "#111111",
+    "android": {
+      "package": "uz.sff.taxi.driver",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#111111"
+      },
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": ["android.permission.VIBRATE"],
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "ios": {
+      "bundleIdentifier": "uz.sff.taxi.driver",
+      "supportsTablet": false,
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": ["yandexnavi", "yandexmaps", "comgooglemaps"]
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-task-manager",
+      [
+        "expo-notifications",
+        {
+          "color": "#FFC400",
+          "sounds": ["./assets/sounds/offer_alert.wav"]
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Sizga eng yaqin buyurtmalarni berish va yo‘lovchiga yetib kelayotganingizni ko‘rsatish uchun joylashuvingiz kerak.",
+          "locationAlwaysAndWhenInUsePermission": "Liniyada bo‘lganingizda ilova yopiq bo‘lsa ham joylashuvingiz yuborilib turadi, shunda sizga yaqin buyurtmalar tushadi.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
+          "isIosBackgroundLocationEnabled": true
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": false,
+      "tsconfigPaths": false
+    }
+  }
+}
