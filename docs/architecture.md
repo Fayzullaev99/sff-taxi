@@ -8,15 +8,18 @@ sister project SFF Eats; see [conventions.md](conventions.md) for the engineerin
 
 ```
  rider app ─┐                         ┌─> PostgreSQL 17 (all state, outbox, ledger)
- driver app ┼─ HTTPS ─> API (NestJS) ─┤
- op. panel ─┘   SSE  <──── Redis pub/sub <── worker (outbox dispatcher, dispatch loop)
-                                      └─> Redis (rate limits, GPS trails, geocoder/route cache)
+ driver app ┼─ HTTPS ─> API (NestJS) ─┼─> Redis (rate limits, GPS trails, ETAs, caches, pub/sub)
+ op. panel ─┘   SSE  <──── Redis pub/sub <── worker (outbox, dispatch loop, jobs)
+ apps ── presigned PUT/GET ──> S3 (SeaweedFS, private)     Payme/Click ──> API callbacks
 ```
 
 - **API** (`src/main.ts`): HTTP endpoints, SSE streams. Stateless; scale horizontally.
-- **Worker** (`src/worker.ts`): the outbox dispatcher (realtime, push/SMS, dispatch reactions),
-  the dispatch loop (`DISPATCH_TICK_MS`, default 1 s), health/metrics on `:3201`. Several workers
-  may run: outbox rows are claimed with `FOR UPDATE SKIP LOCKED`, dispatch locks the ride rows.
+- **Worker** (`src/worker.ts`): the outbox dispatcher (realtime, push/SMS, dispatch reactions,
+  fiscal receipts, licence checks), the dispatch loop (`DISPATCH_TICK_MS`, default 1 s), the
+  housekeeping job (unpaid card rides and top-ups, abandoned uploads; 30 s), the operators'
+  positions batch (5 s), health/metrics on `:3201`. Several workers may run: outbox events are
+  claimed one at a time with a 2-minute lease (`UPDATE … SKIP LOCKED`, the attempt counted at the
+  claim, so a crashing event cannot loop), dispatch and jobs lock the rows they change.
 - **Outbox**: every side effect (a push, an SSE nudge, the next dispatch step) is an event
   written in the same transaction as the change (`emit(trx, topic, payload)`), so it happens if
   and only if the change committed. Handlers are idempotent; deliveries are recorded per
@@ -25,7 +28,12 @@ sister project SFF Eats; see [conventions.md](conventions.md) for the engineerin
   rotating refresh tokens and fixed codes for store reviewers, Redis rate limiter, SMS providers
   (Eskiz, Play Mobile, console), metrics, Sentry, the outbox, geo (Sirdaryo cities from OSM,
   Yandex/Nominatim geocoding, OSRM with fallback, the GPS quality filter), SSE with single-use
-  tickets, Expo push.
+  tickets, Expo push, uploads (S3 presigned), Payme/Click, the Docker/Caddy deployment, and the
+  lessons checklist ([audit.md](audit.md)).
+- **Business calendar** (`src/core/clock/business-calendar.ts`): the night add-on, the Tashkent
+  day/week/month of commission caps and tax periods and the promo end read the time through it.
+  Real time in production; tests pin it (`TEST_CALENDAR_AT`) so the suite passes at any hour.
+  Only the reading goes through it: stored timestamps and deadlines stay real (SQL `now()`).
 
 ## 2. Accounts and roles
 
@@ -87,6 +95,7 @@ Cobalts/Nexias carry a CNG tank in the trunk (MA §5.5).
 ## 5. Rides
 
 ```
+(awaiting_payment, card rides) ──paid──> searching
 searching ──> driver_assigned ──> driver_arrived ──> in_progress ──> completed
     │  ^              │  │               │
     │  └── driver drops (not a no-show) ─┘
@@ -127,11 +136,13 @@ searching ──> driver_assigned ──> driver_arrived ──> in_progress ─
 
 **Who is eligible**: online, active, a GPS fix younger than 2 minutes, balance at or above the
 minimum, no active ride, no other pending offer, not the rider themself, not a driver who
-dropped this ride, a comfort car for comfort rides, the car features the options need.
+dropped this ride, a comfort car for comfort rides, the car features the options need (luggage:
+a big trunk **without** the CNG tank in it, `vehicles.cng_in_trunk`), a verified licence card.
 
 **Priority score** (0–100, `src/lib/priority.ts`), shown to drivers with its parts, like Yandex's
 transparent priority in Uzbekistan (MA §1.5): 40% acceptance (accepted / received offers, prior
-8 of 10), 30% reliability (1 − rides dropped after accepting / accepted, prior 10 clean rides),
+8 of 10; only direct offers count as received — a broadcast another driver took first, or one
+let pass, says nothing about the driver; an accepted broadcast counts both), 30% reliability (1 − rides dropped after accepting / accepted, prior 10 clean rides),
 30% rating (average stars with a prior of five 4.8-star ratings). A new driver starts at 91. The
 score is **only a tie-breaker** between drivers whose ETAs are within 60 s of the best; the
 nearest driver otherwise always gets the offer (MA §6.4: pure broadcast rewards tapping speed,
@@ -163,18 +174,28 @@ Statuses: `pending → active | rejected`, `active ⇄ blocked`, `rejected → p
 re-application. Every decision carries a reason the driver sees, in `driver_status_changes` —
 the "transparent rules, human appeal" differentiator against opaque account blocks (MA §1.5, §6.1).
 
+**Licence cards** are checked with the Ministry of Transport's registry through the
+`LicenceRegistry` adapter ('manual' today: operators check and record it); approval and going
+online need a verified card. **Electronic fiscal receipts** for every completed ride and seat
+go through the `FiscalProvider` adapter ('none' today: prepared and kept, sent later), retried
+through the outbox. Both: [fiscal-and-licence.md](fiscal-and-licence.md).
+
 Plates are validated in both current formats (`20 A 123 BC`, `20 123 ABC`) with real region
 codes; licence numbers as two letters + seven digits. The licence card number format is not
 public, so it is only sanity-checked; verifying it against the Ministry of Transport is item A5.
 
 ## 8. Money (MA §6.3 "Driver fee model")
 
-- **Cash first** (63% of legal taxi turnover in 2026, MA §5.5). Card payment is a hook
-  (`PaymentsService`, `CardGateway`); until a gateway is configured, orders with `card` are refused.
+- **Cash first** (63% of legal taxi turnover in 2026, MA §5.5). **Card rides are prepaid** by
+  Payme or Click before dispatch (the fare is fixed at the quote); cancelled paid rides are
+  refunded in full; the fare is credited to the driver's balance (`card_fare`), operators record
+  payouts. Drivers **top up by card** too. Details and the reasons: [payments.md](payments.md).
 - **Driver balance** is an append-only ledger: a trigger refuses updates and deletes, and the
   runtime role has no UPDATE/DELETE on the table. Balance = sum of entries. Entries: `topup`
-  (cash at the office now, Payme/Click later), `commission`, `tax`, `pass`, `adjustment` (with a
-  note). A ride is charged each kind at most once (unique index), so retries cannot double-charge.
+  (cash at the office, or Payme/Click once per payment), `commission`, `tax`, `pass`,
+  `adjustment` (with a note), `card_fare` (a card ride's prepaid fare, owed to the driver),
+  `payout` (card money paid out to the driver). An operator's identical entry within a minute is
+  refused (double click). A ride is charged each kind at most once (unique index), so retries cannot double-charge.
 - **Commission**: 0% during the launch promo (`promo_until`, default 2026-12-31 ≈ 3 months);
   then 5% of city rides capped at 10 000 per Tashkent day and 55 000 per week; intercity 5%
   capped at 10 000 per ride, outside the daily cap. **Passes** (day 9 000, week 50 000) replace
@@ -193,34 +214,58 @@ public, so it is only sanity-checked; verifying it against the Ministry of Trans
 
 ## 10. Realtime and notifications
 
-SSE events are nudges (refetch the resource), never more than the recipient may read; the only
-payload with data is the driver's position, sent to the rider of that ride straight from the
-location endpoint (no outbox, it is ephemeral). Push (Expo) and SMS are sent by the worker from
+SSE events are nudges (refetch the resource), never more than the recipient may read; the
+payloads with data are the driver's position (with the road ETA to the pickup, recomputed at most
+every 15 s) sent to the rider of that ride straight from the location endpoint, and the
+operators' `drivers.positions` batch (every online driver, every 5 s, from the worker). Push (Expo) and SMS are sent by the worker from
 outbox events and logged per (event, recipient, channel), so retries never send twice; a push
 outage retries the event; dead tokens are removed. Offers are pushed as urgent messages that
 expire with the offer.
 
-## 11. What is not built yet (next steps)
+## 11. Intercity trip board (MA §6.4)
 
-For the apps and panel agents:
+Drivers publish departures between towns (the 11 Sirdaryo towns and Tashkent, each with a
+meeting point: Guliston avtovokzali, Olmazor in Tashkent); riders book seats; operators book
+for callers (SMS with the car and the driver's phone).
 
-- **Rider app**: sign-in, map with `/geo/config`, address search, quote → order (keep the
-  `clientRequestId` per attempt), SSE for status and the car's position, cancel (show
-  `cancelFeeNow`), rating, SOS, share link, push token registration.
-- **Driver app**: application + document photos (URLs now; upload to S3 like SFF Eats' uploads
-  module is the next API task), shift, background GPS every 3–5 s, offers with a 15 s countdown
-  (SSE `offer.new` + urgent push), ride steps, cancel reasons, balance/passes/earnings, priority
-  score screen, SOS.
-- **Operator panel**: live map (`/admin/dispatch/live`), phone-order form with quote, ride list
-  and detail with offers/events, manual assignment from candidates, driver verification queue,
-  tariff/dispatch/billing settings and city editor, tax report, SOS queue — all SSE-driven.
+- **Seat price**: 30% of the whole-car intercity fare by road distance (min 25 000 for the car),
+  front seat +10% (`src/lib/intercity.ts`), or an operator's route price (Guliston↔Tashkent
+  70 000 / 80 000 seeded, MA §6.3 [H]); comfort cars in the tariff's comfort/economy ratio. A
+  driver may ask within ±15% (`admin/settings/intercity`); the prices are fixed on the trip.
+- **Publishing**: active driver, licence card valid on the day, balance above the minimum,
+  seats ≤ the car's, 15 minutes to 7 days ahead, departures of one driver 2 hours apart.
+- **Booking**: seats counted **on the trip row under its lock**, backed by table checks and
+  partial unique indexes (`seats_booked ≤ seats_total`, one front seat, one live booking per
+  rider per trip): however many riders tap at once, never oversold (concurrency tests). Retries
+  are safe (`clientRequestId`). Riders see the driver's phone and the plate only once booked.
+- **Cancellation**: riders free until 60 minutes before departure, then 30% of the booking is
+  recorded as owed; a driver's cancellation of a booked trip counts against reliability.
+- **Running it**: boarding opens an hour before; the driver boards passengers; at departure the
+  absent become no-shows; on arrival every booking is charged the 1% tax and the intercity
+  commission (per booking, capped) and gets its fiscal receipt. Seats are paid in cash.
 
-Backend backlog, by market-analysis priority:
+## 12. Uploads
 
-- **Intercity trip board** (MA §6.4, R6/D4/O6): drivers publish departures, riders book seats
-  (the seat price is already in every intercity quote). Legal check of the Tashkent route first (MA §4).
-- **Fiscal receipts** through the tax authority's OFD integration (A4) and **licence
-  verification** with the Ministry of Transport (A5): legally required before launch.
-- Card payments (Payme/Click acquiring, driver top-ups), collecting owed cancellation fees,
-  masked calls, scheduled rides, promo codes, the shared driver pool with SFF Eats (A9).
-- Deployment in a UZ data centre (personal-data law, MA §4), copying SFF Eats' Docker/Caddy setup.
+Driver documents (passport, licences: personal data), the driver's photo and the car's photo go
+**straight from the app to a private S3 bucket** (SeaweedFS locally and in the bundled
+production profile) with a presigned PUT whose signature covers the type and the length. The
+app then calls `complete`: the API checks the stored size and the file's signature bytes
+(JPEG, PNG, WebP, PDF for documents) and deletes anything else. Reads are presigned GETs valid
+15 minutes, handed out only to the owner and operators, and for the face and car photos to the
+rider of the ride. Uploads never completed are removed after a day.
+
+## 13. What is not built yet (next steps)
+
+Built since the first release: uploads, card payments and top-ups, the intercity board, the
+fiscal and licence adapters, the apps' and panel's gaps (config, ETAs, saved places, complaints,
+appeals, customer lookup, positions), the audit fixes and the production deployment.
+
+Backend backlog:
+
+- **Legal integrations switched on**: the OFD provider and the Ministry of Transport registry
+  (the adapters are ready; [fiscal-and-licence.md](fiscal-and-licence.md) lists what is needed).
+- **Scheduled rides** (order for later, dispatch 15 minutes before), promo codes, masked calls
+  (a telephony provider's number masking; today riders and drivers see each other's phones only
+  within a ride or a booking), tips by card, collecting owed cancellation fees, automatic payouts.
+- The shared driver pool with SFF Eats (A9); a load test before launch.
+- Deployment in a UZ data centre: [deploy.md](deploy.md).

@@ -53,6 +53,11 @@ npm workspaces under `apps/*`: `apps/api` (NestJS API + worker) now; `apps/rider
   `test/helpers.ts`, fake external services in `test/fakes.ts`). Test files run one at a time
   against one database, rebuilt from migrations. Parallel checkouts must use their own:
   `TEST_DB_NAME=taxi_test_2 TEST_REDIS_DB=<n>` (databases `taxi_test`, `taxi_test_2` exist).
+- Time in tests: business rules read the business calendar, pinned by `TEST_CALENDAR_AT` in
+  `vitest.config.ts` (a daytime Wednesday in the launch promo); tests that need another moment
+  call `app.get(BusinessCalendar).pin(...)`. Never assert on the real hour or date.
+- Uploads tests need SeaweedFS (`docker compose up -d s3`, :8335); without it they are skipped
+  locally and fail in CI (`CI=true`).
 
 ## Local services
 
