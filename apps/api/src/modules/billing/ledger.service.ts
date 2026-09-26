@@ -105,6 +105,20 @@ export class LedgerService {
     }
     await this.db.transaction(async (trx) => {
       await this.lockDriver(trx, driverId);
+      // an operator's double click must not credit the cash twice: the same entry by the
+      // same operator within a minute is refused (a real second top-up can wait a minute)
+      const repeat = await trx
+        .selectFrom('driver_ledger')
+        .select('id')
+        .where('driver_id', '=', driverId)
+        .where('kind', '=', input.kind)
+        .where('amount', '=', input.amount)
+        .where('created_by', '=', adminId)
+        .where('created_at', '>', sql<Date>`now() - interval '60 seconds'`)
+        .executeTakeFirst();
+      if (repeat) {
+        throw new ConflictException('Xuddi shunday yozuv hozirgina qo‘shildi: takrorlanmadimi?');
+      }
       await this.post(trx, { driverId, ...input, createdBy: adminId });
     });
     return this.standing(driverId);

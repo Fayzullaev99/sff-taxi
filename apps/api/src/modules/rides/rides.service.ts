@@ -14,6 +14,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { ENV, type Env } from '../../config/env.js';
 import type { AuthUser } from '../../core/auth/auth-context.js';
 import { Database, type Tx } from '../../core/db/database.js';
+import { containsPattern } from '../../core/db/like.js';
 import {
   ACTIVE_RIDE_STATUSES,
   OPEN_RIDE_STATUSES,
@@ -1081,7 +1082,7 @@ export class RidesService {
       .$if(Boolean(filter.q), (q) =>
         q.where((eb) =>
           eb.or([
-            eb('rider_phone', 'like', `%${filter.q}%`),
+            eb('rider_phone', 'like', containsPattern(filter.q!)),
             ...(/^\d+$/.test(filter.q!) ? [eb('number', '=', Number(filter.q))] : []),
           ]),
         ),

@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { z } from 'zod';
 import { ENV, type Env } from '../../config/env.js';
 import { Database } from '../db/database.js';
+import { RateLimit } from '../http/rate-limit.js';
 import { ZodPipe } from '../http/zod.pipe.js';
 import { type AuthUser, CurrentUser, Meta, Public, type RequestMeta } from './auth-context.js';
 import { AuthGuard } from './auth.guard.js';
@@ -35,6 +36,7 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit({ name: 'auth:verify', by: 'ip', max: 100, windowSeconds: 600 })
   @Post('verify')
   @HttpCode(HttpStatus.OK)
   verify(
@@ -45,6 +47,8 @@ export class AuthController {
   }
 
   @Public()
+  // generous: mobile carriers put many phones behind one address (CGNAT)
+  @RateLimit({ name: 'auth:refresh', by: 'ip', max: 300, windowSeconds: 60 })
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   refresh(

@@ -4,6 +4,9 @@ import type { Request, Response } from 'express';
 import pg from 'pg';
 import { reportError } from '../observability/sentry.js';
 
+const RETRY = 'Ma’lumot shu payt boshqa amal bilan o‘zgardi, qayta urinib ko‘ring';
+const BUSY = 'Server hozir band, birozdan so‘ng qayta urinib ko‘ring';
+
 // https://www.postgresql.org/docs/current/errcodes-appendix.html
 const PG_ERROR_STATUS: Record<string, { status: HttpStatus; message: string }> = {
   '23505': { status: HttpStatus.CONFLICT, message: 'Bunday yozuv allaqachon bor' },
@@ -12,20 +15,23 @@ const PG_ERROR_STATUS: Record<string, { status: HttpStatus; message: string }> =
   // exclusion constraint: e.g. two bookings of one table at overlapping times
   '23P01': { status: HttpStatus.CONFLICT, message: 'Vaqt boshqa yozuv bilan to‘qnashadi' },
   '22P02': { status: HttpStatus.BAD_REQUEST, message: 'Noto‘g‘ri qiymat' },
-  // two requests raced for the same rows (deadlock, serialization): the client may retry
-  '40P01': {
-    status: HttpStatus.CONFLICT,
-    message: 'Bir vaqtda o‘zgartirildi, qayta urinib ko‘ring',
-  },
-  '40001': {
-    status: HttpStatus.CONFLICT,
-    message: 'Bir vaqtda o‘zgartirildi, qayta urinib ko‘ring',
-  },
+  // two requests changing the same rows at once: the loser may simply try again
+  '40P01': { status: HttpStatus.CONFLICT, message: RETRY }, // deadlock_detected
+  '40001': { status: HttpStatus.CONFLICT, message: RETRY }, // serialization_failure
+  '55P03': { status: HttpStatus.CONFLICT, message: RETRY }, // lock_not_available (lock_timeout)
+  // statement_timeout: the database is overloaded or the query is too heavy
+  '57014': { status: HttpStatus.SERVICE_UNAVAILABLE, message: BUSY }, // query_canceled
 };
+
+/** node-postgres' error when no pooled connection frees up within connectionTimeoutMillis. */
+function isPoolTimeout(error: unknown): boolean {
+  return error instanceof Error && /timeout exceeded when trying to connect/i.test(error.message);
+}
 
 /**
  * The single global filter:
- * - expected Postgres constraint errors become 4xx instead of 500s;
+ * - expected Postgres errors (constraints, lock conflicts, timeouts) become 4xx/503
+ *   instead of 500s;
  * - HTTP exceptions pass through unchanged;
  * - anything else is an unexpected failure: logged, reported, answered as 500.
  */
@@ -34,14 +40,27 @@ export class AppExceptionFilter extends BaseExceptionFilter {
   private readonly logger = new Logger('Exceptions');
 
   override catch(error: unknown, host: ArgumentsHost): void {
-    if (error instanceof pg.DatabaseError && error.code && PG_ERROR_STATUS[error.code]) {
-      const mapped = PG_ERROR_STATUS[error.code]!;
-      this.logger.warn(`${error.code} ${error.constraint ?? ''}: ${error.message}`);
+    const mapped =
+      error instanceof pg.DatabaseError && error.code
+        ? PG_ERROR_STATUS[error.code]
+        : isPoolTimeout(error)
+          ? { status: HttpStatus.SERVICE_UNAVAILABLE, message: BUSY }
+          : undefined;
+    if (mapped) {
+      const db = error instanceof pg.DatabaseError ? error : null;
+      this.logger.warn(
+        `${db?.code ?? 'pool'} ${db?.constraint ?? ''}: ${(error as Error).message}`,
+      );
+      if (mapped.status >= 500) reportError(error);
       host
         .switchToHttp()
         .getResponse<Response>()
         .status(mapped.status)
-        .json({ statusCode: mapped.status, message: mapped.message, constraint: error.constraint });
+        .json({
+          statusCode: mapped.status,
+          message: mapped.message,
+          ...(db?.constraint ? { constraint: db.constraint } : {}),
+        });
       return;
     }
     if (!(error instanceof HttpException) || error.getStatus() >= 500) {

@@ -20,6 +20,7 @@ import { randomBytes } from 'node:crypto';
 import { ENV, type Env } from '../../config/env.js';
 import { type AuthUser, CurrentUser, Public } from '../../core/auth/auth-context.js';
 import { Database } from '../../core/db/database.js';
+import { RateLimit } from '../../core/http/rate-limit.js';
 import { TooManyRequestsException } from '../../core/redis/rate-limiter.js';
 import { REDIS } from '../../core/redis/redis.token.js';
 import { REALTIME_CHANNEL, type RealtimeMessage } from './realtime.publisher.js';
@@ -75,6 +76,9 @@ export class RealtimeHub implements OnModuleInit, OnModuleDestroy {
   add(client: Client): void {
     this.clients.add(client);
     client.res.on('close', () => this.clients.delete(client));
+    // a write to a socket the client already dropped emits 'error' on the response; without
+    // a listener it would be an unhandled error event and take the process down
+    client.res.on('error', () => this.clients.delete(client));
   }
 
   private dispatch(raw: string): void {
@@ -108,6 +112,7 @@ export class StreamController {
    * (proxy and access logs), so the stream URL carries this instead.
    */
   @Post('ticket')
+  @RateLimit({ name: 'stream:ticket', by: 'user', max: 30, windowSeconds: 60 })
   @HttpCode(HttpStatus.OK)
   async ticket(@CurrentUser() user: AuthUser) {
     const ticket = randomBytes(24).toString('base64url');

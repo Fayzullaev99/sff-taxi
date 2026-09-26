@@ -2,7 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { REDIS } from '../src/core/redis/redis.token.js';
-import { DEFAULT_TARIFF } from '../src/lib/tariff.js';
+import { TEST_TARIFF } from './test-tariff.js';
 import { type Fake, startFake } from './fakes.js';
 import { api, createTestApp, GULISTON, signIn, signInAdmin } from './helpers.js';
 
@@ -92,7 +92,7 @@ describe('geo', () => {
     });
 
     it('lets operators edit a city: activation, boundary and its own tariff', async () => {
-      const own = structuredClone(DEFAULT_TARIFF);
+      const own = structuredClone(TEST_TARIFF);
       own.classes.economy.bands[0]!.price = 4500;
       const res = await admin
         .patch(`/v1/admin/geo/cities/${cityIds.yangiyer}`)

@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { AdminOnly, type AuthUser, CurrentUser, Public } from '../../core/auth/auth-context.js';
 import { UzPhone } from '../../core/auth/phone.js';
 import { RIDE_STATUSES } from '../../core/db/schema.js';
+import { RateLimit } from '../../core/http/rate-limit.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
 import { RIDE_CLASSES, RIDE_OPTIONS } from '../../lib/tariff.js';
 import { BillingModule } from '../billing/billing.module.js';
@@ -82,6 +83,7 @@ export class RidesController {
 
   /** Fixed prices for a trip in every class, valid for 10 minutes. */
   @Post('quote')
+  @RateLimit({ name: 'rides:quote', by: 'user', max: 30, windowSeconds: 60 })
   @HttpCode(HttpStatus.OK)
   quote(
     @CurrentUser() user: AuthUser,
@@ -92,6 +94,7 @@ export class RidesController {
 
   /** Orders a quoted ride: 201 for a new ride, 200 when the clientRequestId was seen before. */
   @Post()
+  @RateLimit({ name: 'rides:order', by: 'user', max: 10, windowSeconds: 60 })
   async order(
     @CurrentUser() user: AuthUser,
     @Body(new ZodPipe(OrderBody)) body: z.output<typeof OrderBody>,
@@ -145,6 +148,7 @@ export class TariffsController {
 
   /** The published tariff where a ride would start (prices are public and fixed). */
   @Public()
+  @RateLimit({ name: 'tariffs', by: 'ip', max: 120, windowSeconds: 60 })
   @Get()
   async tariff(@Query(new ZodPipe(TariffQuery)) q: z.output<typeof TariffQuery>) {
     const service = await this.geo.serviceCity(q);

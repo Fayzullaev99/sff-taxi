@@ -18,6 +18,12 @@ import type { RequestMeta } from './auth-context.js';
 import { parseRefreshToken, secretMatches, TokenService, type TokenPair } from './tokens.js';
 
 export const RESEND_AFTER_SECONDS = 60;
+/**
+ * Wrong codes per phone per hour, across new codes. Without it the store-review phones
+ * (fixed code, no SMS, no resend limit) could be brute-forced: every new code brought
+ * OTP_MAX_ATTEMPTS fresh guesses.
+ */
+export const WRONG_CODES_PER_HOUR = 10;
 
 /**
  * Passwordless sign-in: a one-time SMS code proves the phone, and the first
@@ -90,6 +96,14 @@ export class AuthService {
     client: SessionClient,
     meta: RequestMeta,
   ): Promise<TokenPair & { isNewUser: boolean }> {
+    const wrongCodes = {
+      name: 'otp:wrong',
+      subject: phone,
+      max: WRONG_CODES_PER_HOUR,
+      windowSeconds: 3600,
+      message: 'Juda ko‘p noto‘g‘ri kod kiritildi, keyinroq urinib ko‘ring',
+    };
+    await this.limiter.assertNotBlocked(wrongCodes);
     const outcome = await this.db.transaction(async (trx) => {
       const row = await trx
         .selectFrom('phone_verifications')
@@ -117,6 +131,7 @@ export class AuthService {
       return matches ? ({ ok: true } as const) : ({ ok: false, reason: 'invalid' } as const);
     });
     if (!outcome.ok) {
+      await this.limiter.recordFailure(wrongCodes);
       throw new BadRequestException(
         outcome.reason === 'exhausted'
           ? 'Juda ko‘p noto‘g‘ri urinish, yangi kod so‘rang'

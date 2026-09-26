@@ -36,6 +36,12 @@ const EnvSchema = z
     DB_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
     /** A single query may not hold a connection longer than this (0 = no limit). */
     DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(0).default(30_000),
+    /** How long a request waits for a free pooled connection before answering 503 (0 = forever). */
+    DB_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(0).default(10_000),
+    /** How long a statement waits for a row or table lock before answering 409 (0 = forever). */
+    DB_LOCK_TIMEOUT_MS: z.coerce.number().int().min(0).default(15_000),
+    /** A transaction left idle this long is ended by Postgres, releasing its locks (0 = never). */
+    DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().min(0).default(60_000),
 
     JWT_ACCESS_SECRET: z.string().min(32),
     JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
@@ -153,6 +159,8 @@ const EnvSchema = z
       require(['GEOCODER_CONTACT_EMAIL'], 'for GEOCODER=nominatim (usage policy)');
     }
     if (env.ROUTER === 'osrm') require(['OSRM_URL'], 'for ROUTER=osrm');
+    // /metrics lists routes, error rates and queue sizes: never open in production
+    if (env.NODE_ENV === 'production') require(['METRICS_TOKEN'], 'in production');
     if (env.NODE_ENV === 'production' && env.SMS_PROVIDER === 'console') {
       ctx.addIssue({
         code: 'custom',

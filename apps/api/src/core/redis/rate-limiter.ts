@@ -52,7 +52,9 @@ export class RateLimiter {
   async assertNotBlocked(limit: Limit): Promise<void> {
     const key = this.key(limit);
     const [count, ttl] = await Promise.all([this.redis.get(key), this.redis.ttl(key)]);
-    if (Number(count ?? 0) >= this.max(limit)) throw new TooManyRequestsException(Math.max(ttl, 1));
+    if (Number(count ?? 0) >= this.max(limit)) {
+      throw new TooManyRequestsException(Math.max(ttl, 1), limit.message);
+    }
   }
 
   async recordFailure(limit: Limit): Promise<void> {

@@ -10,6 +10,7 @@ import { type Selectable, sql } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { AuthUser } from '../../core/auth/auth-context.js';
 import { Database, type Tx } from '../../core/db/database.js';
+import { containsPattern } from '../../core/db/like.js';
 import {
   ACTIVE_RIDE_STATUSES,
   DOCUMENT_KINDS,
@@ -324,9 +325,9 @@ export class DriversService {
       .$if(Boolean(filter.q), (q) =>
         q.where((eb) =>
           eb.or([
-            eb('d.full_name', 'ilike', `%${filter.q}%`),
-            eb('u.phone', 'like', `%${filter.q}%`),
-            eb('v.plate', 'like', `%${filter.q!.replace(/\s/g, '').toUpperCase()}%`),
+            eb('d.full_name', 'ilike', containsPattern(filter.q!)),
+            eb('u.phone', 'like', containsPattern(filter.q!)),
+            eb('v.plate', 'like', containsPattern(filter.q!.replace(/\s/g, '').toUpperCase())),
           ]),
         ),
       )
