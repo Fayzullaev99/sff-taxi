@@ -51,6 +51,9 @@ import { IntentsService } from '../payments/intents.service.js';
 import { type PaymentMethod, PaymentsService } from '../payments/payments.service.js';
 import { SettingsService } from '../settings/settings.module.js';
 import { UploadsService } from '../uploads/uploads.service.js';
+import { DriverTrackService } from '../geo/driver-track.service.js';
+import { PickupEtaService } from '../geo/pickup-eta.service.js';
+import { AvailabilityService } from './availability.service.js';
 
 type Db = Tx | Database['kysely'];
 type Ride = Selectable<RidesTable>;
@@ -84,12 +87,22 @@ export interface OrderInput {
 export interface PhoneOrderInput {
   riderPhone: string;
   riderName: string | null;
-  pickup: PlaceInput;
-  dropoff: PlaceInput;
+  /** Coordinates may be left out when a quote (the operator's) gives them. */
+  pickup: Partial<Point> & { address: string | null; landmark: string | null };
+  dropoff: Partial<Point> & { address: string | null; landmark: string | null };
   class: RideClass;
   options: RideOption[];
   comment: string | null;
+  /** The operator's quote (POST admin/rides/quote): the fare read out to the caller. */
+  quoteId: string | null;
+  /** The panel's idempotency key: a double click creates one ride. */
+  clientRequestId: string | null;
 }
+
+const placeText = (p: { address: string | null; landmark: string | null }) => ({
+  address: p.address,
+  landmark: p.landmark,
+});
 
 export const DRIVER_CANCEL_REASONS = {
   rider_no_show: 'Yo‘lovchi chiqmadi',
@@ -131,6 +144,9 @@ export class RidesService {
     private readonly fiscal: FiscalService,
     private readonly uploads: UploadsService,
     private readonly calendar: BusinessCalendar,
+    private readonly availability: AvailabilityService,
+    private readonly pickupEta: PickupEtaService,
+    private readonly track: DriverTrackService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -174,6 +190,8 @@ export class RidesService {
       paymentMethods: this.payments.methods(),
       waiting: priced.tariff.waiting,
       cancellationFee: priced.tariff.cancellation_fee,
+      // the nearest free car per class, by road: "~4 min" on the class buttons
+      availability: await this.availability.near(input.pickup, user.userId),
     };
   }
 
@@ -281,8 +299,85 @@ export class RidesService {
    * account is found or created by phone; the price is computed on the spot and read out.
    */
   async phoneOrder(operator: AuthUser, input: PhoneOrderInput, now = new Date()) {
-    const priced = await this.price(input.pickup, input.dropoff, input.options, now);
+    // a double click in the panel: the same request id from the same operator is one ride
+    const repeat = () =>
+      input.clientRequestId
+        ? this.db.kysely
+            .selectFrom('rides')
+            .select('id')
+            .where('created_by', '=', operator.userId)
+            .where('channel', '=', 'phone')
+            .where('client_request_id', '=', input.clientRequestId)
+            .executeTakeFirst()
+        : Promise.resolve(undefined);
+    const existing = await repeat();
+    if (existing) return { created: false, ride: await this.adminView(existing.id) };
+
+    // the price the operator read out to the caller (their quote), or priced on the spot
+    let priced: {
+      cityId: string;
+      pickup: PlaceInput;
+      dropoff: PlaceInput;
+      options: RideOption[];
+      distanceM: number;
+      durationS: number | null;
+      fare: Fare;
+      tariff: unknown;
+      quoteId: string | null;
+    };
+    if (input.quoteId) {
+      const quote = await this.db.kysely
+        .selectFrom('quotes')
+        .selectAll()
+        .where('id', '=', input.quoteId)
+        .where('user_id', '=', operator.userId)
+        .executeTakeFirst();
+      if (!quote) throw new NotFoundException('Narx topilmadi: qayta hisoblang');
+      if (quote.expires_at <= now) throw new GoneException('Narx eskirdi: qayta hisoblang');
+      priced = {
+        cityId: quote.city_id,
+        pickup: { lat: quote.pickup_lat, lng: quote.pickup_lng, ...placeText(input.pickup) },
+        dropoff: { lat: quote.dropoff_lat, lng: quote.dropoff_lng, ...placeText(input.dropoff) },
+        options: quote.options as RideOption[],
+        distanceM: quote.distance_m,
+        durationS: quote.duration_s,
+        fare: (quote.fares as unknown as Record<RideClass, Fare>)[input.class],
+        tariff: quote.tariff,
+        quoteId: quote.id,
+      };
+    } else {
+      if (input.pickup.lat === undefined || input.dropoff.lat === undefined) {
+        throw new BadRequestException('Manzillar koordinatasi yoki narx (quoteId) kerak');
+      }
+      const pickup = input.pickup as PlaceInput;
+      const dropoff = input.dropoff as PlaceInput;
+      const p = await this.price(pickup, dropoff, input.options, now);
+      priced = {
+        cityId: p.city.id,
+        pickup,
+        dropoff,
+        options: input.options,
+        distanceM: p.route.distanceM,
+        durationS: p.route.durationS === null ? null : Math.round(p.route.durationS),
+        fare: p.fares[input.class],
+        tariff: p.tariff,
+        quoteId: null,
+      };
+    }
     const id = await this.db.transaction(async (trx) => {
+      if (input.clientRequestId) {
+        await sql`select pg_advisory_xact_lock(hashtext(${operator.userId + input.clientRequestId}))`.execute(
+          trx,
+        );
+        const again = await trx
+          .selectFrom('rides')
+          .select('id')
+          .where('created_by', '=', operator.userId)
+          .where('channel', '=', 'phone')
+          .where('client_request_id', '=', input.clientRequestId)
+          .executeTakeFirst();
+        if (again) return { id: again.id, created: false };
+      }
       await trx
         .insertInto('users')
         .values({ id: uuidv7(), phone: input.riderPhone, full_name: input.riderName })
@@ -303,22 +398,22 @@ export class RidesService {
         channel: 'phone',
         createdBy: operator.userId,
         actor: 'operator',
-        clientRequestId: null,
-        quoteId: null,
-        cityId: priced.city.id,
+        clientRequestId: input.clientRequestId,
+        quoteId: priced.quoteId,
+        cityId: priced.cityId,
         rideClass: input.class,
-        pickup: input.pickup,
-        dropoff: input.dropoff,
-        options: input.options,
+        pickup: priced.pickup,
+        dropoff: priced.dropoff,
+        options: priced.options,
         comment: input.comment,
-        distanceM: priced.route.distanceM,
-        durationS: priced.route.durationS === null ? null : Math.round(priced.route.durationS),
-        fare: priced.fares[input.class],
+        distanceM: priced.distanceM,
+        durationS: priced.durationS,
+        fare: priced.fare,
         tariff: priced.tariff,
         paymentMethod: 'cash',
-      });
+      }).then((rideId) => ({ id: rideId, created: true }));
     });
-    return this.adminView(id);
+    return { created: id.created, ride: await this.adminView(id.id) };
   }
 
   private async assertNoOpenRide(trx: Tx, riderId: string): Promise<void> {
@@ -845,6 +940,84 @@ export class RidesService {
     return Tariff.parse(ride.tariff);
   }
 
+  // Operators: callers ----------------------------------------------------------------
+
+  /** Who is calling: the account, their open ride, recent rides and places (phone orders). */
+  async customerLookup(phone: string) {
+    const user = await this.db.kysely
+      .selectFrom('users')
+      .select([
+        'id',
+        'full_name',
+        'phone',
+        'status',
+        'rider_rating_sum',
+        'rider_rating_count',
+        'no_show_count',
+        'created_at',
+      ])
+      .where('phone', '=', phone)
+      .executeTakeFirst();
+    if (!user) return { found: false as const, phone };
+    const [open, recent, places] = await Promise.all([
+      this.db.kysely
+        .selectFrom('rides')
+        .select('id')
+        .where('rider_id', '=', user.id)
+        .where('status', 'in', [...UNFINISHED_RIDE_STATUSES])
+        .executeTakeFirst(),
+      this.db.kysely
+        .selectFrom('rides')
+        .selectAll()
+        .where('rider_id', '=', user.id)
+        .orderBy('id', 'desc')
+        .limit(10)
+        .execute(),
+      this.db.kysely
+        .selectFrom('rider_places')
+        .select(['id', 'kind', 'label', 'address', 'landmark', 'lat', 'lng'])
+        .where('user_id', '=', user.id)
+        .orderBy('created_at')
+        .execute(),
+    ]);
+    // pickups and drop-offs of recent rides, one per place, newest first
+    const seen = new Set<string>();
+    const recentPlaces: {
+      address: string | null;
+      landmark: string | null;
+      lat: number;
+      lng: number;
+    }[] = [];
+    for (const r of recent) {
+      for (const p of [
+        { ...r.pickup, lat: r.pickup_lat, lng: r.pickup_lng },
+        { ...r.dropoff, lat: r.dropoff_lat, lng: r.dropoff_lng },
+      ]) {
+        const k = `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        recentPlaces.push({ address: p.address, landmark: p.landmark, lat: p.lat, lng: p.lng });
+      }
+    }
+    return {
+      found: true as const,
+      phone,
+      user: {
+        id: user.id,
+        name: user.full_name,
+        status: user.status,
+        rating:
+          Math.round(((user.rider_rating_sum + 5 * 4.8) / (user.rider_rating_count + 5)) * 10) / 10,
+        noShows: user.no_show_count,
+        since: user.created_at,
+      },
+      openRide: open ? await this.adminView(open.id) : null,
+      recentRides: recent.map((r) => this.baseView(r)),
+      recentPlaces: recentPlaces.slice(0, 10),
+      savedPlaces: places,
+    };
+  }
+
   // Card rides not paid in time -------------------------------------------------------
 
   /**
@@ -944,8 +1117,52 @@ export class RidesService {
       cancelFeeNow,
       // card rides: the prepayment, with where to pay while it is pending
       payment: ride.payment_method === 'card' ? await this.intents.forRide(ride.id) : null,
+      // this ride's own rules (the tariff it was ordered under), whatever changed since
+      rules: {
+        freeWaitingMinutes: tariff.waiting.free_minutes,
+        waitingPerMinute: tariff.waiting.per_minute,
+        cancellationFee: tariff.cancellation_fee,
+      },
+      rated: await this.rated(ride.id, 'rider'),
+      ...(await this.carProgress(ride)),
       events: await this.events(ride.id, RIDER_EVENTS),
     };
+  }
+
+  private async rated(rideId: string, role: 'rider' | 'driver'): Promise<boolean> {
+    const row = await this.db.kysely
+      .selectFrom('ratings')
+      .select('id')
+      .where('ride_id', '=', rideId)
+      .where('author_role', '=', role)
+      .executeTakeFirst();
+    return Boolean(row);
+  }
+
+  /**
+   * The car coming: its road ETA to the pickup (refreshed with its position every ~15 s)
+   * while the driver is on the way, and its recent trail since the assignment for a smooth
+   * marker (like SFF Eats' courier trail).
+   */
+  private async carProgress(ride: Ride) {
+    if (!ride.driver_id || !isActive(ride.status)) return { driverEta: null, trail: [] };
+    const [trail, car] = await Promise.all([
+      this.track.trail(ride.driver_id, ride.assigned_at),
+      this.db.kysely
+        .selectFrom('drivers')
+        .select(['lat', 'lng'])
+        .where('user_id', '=', ride.driver_id)
+        .executeTakeFirst(),
+    ]);
+    const driverEta =
+      ride.status === 'driver_assigned' && car?.lat != null && car.lng != null
+        ? await this.pickupEta.eta(
+            ride.id,
+            { lat: car.lat, lng: car.lng },
+            { lat: ride.pickup_lat, lng: ride.pickup_lng },
+          )
+        : null;
+    return { driverEta, trail };
   }
 
   /** The driver's view: the rider's name, phone and rating, the fare and deductions. */
@@ -1185,13 +1402,40 @@ export class RidesService {
   }
 
   /** Operators' list: open rides by default, or by status, newest first. */
-  async adminList(filter: { status?: RideStatus | 'open'; q?: string }) {
+  /**
+   * Operators' list, newest first: open rides by default, or by status ("all" for any), a
+   * driver, a class, Tashkent days (from/to inclusive), a phone or number search; paged by
+   * `cursor` = the last id seen (200 per page).
+   */
+  async adminList(filter: {
+    status?: RideStatus | 'open' | 'all';
+    q?: string;
+    driverId?: string;
+    riderId?: string;
+    class?: RideClass;
+    from?: string;
+    to?: string;
+    cursor?: string;
+  }) {
     const statuses =
-      !filter.status || filter.status === 'open' ? [...UNFINISHED_RIDE_STATUSES] : [filter.status];
+      filter.status === 'all'
+        ? null
+        : !filter.status || filter.status === 'open'
+          ? [...UNFINISHED_RIDE_STATUSES]
+          : [filter.status];
+    const dayStart = (d: string) => new Date(`${d}T00:00:00+05:00`);
     const rows = await this.db.kysely
       .selectFrom('rides')
       .selectAll()
-      .where('status', 'in', statuses)
+      .$if(statuses !== null, (q) => q.where('status', 'in', statuses!))
+      .$if(Boolean(filter.driverId), (q) => q.where('driver_id', '=', filter.driverId!))
+      .$if(Boolean(filter.riderId), (q) => q.where('rider_id', '=', filter.riderId!))
+      .$if(Boolean(filter.class), (q) => q.where('class', '=', filter.class!))
+      .$if(Boolean(filter.from), (q) => q.where('requested_at', '>=', dayStart(filter.from!)))
+      .$if(Boolean(filter.to), (q) =>
+        q.where('requested_at', '<', new Date(dayStart(filter.to!).getTime() + 86_400_000)),
+      )
+      .$if(Boolean(filter.cursor), (q) => q.where('id', '<', filter.cursor!))
       .$if(Boolean(filter.q), (q) =>
         q.where((eb) =>
           eb.or([
@@ -1200,7 +1444,7 @@ export class RidesService {
           ]),
         ),
       )
-      .orderBy('requested_at', 'desc')
+      .orderBy('id', 'desc')
       .limit(200)
       .execute();
     return rows.map((r) => ({

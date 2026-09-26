@@ -16,7 +16,8 @@ import { IntercityNotificationsHandler } from './modules/notifications/intercity
 import { NotificationsHandler } from './modules/notifications/notifications.handler.js';
 import { NotificationsWorkerModule } from './modules/notifications/notifications.module.js';
 import { PaymentsCoreModule } from './modules/payments/payments.module.js';
-import { RealtimePublisher } from './modules/realtime/realtime.publisher.js';
+import { PositionsJob } from './modules/realtime/positions.job.js';
+import { RealtimeBus, RealtimePublisher } from './modules/realtime/realtime.publisher.js';
 import { RidesModule } from './modules/rides/rides.module.js';
 import { FiscalCoreModule, FiscalHandler } from './modules/fiscal/fiscal.module.js';
 import { HousekeepingJob } from './modules/housekeeping/housekeeping.job.js';
@@ -67,6 +68,8 @@ import { WorkerRuntime } from './worker-runtime.js';
     { provide: WORKER_METRICS, useFactory: () => createRegistry('worker') },
     OutboxDispatcher,
     HousekeepingJob,
+    PositionsJob,
+    RealtimeBus,
     LicenceHandler,
     {
       provide: LICENCE_REGISTRY,

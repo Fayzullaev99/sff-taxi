@@ -30,6 +30,7 @@ import {
 } from '../../lib/driver-rules.js';
 import { priority } from '../../lib/priority.js';
 import { DriverTrackService } from '../geo/driver-track.service.js';
+import { PickupEtaService } from '../geo/pickup-eta.service.js';
 import { RealtimeBus } from '../realtime/realtime.publisher.js';
 import { LedgerService } from '../billing/ledger.service.js';
 import { UploadsService } from '../uploads/uploads.service.js';
@@ -95,6 +96,7 @@ export class DriversService {
     private readonly ledger: LedgerService,
     private readonly realtime: RealtimeBus,
     private readonly uploads: UploadsService,
+    private readonly pickupEta: PickupEtaService,
   ) {}
 
   // Driver side ------------------------------------------------------------------------
@@ -331,11 +333,18 @@ export class DriversService {
     // the rider of the driver's ride watches the car come
     const ride = await this.db.kysely
       .selectFrom('rides')
-      .select(['id', 'rider_id'])
+      .select(['id', 'rider_id', 'status', 'pickup_lat', 'pickup_lng'])
       .where('driver_id', '=', user.userId)
       .where('status', 'in', [...ACTIVE_RIDE_STATUSES])
       .executeTakeFirst();
     if (ride) {
+      // on the way to the pickup: the road ETA (one router call per ~15 s, cached)
+      const eta =
+        ride.status === 'driver_assigned'
+          ? await this.pickupEta
+              .eta(ride.id, fix, { lat: ride.pickup_lat, lng: ride.pickup_lng }, now)
+              .catch(() => null)
+          : null;
       await this.realtime.publish({
         to: { userIds: [ride.rider_id] },
         event: {
@@ -345,6 +354,7 @@ export class DriversService {
           lng: fix.lng,
           heading: fix.heading ?? null,
           at: now.toISOString(),
+          etaS: eta?.etaS ?? null,
         },
       });
     }
@@ -370,6 +380,17 @@ export class DriversService {
         'v.make',
         'v.model',
         'v.class',
+        'd.lat',
+        'd.lng',
+        'd.located_at as locatedAt',
+        'd.offers_received',
+        'd.offers_accepted',
+        'd.rides_cancelled',
+        'd.rating_sum',
+        'd.rating_count',
+        'd.rides_completed as ridesCompleted',
+        'd.licence_status as licenceStatus',
+        balanceOf('d.user_id').as('balance'),
       ])
       .$if(Boolean(filter.status), (q) => q.where('d.status', '=', filter.status!))
       .$if(Boolean(filter.q), (q) =>
@@ -384,7 +405,24 @@ export class DriversService {
       .orderBy('d.created_at', 'desc')
       .limit(200)
       .execute();
-    return rows.map((r) => ({ ...r, plateFormatted: r.plate ? formatPlate(r.plate) : null }));
+    return rows.map(
+      ({ offers_received, offers_accepted, rides_cancelled, rating_sum, rating_count, ...r }) => {
+        const p = priority({
+          offersReceived: offers_received,
+          offersAccepted: offers_accepted,
+          ridesCancelled: rides_cancelled,
+          ratingSum: rating_sum,
+          ratingCount: rating_count,
+        });
+        return {
+          ...r,
+          balance: Number(r.balance),
+          rating: p.stars,
+          priority: p.score,
+          plateFormatted: r.plate ? formatPlate(r.plate) : null,
+        };
+      },
+    );
   }
 
   /** Everything an operator needs to verify a driver, with the status history. */

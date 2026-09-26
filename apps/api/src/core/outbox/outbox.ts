@@ -26,7 +26,9 @@ export type OutboxTopic =
   /** A completed ride or booking needs its fiscal receipt. { rideId } | { bookingId } */
   | 'fiscal.receipt_due'
   /** A driver's licence card must be checked with the registry. { driverId } */
-  | 'driver.licence_check_requested';
+  | 'driver.licence_check_requested'
+  /** A complaint was opened, answered or resolved. { complaintId, rideId, riderId, status, by } */
+  | 'complaint.changed';
 
 /**
  * Records an event in the caller's transaction: it is delivered by the worker

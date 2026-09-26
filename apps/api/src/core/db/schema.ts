@@ -592,6 +592,68 @@ export interface LicenceChecksTable {
   created_at: CreatedAt;
 }
 
+export const PLACE_KINDS = ['home', 'work', 'other'] as const;
+export type PlaceKind = (typeof PLACE_KINDS)[number];
+
+export interface RiderPlacesTable {
+  id: string;
+  user_id: string;
+  kind: PlaceKind;
+  label: string | null;
+  address: string | null;
+  landmark: string | null;
+  lat: number;
+  lng: number;
+  created_at: CreatedAt;
+  updated_at: Timestamp;
+}
+
+export const COMPLAINT_TYPES = [
+  'lost_item',
+  'driver_behaviour',
+  'route',
+  'price',
+  'car_condition',
+  'safety',
+  'other',
+] as const;
+export type ComplaintType = (typeof COMPLAINT_TYPES)[number];
+export const COMPLAINT_RESOLUTIONS = [
+  'item_returned',
+  'refund',
+  'driver_warned',
+  'driver_blocked',
+  'rejected',
+  'no_action',
+] as const;
+export type ComplaintResolution = (typeof COMPLAINT_RESOLUTIONS)[number];
+export type ComplaintStatus = 'open' | 'in_progress' | 'resolved';
+
+export interface ComplaintsTable {
+  id: string;
+  ride_id: string;
+  rider_id: string;
+  driver_id: string | null;
+  type: ComplaintType;
+  status: Generated<ComplaintStatus>;
+  text: string;
+  resolution: ComplaintResolution | null;
+  resolution_note: string | null;
+  resolved_by: string | null;
+  resolved_at: Timestamp | null;
+  created_at: CreatedAt;
+  updated_at: Timestamp;
+}
+
+export interface ComplaintMessagesTable {
+  id: string;
+  complaint_id: string;
+  author_id: string | null;
+  author_role: 'rider' | 'admin';
+  text: string;
+  created_at: CreatedAt;
+}
+
 export interface DB {
   users: UsersTable;
   admins: AdminsTable;
@@ -626,4 +688,7 @@ export interface DB {
   intercity_bookings: IntercityBookingsTable;
   fiscal_receipts: FiscalReceiptsTable;
   licence_checks: LicenceChecksTable;
+  rider_places: RiderPlacesTable;
+  complaints: ComplaintsTable;
+  complaint_messages: ComplaintMessagesTable;
 }

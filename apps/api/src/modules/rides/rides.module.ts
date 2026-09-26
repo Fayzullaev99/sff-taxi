@@ -25,6 +25,7 @@ import { GeoCoreModule } from '../geo/geo-core.module.js';
 import { GeoService } from '../geo/geo.service.js';
 import { PaymentsCoreModule } from '../payments/payments.module.js';
 import { PaymentsService } from '../payments/payments.service.js';
+import { AvailabilityService } from './availability.service.js';
 import { DRIVER_CANCEL_REASONS, type DriverCancelReason, RidesService } from './rides.service.js';
 
 const Lat = z.number().min(-90).max(90);
@@ -32,7 +33,6 @@ const Lng = z.number().min(-180).max(180);
 const PointBody = z.object({ lat: Lat, lng: Lng });
 const Address = z.string().trim().min(1).max(300).nullable().default(null);
 const Landmark = z.string().trim().min(1).max(200).nullable().default(null);
-const PlaceBody = PointBody.extend({ address: Address, landmark: Landmark });
 const PlaceText = z
   .object({ address: Address, landmark: Landmark })
   .default({ address: null, landmark: null });
@@ -49,15 +49,28 @@ const OrderBody = z.object({
   comment: Comment,
   clientRequestId: z.uuid(),
 });
+// coordinates may be left out when the operator's quote gives them
+const PhonePlace = z.object({
+  lat: Lat.optional(),
+  lng: Lng.optional(),
+  address: Address,
+  landmark: Landmark,
+});
 const PhoneOrderBody = z.object({
   riderPhone: UzPhone,
   riderName: z.string().trim().min(1).max(100).nullable().default(null),
-  pickup: PlaceBody,
-  dropoff: PlaceBody,
+  pickup: PhonePlace,
+  dropoff: PhonePlace,
   class: z.enum(RIDE_CLASSES).default('economy'),
   options: Options,
   comment: Comment,
+  /** POST admin/rides/quote: the fare read out to the caller is the fare of the ride. */
+  quoteId: z.uuid().nullable().default(null),
+  /** The panel's idempotency key: a repeated request returns the same ride (200). */
+  clientRequestId: z.uuid().nullable().default(null),
 });
+const LookupBody = z.object({ phone: UzPhone });
+const DayString = z.iso.date('Sana YYYY-MM-DD ko‘rinishida');
 const Cursor = z.object({ cursor: z.uuid().optional() });
 const RiderCancelBody = z.object({
   reason: z.string().trim().min(1).max(300).nullable().default(null),
@@ -71,9 +84,17 @@ const DriverCancelBody = z.object({
 const OperatorCancelBody = z.object({ reason: z.string().trim().min(3).max(300) });
 const AssignBody = z.object({ driverId: z.uuid() });
 const AdminListQuery = z.object({
-  status: z.enum([...RIDE_STATUSES, 'open']).optional(),
+  status: z.enum([...RIDE_STATUSES, 'open', 'all']).optional(),
   q: z.string().trim().min(1).max(20).optional(),
+  driverId: z.uuid().optional(),
+  riderId: z.uuid().optional(),
+  class: z.enum(RIDE_CLASSES).optional(),
+  from: DayString.optional(),
+  to: DayString.optional(),
+  /** The last id of the previous page. */
+  cursor: z.uuid().optional(),
 });
+const DriverRidesQuery = AdminListQuery.omit({ driverId: true });
 const TariffQuery = z.object({
   lat: z.coerce.number().min(-90).max(90),
   lng: z.coerce.number().min(-180).max(180),
@@ -231,13 +252,16 @@ export class AdminRidesController {
     return this.rides.quote(user, body);
   }
 
-  /** A phone order for a caller without the app. */
+  /** A phone order for a caller without the app: 201, or 200 for a repeated clientRequestId. */
   @Post()
-  phoneOrder(
+  async phoneOrder(
     @CurrentUser() user: AuthUser,
     @Body(new ZodPipe(PhoneOrderBody)) body: z.output<typeof PhoneOrderBody>,
+    @Res({ passthrough: true }) res: Response,
   ) {
-    return this.rides.phoneOrder(user, body);
+    const result = await this.rides.phoneOrder(user, body);
+    res.status(result.created ? HttpStatus.CREATED : HttpStatus.OK);
+    return result.ride;
   }
 
   @Get()
@@ -272,10 +296,46 @@ export class AdminRidesController {
   }
 }
 
+/** Operators: who is calling (phone orders). */
+@Controller('admin/customers')
+@AdminOnly()
+export class AdminCustomersController {
+  constructor(private readonly rides: RidesService) {}
+
+  /** POST, not GET: the phone stays out of URLs and logs. */
+  @Post('lookup')
+  @HttpCode(HttpStatus.OK)
+  lookup(@Body(new ZodPipe(LookupBody)) body: z.output<typeof LookupBody>) {
+    return this.rides.customerLookup(body.phone);
+  }
+}
+
+/** Operators: a driver's rides (same filters as the ride list). */
+@Controller('admin/drivers')
+@AdminOnly()
+export class AdminDriverRidesController {
+  constructor(private readonly rides: RidesService) {}
+
+  @Get(':id/rides')
+  list(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query(new ZodPipe(DriverRidesQuery)) q: z.output<typeof DriverRidesQuery>,
+  ) {
+    return this.rides.adminList({ status: 'all', ...q, driverId: id });
+  }
+}
+
 @Module({
   imports: [GeoCoreModule, BillingModule, PaymentsCoreModule, FiscalCoreModule],
-  controllers: [RidesController, TariffsController, DriverRidesController, AdminRidesController],
-  providers: [RidesService],
+  controllers: [
+    RidesController,
+    TariffsController,
+    DriverRidesController,
+    AdminRidesController,
+    AdminCustomersController,
+    AdminDriverRidesController,
+  ],
+  providers: [RidesService, AvailabilityService],
   exports: [RidesService],
 })
 export class RidesModule {}

@@ -25,6 +25,19 @@ export type RealtimeEvent =
   | { type: 'driver.updated'; driverId: string; status: string }
   | { type: 'driver.appeal'; appealId: string; driverId: string }
   | { type: 'intercity.updated'; tripId: string; bookingId: string | null; status: string }
+  | { type: 'complaint.updated'; complaintId: string; rideId: string; status: string }
+  | {
+      /** Operators' live map: every online driver's last position, every few seconds. */
+      type: 'drivers.positions';
+      drivers: {
+        id: string;
+        lat: number;
+        lng: number;
+        heading: number | null;
+        at: string;
+        busy: boolean;
+      }[];
+    }
   | {
       type: 'driver.location';
       rideId: string;
@@ -32,6 +45,8 @@ export type RealtimeEvent =
       lng: number;
       heading: number | null;
       at: string;
+      /** Road ETA to the pickup while the driver is on the way (refreshed every ~15 s). */
+      etaS: number | null;
     };
 
 export interface RealtimeMessage {
@@ -64,7 +79,10 @@ export class RealtimePublisher implements OutboxHandler {
 
   handles(topic: string): boolean {
     return (
-      topic.startsWith('ride.') || topic.startsWith('driver.') || topic.startsWith('intercity.')
+      topic.startsWith('ride.') ||
+      topic.startsWith('driver.') ||
+      topic.startsWith('intercity.') ||
+      topic === 'complaint.changed'
     );
   }
 
@@ -128,6 +146,16 @@ export class RealtimePublisher implements OutboxHandler {
       case 'ride.requested':
       case 'ride.status_changed':
         return this.rideUpdated(String(p.rideId), p.previousDriverId);
+      case 'complaint.changed':
+        return this.bus.publish({
+          to: { userIds: [String(p.riderId)], admins: true },
+          event: {
+            type: 'complaint.updated',
+            complaintId: String(p.complaintId),
+            rideId: String(p.rideId),
+            status: String(p.status),
+          },
+        });
       case 'intercity.trip_changed':
       case 'intercity.booking_changed':
         return this.tripUpdated(
