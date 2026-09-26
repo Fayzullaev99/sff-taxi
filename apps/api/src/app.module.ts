@@ -20,6 +20,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module.js';
 import { RidesModule } from './modules/rides/rides.module.js';
 import { SafetyModule } from './modules/safety/safety.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
+import { UploadsModule } from './modules/uploads/uploads.module.js';
 
 /**
  * Request log fields that carry credentials: bearer tokens and Payme's Basic auth (our
@@ -81,6 +82,7 @@ export function logRequest<T extends { url?: unknown }>(req: T): T {
     RealtimeModule,
     NotificationsModule,
     OutboxAdminModule,
+    UploadsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_INTERCEPTOR, useClass: RateLimitInterceptor }],

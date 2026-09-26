@@ -34,6 +34,8 @@ export default defineConfig({
     // test files share one database; run them one at a time
     fileParallelism: false,
     testTimeout: 20_000,
+    // building the app imports the AWS SDK: slow on a cold Windows file cache
+    hookTimeout: 60_000,
     env: testEnv,
   },
 });

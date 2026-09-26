@@ -1,0 +1,11 @@
+{
+  "identities": [
+    {
+      "name": "taxi_dev",
+      "credentials": [
+        { "accessKey": "taxi_dev_access", "secretKey": "taxi_dev_secret_0123456789" }
+      ],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

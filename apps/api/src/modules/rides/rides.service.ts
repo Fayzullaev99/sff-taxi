@@ -44,6 +44,7 @@ import { GeoService, publicCity } from '../geo/geo.service.js';
 import { RoutingService } from '../geo/routing.service.js';
 import { type PaymentMethod, PaymentsService } from '../payments/payments.service.js';
 import { SettingsService } from '../settings/settings.module.js';
+import { UploadsService } from '../uploads/uploads.service.js';
 
 type Db = Tx | Database['kysely'];
 type Ride = Selectable<RidesTable>;
@@ -111,6 +112,7 @@ export class RidesService {
     private readonly settings: SettingsService,
     private readonly charges: RideChargesService,
     private readonly payments: PaymentsService,
+    private readonly uploads: UploadsService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -953,7 +955,10 @@ export class RidesService {
     const d = await this.db.kysely
       .selectFrom('drivers as d')
       .innerJoin('users as u', 'u.id', 'd.user_id')
+      .leftJoin('vehicles as v', 'v.driver_id', 'd.user_id')
       .select([
+        'd.photo_upload_id',
+        'v.photo_upload_id as vehicle_photo_upload_id',
         'd.user_id',
         'd.full_name',
         'u.phone',
@@ -984,6 +989,9 @@ export class RidesService {
       phone: d.phone,
       rating: p.stars,
       ridesCompleted: d.rides_completed,
+      // short-lived read URLs (private bucket); null until the driver uploaded them
+      photoUrl: await this.uploads.readUrl(d.photo_upload_id),
+      vehiclePhotoUrl: await this.uploads.readUrl(d.vehicle_photo_upload_id),
       location:
         d.lat !== null && d.lng !== null
           ? { lat: d.lat, lng: d.lng, heading: d.heading, at: d.located_at }

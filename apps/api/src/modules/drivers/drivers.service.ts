@@ -32,6 +32,7 @@ import { priority } from '../../lib/priority.js';
 import { DriverTrackService } from '../geo/driver-track.service.js';
 import { RealtimeBus } from '../realtime/realtime.publisher.js';
 import { LedgerService } from '../billing/ledger.service.js';
+import { UploadsService } from '../uploads/uploads.service.js';
 
 type Db = Tx | Database['kysely'];
 
@@ -91,6 +92,7 @@ export class DriversService {
     private readonly track: DriverTrackService,
     private readonly ledger: LedgerService,
     private readonly realtime: RealtimeBus,
+    private readonly uploads: UploadsService,
   ) {}
 
   // Driver side ------------------------------------------------------------------------
@@ -179,18 +181,54 @@ export class DriversService {
   async setDocument(
     user: AuthUser,
     kind: DocumentKind,
-    input: { url: string; expiresOn: string | null },
+    input: { uploadId?: string; url?: string; expiresOn: string | null },
   ) {
     await this.driverRow(user.userId);
     if (input.expiresOn && input.expiresOn < tashkentDate(new Date())) {
       throw new BadRequestException('Hujjat muddati o‘tgan');
     }
-    const values = { url: input.url, expires_on: input.expiresOn, uploaded_at: new Date() };
+    if (input.uploadId) {
+      // a photo of the car or a selfie may be the same file as the one riders see
+      await this.uploads.requireAttachable(user.userId, input.uploadId, [
+        'document',
+        ...(kind === 'vehicle_photo' ? (['vehicle_photo'] as const) : []),
+        ...(kind === 'selfie' ? (['profile_photo'] as const) : []),
+      ]);
+    }
+    const values = {
+      url: input.uploadId ? null : (input.url ?? null),
+      upload_id: input.uploadId ?? null,
+      expires_on: input.expiresOn,
+      uploaded_at: new Date(),
+    };
     await this.db.kysely
       .insertInto('driver_documents')
       .values({ driver_id: user.userId, kind, ...values })
       .onConflict((oc) => oc.columns(['driver_id', 'kind']).doUpdateSet(values))
       .execute();
+    return this.me(user);
+  }
+
+  /** Sets the driver's photo or the car's photo that riders see. */
+  async setPhoto(user: AuthUser, of: 'driver' | 'vehicle', uploadId: string) {
+    await this.driverRow(user.userId);
+    await this.uploads.requireAttachable(user.userId, uploadId, [
+      of === 'driver' ? 'profile_photo' : 'vehicle_photo',
+    ]);
+    if (of === 'driver') {
+      await this.db.kysely
+        .updateTable('drivers')
+        .set({ photo_upload_id: uploadId, updated_at: new Date() })
+        .where('user_id', '=', user.userId)
+        .execute();
+    } else {
+      const res = await this.db.kysely
+        .updateTable('vehicles')
+        .set({ photo_upload_id: uploadId, updated_at: new Date() })
+        .where('driver_id', '=', user.userId)
+        .executeTakeFirst();
+      if (!res.numUpdatedRows) throw new NotFoundException('Avtomobil ma’lumotlari yo‘q');
+    }
     return this.me(user);
   }
 
@@ -463,7 +501,13 @@ export class DriversService {
         .executeTakeFirst(),
       this.db.kysely
         .selectFrom('driver_documents')
-        .select(['kind', 'url', 'expires_on as expiresOn', 'uploaded_at as uploadedAt'])
+        .select([
+          'kind',
+          'url',
+          'upload_id',
+          'expires_on as expiresOn',
+          'uploaded_at as uploadedAt',
+        ])
         .where('driver_id', '=', driverId)
         .orderBy('kind')
         .execute(),
@@ -475,6 +519,12 @@ export class DriversService {
     ]);
     if (!d) throw new NotFoundException('Haydovchi topilmadi');
     const have = new Set(docs.map((x) => x.kind));
+    const urls = await this.uploads.readUrls([
+      ...docs.map((x) => x.upload_id),
+      d.photo_upload_id,
+      v?.photo_upload_id ?? null,
+    ]);
+    const readUrl = (id: string | null) => (id ? (urls.get(id) ?? null) : null);
     return {
       id: d.user_id,
       fullName: d.full_name,
@@ -496,8 +546,14 @@ export class DriversService {
         d.lat !== null && d.lng !== null
           ? { lat: d.lat, lng: d.lng, heading: d.heading, at: d.located_at }
           : null,
-      vehicle: v ? vehicleView(v) : null,
-      documents: docs,
+      photoUrl: readUrl(d.photo_upload_id),
+      vehicle: v ? { ...vehicleView(v), photoUrl: readUrl(v.photo_upload_id) } : null,
+      documents: docs.map(({ upload_id, url, ...doc }) => ({
+        ...doc,
+        uploadId: upload_id,
+        // uploaded files: a short-lived read URL; old apps: the URL they sent
+        url: upload_id ? readUrl(upload_id) : url,
+      })),
       missingDocuments: DOCUMENT_KINDS.filter((k) => !have.has(k)),
       priority: priority({
         offersReceived: d.offers_received,

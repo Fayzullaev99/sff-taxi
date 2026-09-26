@@ -40,10 +40,7 @@ describe('production-readiness audit', () => {
       .expect(429);
     expect(locked.body.message).toMatch(/noto‘g‘ri kod/);
     await app.get<Redis>(REDIS).del(`rl:otp:wrong:${phone}`);
-    await anon
-      .post('/v1/auth/verify')
-      .send({ phone, code: '123456', client: 'rider' })
-      .expect(200);
+    await anon.post('/v1/auth/verify').send({ phone, code: '123456', client: 'rider' }).expect(200);
   });
 
   it('refuses an operator’s double click on a cash top-up', async () => {
@@ -187,7 +184,11 @@ describe('rate limits on public and costly routes', () => {
   it('answers 429 once one address reads the public tariff too fast', async () => {
     const anon = api(app);
     const url = `/v1/tariffs?lat=${GULISTON.lat}&lng=${GULISTON.lng}`;
-    for (let i = 0; i < 120; i++) await anon.get(url).expect(200);
+    // at once: sequential requests on a slow machine could straddle the 60 s window
+    const statuses = await Promise.all(
+      Array.from({ length: 120 }, () => anon.get(url).then((r) => r.status)),
+    );
+    expect(statuses.every((s) => s === 200)).toBe(true);
     const res = await anon.get(url).expect(429);
     expect(res.body.retryAfterSeconds).toBeGreaterThan(0);
   });

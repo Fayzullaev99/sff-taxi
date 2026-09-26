@@ -90,6 +90,16 @@ const EnvSchema = z
     CLICK_MERCHANT_ID: z.string().regex(/^\d+$/, 'digits').optional(),
     CLICK_SECRET: z.string().min(8).optional(),
 
+    // Uploads (S3-compatible, private bucket; all or none: uploads answer 503 until set) -------
+    /** Omit for AWS S3; set for any other S3-compatible service (SeaweedFS, MinIO...). */
+    STORAGE_S3_ENDPOINT: z.url().optional(),
+    /** Endpoint the apps PUT to and read from, when it differs from the one the API reaches. */
+    STORAGE_S3_PUBLIC_ENDPOINT: z.url().optional(),
+    STORAGE_S3_REGION: z.string().min(1).default('us-east-1'),
+    STORAGE_S3_BUCKET: z.string().min(3).max(63).optional(),
+    STORAGE_S3_ACCESS_KEY: z.string().min(1).optional(),
+    STORAGE_S3_SECRET_KEY: z.string().min(1).optional(),
+
     // Geography (docs/architecture.md) ------------------------------------------
     /** Address search and reverse geocoding; yandex falls back to nominatim when that is configured too. */
     GEOCODER: z.enum(['yandex', 'nominatim', 'none']).default('none'),
@@ -154,6 +164,12 @@ const EnvSchema = z
     if (env.CLICK_SERVICE_ID || env.CLICK_MERCHANT_ID || env.CLICK_SECRET) {
       require(['CLICK_SERVICE_ID', 'CLICK_MERCHANT_ID', 'CLICK_SECRET'], 'for Click');
     }
+    const storage = [
+      'STORAGE_S3_BUCKET',
+      'STORAGE_S3_ACCESS_KEY',
+      'STORAGE_S3_SECRET_KEY',
+    ] as const;
+    if (storage.some((key) => env[key])) require([...storage], 'for uploads');
     if (env.GEOCODER === 'yandex') require(['YANDEX_GEOCODER_KEY'], 'for GEOCODER=yandex');
     if (env.GEOCODER === 'nominatim') {
       require(['GEOCODER_CONTACT_EMAIL'], 'for GEOCODER=nominatim (usage policy)');

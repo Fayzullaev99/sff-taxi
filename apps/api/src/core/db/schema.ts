@@ -140,6 +140,7 @@ export interface DriversTable {
   rides_cancelled: Generated<number>;
   rating_sum: Generated<number>;
   rating_count: Generated<number>;
+  photo_upload_id: string | null;
   created_at: CreatedAt;
   updated_at: Timestamp;
 }
@@ -154,13 +155,16 @@ export interface VehiclesTable {
   seats: number;
   class: RideClassColumn;
   features: Generated<VehicleFeature[]>;
+  photo_upload_id: string | null;
   updated_at: Timestamp;
 }
 
 export interface DriverDocumentsTable {
   driver_id: string;
   kind: DocumentKind;
-  url: string;
+  /** Apps built before uploads send a URL; otherwise upload_id. Exactly one is set. */
+  url: string | null;
+  upload_id: string | null;
   expires_on: DateOnly | null;
   uploaded_at: Timestamp;
 }
@@ -394,6 +398,22 @@ export interface NotificationsTable {
   created_at: CreatedAt;
 }
 
+export const UPLOAD_PURPOSES = ['document', 'profile_photo', 'vehicle_photo'] as const;
+export type UploadPurpose = (typeof UPLOAD_PURPOSES)[number];
+export type UploadContentType = 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';
+
+export interface UploadsTable {
+  id: string;
+  owner_id: string;
+  purpose: UploadPurpose;
+  object_key: string;
+  content_type: UploadContentType;
+  size_bytes: number;
+  status: Generated<'pending' | 'ready'>;
+  created_at: CreatedAt;
+  completed_at: Timestamp | null;
+}
+
 export interface DB {
   users: UsersTable;
   admins: AdminsTable;
@@ -418,4 +438,5 @@ export interface DB {
   tax_withholdings: TaxWithholdingsTable;
   push_devices: PushDevicesTable;
   notifications: NotificationsTable;
+  uploads: UploadsTable;
 }

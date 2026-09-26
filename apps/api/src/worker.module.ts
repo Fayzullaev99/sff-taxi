@@ -13,7 +13,9 @@ import { DispatchModule } from './modules/dispatch/dispatch.module.js';
 import { NotificationsHandler } from './modules/notifications/notifications.handler.js';
 import { NotificationsWorkerModule } from './modules/notifications/notifications.module.js';
 import { RealtimePublisher } from './modules/realtime/realtime.publisher.js';
+import { HousekeepingJob } from './modules/housekeeping/housekeeping.job.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
+import { UploadsModule } from './modules/uploads/uploads.module.js';
 import { WorkerRuntime } from './worker-runtime.js';
 
 /** The worker process: outbox dispatching and its handlers, periodic jobs, no HTTP API. */
@@ -33,6 +35,7 @@ import { WorkerRuntime } from './worker-runtime.js';
     RedisModule,
     SmsModule,
     SettingsModule,
+    UploadsModule,
     DispatchModule,
     NotificationsWorkerModule,
   ],
@@ -45,6 +48,7 @@ import { WorkerRuntime } from './worker-runtime.js';
     },
     { provide: WORKER_METRICS, useFactory: () => createRegistry('worker') },
     OutboxDispatcher,
+    HousekeepingJob,
     WorkerRuntime,
   ],
 })

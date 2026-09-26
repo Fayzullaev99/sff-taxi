@@ -62,10 +62,22 @@ const ApplicationBody = z.object({
   licenceCardExpiresOn: DateString,
   vehicle: VehicleBody,
 });
-const DocumentBody = z.object({
-  url: z.url({ protocol: /^https?$/ }).max(2000),
-  expiresOn: DateString.nullable().default(null),
-});
+const DocumentBody = z
+  .object({
+    /** A ready upload (POST /uploads, purpose document): the way to send documents. */
+    uploadId: z.uuid().optional(),
+    /** Deprecated: a URL hosted elsewhere, for apps built before uploads. */
+    url: z
+      .url({ protocol: /^https?$/ })
+      .max(2000)
+      .optional(),
+    expiresOn: DateString.nullable().default(null),
+  })
+  .refine((b) => (b.uploadId === undefined) !== (b.url === undefined), {
+    message: 'uploadId yoki url dan bittasini yuboring',
+    path: ['uploadId'],
+  });
+const PhotoBody = z.object({ uploadId: z.uuid() });
 const DocumentKind = z.enum(DOCUMENT_KINDS);
 const ShiftBody = z.object({ online: z.boolean() });
 const LocationBody = z.object({
@@ -107,6 +119,24 @@ export class DriverController {
     @Body(new ZodPipe(DocumentBody)) body: z.output<typeof DocumentBody>,
   ) {
     return this.drivers.setDocument(user, kind, body);
+  }
+
+  /** The driver's face riders see (an upload with purpose profile_photo). */
+  @Put('photo')
+  setPhoto(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodPipe(PhotoBody)) body: z.output<typeof PhotoBody>,
+  ) {
+    return this.drivers.setPhoto(user, 'driver', body.uploadId);
+  }
+
+  /** The car as riders see it (an upload with purpose vehicle_photo). */
+  @Put('vehicle/photo')
+  setVehiclePhoto(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodPipe(PhotoBody)) body: z.output<typeof PhotoBody>,
+  ) {
+    return this.drivers.setPhoto(user, 'vehicle', body.uploadId);
   }
 
   @Get('me')
