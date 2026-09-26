@@ -24,7 +24,7 @@ export const sessionStore = {
     } catch {
       // storage blocked: the session lasts until reload
     }
-    window.dispatchEvent(new Event('taxi.session'));
+    window.dispatchEvent(new Event('taxi:session'));
   },
 };
 

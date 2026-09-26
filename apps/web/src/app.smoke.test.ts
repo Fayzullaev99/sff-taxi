@@ -551,6 +551,11 @@ const routes: [RegExp, Mock][] = [
     /^\/v1\/me$/,
     { id: 'op1', phone: '+998900000001', fullName: 'Malika', isAdmin: true, driver: null },
   ],
+  [/^\/v1\/auth\/code$/, { expiresInSeconds: 300, resendAfterSeconds: 60 }],
+  [
+    /^\/v1\/auth\/verify$/,
+    { accessToken: 'a2', accessTokenExpiresIn: 900, refreshToken: 'r2', isNewUser: false },
+  ],
   [/^\/v1\/stream\/ticket$/, { ticket: 'x'.repeat(32), expiresInSeconds: 60 }],
   [
     /^\/v1\/geo\/config$/,
@@ -1131,6 +1136,30 @@ describe('panel smoke', () => {
     expect(calls.filter((c) => c.path === '/v1/admin/dispatch/live').length).toBeGreaterThan(
       before,
     );
+  });
+
+  it('signs an operator in with an SMS code and opens the live map', async () => {
+    calls.length = 0;
+    sessionStore.set(null);
+    try {
+      await render('/dispatch');
+      expect(document.body.textContent).toContain('Kod olish');
+      await typeInto(
+        document.querySelector<HTMLInputElement>('input[type="tel"]')!,
+        '90 000 00 01',
+      );
+      await click(button('Kod olish'));
+      await settle(6);
+      await typeInto(document.querySelector<HTMLInputElement>('.code-input')!, '111111');
+      await settle(40);
+      expect(posted('/v1/auth/verify').map((c) => c.body)).toEqual([
+        { phone: '+998900000001', code: '111111', client: 'admin' },
+      ]);
+      expect(document.body.textContent).toContain('Jonli xarita');
+      expect(document.body.textContent).not.toContain('Kod olish');
+    } finally {
+      sessionStore.set({ accessToken: 'a', refreshToken: 'r' });
+    }
   });
 
   it('called only mocked endpoints', () => {

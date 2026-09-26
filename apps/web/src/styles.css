@@ -1347,6 +1347,10 @@ textarea:disabled {
   background: var(--brand);
   color: var(--ink);
 }
+.nav-link.active .nav-count.is-info {
+  background: var(--ink);
+  color: var(--brand);
+}
 .topbar .nav-count {
   margin-left: auto;
 }
@@ -2101,9 +2105,8 @@ textarea:disabled {
     grid-template-columns: minmax(0, 1fr);
   }
   .live-side {
-    max-height: 340px;
+    max-height: 300px;
     min-height: 0;
-    order: 2;
   }
   .live-map .geo-map-canvas {
     height: 58vh;
