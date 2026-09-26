@@ -12,6 +12,7 @@ import { OutboxAdminModule } from './core/outbox/outbox-admin.module.js';
 import { RedisModule } from './core/redis/redis.module.js';
 import { SmsModule } from './core/sms/sms.module.js';
 import { HealthController } from './health/health.controller.js';
+import { AppConfigModule } from './modules/app-config/app-config.module.js';
 import { BillingModule } from './modules/billing/billing.module.js';
 import { DispatchModule } from './modules/dispatch/dispatch.module.js';
 import { DriversModule } from './modules/drivers/drivers.module.js';
@@ -87,6 +88,7 @@ export function logRequest<T extends { url?: unknown }>(req: T): T {
     OutboxAdminModule,
     UploadsModule,
     PaymentsModule,
+    AppConfigModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_INTERCEPTOR, useClass: RateLimitInterceptor }],

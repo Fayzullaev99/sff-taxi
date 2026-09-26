@@ -111,7 +111,8 @@ export class OutboxDispatcher {
           .select('id')
           .where('processed_at', 'is', null)
           .where('attempts', '<', MAX_ATTEMPTS)
-          .where('next_attempt_at', '<=', new Date())
+          // the database's clock, as for next_attempt_at's default: app and DB clocks may differ
+          .where('next_attempt_at', '<=', sql<Date>`now()`)
           .orderBy('next_attempt_at')
           .orderBy('id')
           .limit(1)
@@ -172,7 +173,7 @@ export class OutboxDispatcher {
     await db
       .updateTable('outbox')
       .set({
-        next_attempt_at: new Date(Date.now() + backoffSeconds(attempt) * 1000),
+        next_attempt_at: sql<Date>`now() + make_interval(secs => ${backoffSeconds(attempt)})`,
         last_error: lastError,
       })
       .where('id', '=', row.id)

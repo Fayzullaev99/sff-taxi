@@ -57,5 +57,5 @@ npm workspaces under `apps/*`: `apps/api` (NestJS API + worker) now; `apps/rider
 ## Local services
 
 Postgres :5460 (`taxi_owner`/`taxi_owner_dev` owner, `taxi_app`/`taxi_app_dev` runtime),
-Redis :6394, API :3200, worker health :3201, operator panel (planned) :5190. Operator phone in
+Redis :6394, API :3200, worker health :3201, operator panel (apps/web) :5280, S3 (SeaweedFS) :8335. Operator phone in
 dev: `+998900000001` (`ADMIN_PHONES`); with `SMS_PROVIDER=console` codes appear in the API log.

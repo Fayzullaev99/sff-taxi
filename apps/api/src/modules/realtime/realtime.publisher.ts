@@ -18,11 +18,12 @@ export interface Audience {
  */
 export type RealtimeEvent =
   | { type: 'ride.updated'; rideId: string; status: string }
-  | { type: 'offer.new'; offerId: string; rideId: string; expiresAt: string }
-  | { type: 'offer.closed'; offerId: string; rideId: string; status: string }
+  | { type: 'offer.new'; offerId: string; rideId: string; driverId: string; expiresAt: string }
+  | { type: 'offer.closed'; offerId: string; rideId: string; driverId: string; status: string }
   | { type: 'ride.attention'; rideId: string; reason: string }
   | { type: 'sos'; sosId: string; rideId: string }
-  | { type: 'driver.updated'; status: string }
+  | { type: 'driver.updated'; driverId: string; status: string }
+  | { type: 'driver.appeal'; appealId: string; driverId: string }
   | {
       type: 'driver.location';
       rideId: string;
@@ -61,7 +62,7 @@ export class RealtimePublisher implements OutboxHandler {
   }
 
   handles(topic: string): boolean {
-    return topic.startsWith('ride.') || topic === 'driver.status_changed';
+    return topic.startsWith('ride.') || topic.startsWith('driver.');
   }
 
   async handle(event: OutboxEvent): Promise<void> {
@@ -76,22 +77,24 @@ export class RealtimePublisher implements OutboxHandler {
         // an offer already answered or withdrawn is not news any more
         if (!offer || offer.status !== 'pending') return;
         return this.bus.publish({
-          to: { userIds: [offer.driver_id] },
+          to: { userIds: [offer.driver_id], admins: true },
           event: {
             type: 'offer.new',
             offerId: offer.id,
             rideId: offer.ride_id,
+            driverId: offer.driver_id,
             expiresAt: offer.expires_at.toISOString(),
           },
         });
       }
       case 'ride.offer_closed':
         return this.bus.publish({
-          to: { userIds: [String(p.driverId)] },
+          to: { userIds: [String(p.driverId)], admins: true },
           event: {
             type: 'offer.closed',
             offerId: String(p.offerId),
             rideId: String(p.rideId),
+            driverId: String(p.driverId),
             status: String(p.status),
           },
         });
@@ -108,7 +111,16 @@ export class RealtimePublisher implements OutboxHandler {
       case 'driver.status_changed':
         return this.bus.publish({
           to: { userIds: [String(p.driverId)], admins: true },
-          event: { type: 'driver.updated', status: String(p.to) },
+          event: { type: 'driver.updated', driverId: String(p.driverId), status: String(p.to) },
+        });
+      case 'driver.appeal':
+        return this.bus.publish({
+          to: { admins: true },
+          event: {
+            type: 'driver.appeal',
+            appealId: String(p.appealId),
+            driverId: String(p.driverId),
+          },
         });
       case 'ride.requested':
       case 'ride.status_changed':

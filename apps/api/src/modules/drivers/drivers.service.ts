@@ -54,6 +54,7 @@ export interface ApplicationInput {
     seats: number;
     class: 'economy' | 'comfort';
     features: VehicleFeature[];
+    cngInTrunk: boolean;
   };
 }
 
@@ -160,6 +161,7 @@ export class DriversService {
         seats: v.seats,
         class: v.class,
         features: [...new Set(v.features)],
+        cng_in_trunk: v.cngInTrunk,
         updated_at: new Date(),
       };
       await trx
@@ -455,7 +457,7 @@ export class DriversService {
   /** Operators may re-class a car or correct its features after an inspection. */
   async updateVehicle(
     driverId: string,
-    input: { class?: 'economy' | 'comfort'; features?: VehicleFeature[] },
+    input: { class?: 'economy' | 'comfort'; features?: VehicleFeature[]; cngInTrunk?: boolean },
   ) {
     const v = await this.db.kysely
       .selectFrom('vehicles')
@@ -468,10 +470,99 @@ export class DriversService {
     if (problems.length) throw invalid(problems);
     await this.db.kysely
       .updateTable('vehicles')
-      .set({ class: next.class, features: [...new Set(next.features)], updated_at: new Date() })
+      .set({
+        class: next.class,
+        features: [...new Set(next.features)],
+        cng_in_trunk: input.cngInTrunk ?? v.cng_in_trunk,
+        updated_at: new Date(),
+      })
       .where('driver_id', '=', driverId)
       .execute();
     return this.adminView(driverId);
+  }
+
+  // Appeals ----------------------------------------------------------------------------
+
+  /** A rejected or blocked driver asks for a review; one open appeal at a time. */
+  async appeal(user: AuthUser, text: string) {
+    const d = await this.driverRow(user.userId);
+    if (d.status !== 'rejected' && d.status !== 'blocked') {
+      throw new ConflictException(
+        'Faqat rad etilgan yoki bloklangan hisob uchun murojaat qilinadi',
+      );
+    }
+    const id = uuidv7();
+    await this.db.transaction(async (trx) => {
+      const open = await trx
+        .selectFrom('driver_appeals')
+        .select('id')
+        .where('driver_id', '=', user.userId)
+        .where('status', '=', 'open')
+        .executeTakeFirst();
+      if (open) throw new ConflictException('Murojaatingiz ko‘rib chiqilmoqda');
+      await trx
+        .insertInto('driver_appeals')
+        .values({ id, driver_id: user.userId, status_at: d.status as 'rejected' | 'blocked', text })
+        .execute();
+      await emit(trx, 'driver.appeal', { appealId: id, driverId: user.userId });
+    });
+    return (await this.appeals(user.userId))[0]!;
+  }
+
+  async appeals(driverId: string) {
+    return this.db.kysely
+      .selectFrom('driver_appeals')
+      .select([
+        'id',
+        'status_at as statusAt',
+        'text',
+        'status',
+        'resolution',
+        'resolved_at as resolvedAt',
+        'created_at as createdAt',
+      ])
+      .where('driver_id', '=', driverId)
+      .orderBy('created_at', 'desc')
+      .limit(20)
+      .execute();
+  }
+
+  async appealQueue(status: 'open' | 'resolved') {
+    return this.db.kysely
+      .selectFrom('driver_appeals as a')
+      .innerJoin('drivers as d', 'd.user_id', 'a.driver_id')
+      .innerJoin('users as u', 'u.id', 'a.driver_id')
+      .select([
+        'a.id',
+        'a.driver_id as driverId',
+        'd.full_name as fullName',
+        'u.phone',
+        'd.status as driverStatus',
+        'd.status_reason as statusReason',
+        'a.status_at as statusAt',
+        'a.text',
+        'a.status',
+        'a.resolution',
+        'a.resolved_by as resolvedBy',
+        'a.resolved_at as resolvedAt',
+        'a.created_at as createdAt',
+      ])
+      .where('a.status', '=', status)
+      .orderBy('a.created_at', status === 'open' ? 'asc' : 'desc')
+      .limit(200)
+      .execute();
+  }
+
+  async resolveAppeal(admin: AuthUser, appealId: string, resolution: string) {
+    const res = await this.db.kysely
+      .updateTable('driver_appeals')
+      .set({ status: 'resolved', resolution, resolved_by: admin.userId, resolved_at: new Date() })
+      .where('id', '=', appealId)
+      .where('status', '=', 'open')
+      .returning('driver_id')
+      .executeTakeFirst();
+    if (!res) throw new NotFoundException('Ochiq murojaat topilmadi');
+    return this.appeals(res.driver_id).then((all) => all.find((a) => a.id === appealId)!);
   }
 
   // Shared -----------------------------------------------------------------------------
@@ -673,6 +764,9 @@ export function vehicleView(v: Selectable<VehiclesTable>) {
     seats: v.seats,
     class: v.class,
     features: v.features,
+    cngInTrunk: v.cng_in_trunk,
+    /** What luggage rides need: a big trunk without a gas tank in it. */
+    luggage: v.features.includes('big_trunk') && !v.cng_in_trunk,
   };
 }
 

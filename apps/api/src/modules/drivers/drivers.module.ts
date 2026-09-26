@@ -38,6 +38,8 @@ const VehicleBody = z.object({
   seats: z.number().int().min(1).max(8),
   class: z.enum(['economy', 'comfort']).default('economy'),
   features: z.array(Feature).max(4).default([]),
+  /** A CNG tank in the trunk (many Cobalts/Nexias): no luggage rides even with a big trunk. */
+  cngInTrunk: z.boolean().default(false),
 });
 
 const ApplicationBody = z.object({
@@ -95,8 +97,15 @@ const DecisionBody = z.object({
   reason: z.string().trim().min(3).max(500).nullable().default(null),
 });
 const VehiclePatch = z
-  .object({ class: z.enum(['economy', 'comfort']), features: z.array(Feature).max(4) })
+  .object({
+    class: z.enum(['economy', 'comfort']),
+    features: z.array(Feature).max(4),
+    cngInTrunk: z.boolean(),
+  })
   .partial();
+const AppealBody = z.object({ text: z.string().trim().min(5).max(1000) });
+const AppealsQuery = z.object({ status: z.enum(['open', 'resolved']).default('open') });
+const ResolveAppealBody = z.object({ resolution: z.string().trim().min(3).max(1000) });
 
 @Controller('driver')
 export class DriverController {
@@ -144,6 +153,20 @@ export class DriverController {
     return this.drivers.me(user);
   }
 
+  /** A rejected or blocked driver asks operators to review the decision. */
+  @Post('appeals')
+  appeal(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodPipe(AppealBody)) body: z.output<typeof AppealBody>,
+  ) {
+    return this.drivers.appeal(user, body.text);
+  }
+
+  @Get('appeals')
+  appeals(@CurrentUser() user: AuthUser) {
+    return this.drivers.appeals(user.userId);
+  }
+
   @Post('shift')
   @HttpCode(HttpStatus.OK)
   shift(
@@ -171,6 +194,26 @@ export class AdminDriversController {
   @Get()
   list(@Query(new ZodPipe(ListQuery)) q: z.output<typeof ListQuery>) {
     return this.drivers.list(q);
+  }
+
+  /** Appeals of rejected and blocked drivers, oldest open first. */
+  @Get('appeals')
+  appealsList(@Query(new ZodPipe(AppealsQuery)) q: z.output<typeof AppealsQuery>) {
+    return this.drivers.appealQueue(q.status);
+  }
+
+  /**
+   * Answers an appeal (the driver sees the answer). Changing the decision itself is a
+   * separate unblock / re-review action.
+   */
+  @Post('appeals/:appealId/resolve')
+  @HttpCode(HttpStatus.OK)
+  resolveAppeal(
+    @CurrentUser() user: AuthUser,
+    @Param('appealId', ParseUUIDPipe) appealId: string,
+    @Body(new ZodPipe(ResolveAppealBody)) body: z.output<typeof ResolveAppealBody>,
+  ) {
+    return this.drivers.resolveAppeal(user, appealId, body.resolution);
   }
 
   @Get(':id')

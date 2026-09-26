@@ -26,7 +26,7 @@ const EnvSchema = z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
       .default('info'),
     /** Web panel origins allowed to call the API from a browser, comma-separated. */
-    CORS_ORIGINS: list(z.url()).default(['http://localhost:5190']),
+    CORS_ORIGINS: list(z.url()).default(['http://localhost:5280']),
     /** Number of reverse proxies in front of the API (nginx, load balancer); 0 = direct. */
     TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
 
@@ -131,6 +131,26 @@ const EnvSchema = z
     WORKER_HTTP_PORT: z.coerce.number().int().positive().default(3201),
     /** How often the dispatcher looks at waiting rides and expiring offers. */
     DISPATCH_TICK_MS: z.coerce.number().int().min(200).max(60_000).default(1000),
+
+    // Apps' configuration (GET /v1/config) ------------------------------------------------
+    /** The operators' phone line riders and drivers call (E.164). */
+    SUPPORT_PHONE: z
+      .string()
+      .regex(/^\+998\d{9}$/, 'E.164, e.g. +998901234567')
+      .optional(),
+    /** Support in Telegram: @username or https://t.me/... */
+    SUPPORT_TELEGRAM: z.string().min(2).max(100).optional(),
+    /** The office where drivers top up in cash and bring documents. */
+    OFFICE_ADDRESS: z.string().min(5).max(300).optional(),
+    /** Older app versions are asked to update (semver). */
+    MIN_RIDER_APP_VERSION: z
+      .string()
+      .regex(/^\d+\.\d+\.\d+$/, 'x.y.z')
+      .default('1.0.0'),
+    MIN_DRIVER_APP_VERSION: z
+      .string()
+      .regex(/^\d+\.\d+\.\d+$/, 'x.y.z')
+      .default('1.0.0'),
 
     /** Public origin of the page that opens share-trip links: {origin}/t/{token}. */
     SHARE_BASE_URL: z.url().default('https://taxi.sff.uz'),

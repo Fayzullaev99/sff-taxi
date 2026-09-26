@@ -16,7 +16,9 @@ export type OutboxTopic =
   /** { sosId, rideId } */
   | 'ride.sos'
   /** A driver was approved, rejected, blocked or unblocked. { driverId, from, to, reason } */
-  | 'driver.status_changed';
+  | 'driver.status_changed'
+  /** A rejected or blocked driver asked for a review. { appealId, driverId } */
+  | 'driver.appeal';
 
 /**
  * Records an event in the caller's transaction: it is delivered by the worker

@@ -475,14 +475,16 @@ export class RidesService {
       })
       .where('id', '=', ride.id)
       .execute();
-    // every other offer of this ride is over
-    await trx
+    // every other offer of this ride is over: those drivers' screens must close it
+    const withdrawn = await trx
       .updateTable('ride_offers')
       .set({ status: 'withdrawn', responded_at: now })
       .where('ride_id', '=', ride.id)
       .where('status', '=', 'pending')
       .$if(Boolean(by.offerId), (q) => q.where('id', '!=', by.offerId!))
+      .returning(['id', 'driver_id'])
       .execute();
+    await this.offersClosed(trx, ride.id, withdrawn);
     if (previousDriverId) {
       await this.event(trx, ride.id, 'driver_released', by.actor, by.actorId, {
         driverId: previousDriverId,
@@ -706,12 +708,14 @@ export class RidesService {
       })
       .where('id', '=', ride.id)
       .execute();
-    await trx
+    const withdrawn = await trx
       .updateTable('ride_offers')
       .set({ status: 'withdrawn', responded_at: now })
       .where('ride_id', '=', ride.id)
       .where('status', '=', 'pending')
+      .returning(['id', 'driver_id'])
       .execute();
+    await this.offersClosed(trx, ride.id, withdrawn);
     await this.event(trx, ride.id, 'cancelled', by, actorId, {
       reason,
       ...(fee ? { fee } : {}),
@@ -794,6 +798,22 @@ export class RidesService {
       );
       await emit(trx, 'ride.status_changed', { rideId: ride.id, from, to });
     });
+  }
+
+  /** Tells drivers whose offers of this ride were withdrawn (realtime offer.closed). */
+  private async offersClosed(
+    trx: Tx,
+    rideId: string,
+    offers: { id: string; driver_id: string }[],
+  ): Promise<void> {
+    for (const o of offers) {
+      await emit(trx, 'ride.offer_closed', {
+        offerId: o.id,
+        rideId,
+        driverId: o.driver_id,
+        status: 'withdrawn',
+      });
+    }
   }
 
   async event(
@@ -954,6 +974,7 @@ export class RidesService {
           'o.created_at as createdAt',
           'o.expires_at as expiresAt',
           'o.responded_at as respondedAt',
+          'o.decline_reason as declineReason',
         ])
         .where('o.ride_id', '=', ride.id)
         .orderBy('o.created_at')

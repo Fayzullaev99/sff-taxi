@@ -217,12 +217,14 @@ export class DispatchService {
         expires_at: expiresAt,
       })
       .execute();
-    await trx
-      .updateTable('drivers')
-      .set((eb) => ({ offers_received: eb('offers_received', '+', 1) }))
-      .where('user_id', '=', c.driverId)
-      .execute();
     if (kind === 'direct') {
+      // only offers made to this driver alone count in the acceptance rate: a broadcast
+      // another driver took first, or one the driver let pass, says nothing about them
+      await trx
+        .updateTable('drivers')
+        .set((eb) => ({ offers_received: eb('offers_received', '+', 1) }))
+        .where('user_id', '=', c.driverId)
+        .execute();
       await trx
         .updateTable('rides')
         .set((eb) => ({ direct_offers: eb('direct_offers', '+', 1), updated_at: new Date() }))
@@ -320,6 +322,8 @@ export class DispatchService {
       .$if(features.length > 0, (q) =>
         q.where(sql<boolean>`v.features @> ${sql.val(features)}::text[]`),
       )
+      // a big trunk with the CNG tank in it has no room for luggage
+      .$if(ride.options.includes('luggage'), (q) => q.where('v.cng_in_trunk', '=', false))
       .where(({ not, exists, selectFrom }) =>
         not(
           exists(
@@ -491,9 +495,13 @@ export class DispatchService {
         .set({ status: 'accepted', responded_at: new Date() })
         .where('id', '=', offer.id)
         .execute();
+      // an accepted broadcast counts as received and accepted (it was not counted when made)
       await trx
         .updateTable('drivers')
-        .set((eb) => ({ offers_accepted: eb('offers_accepted', '+', 1) }))
+        .set((eb) => ({
+          offers_accepted: eb('offers_accepted', '+', 1),
+          ...(offer.kind === 'broadcast' ? { offers_received: eb('offers_received', '+', 1) } : {}),
+        }))
         .where('user_id', '=', user.userId)
         .execute();
       return ride.id;
@@ -502,7 +510,7 @@ export class DispatchService {
   }
 
   /** Lets the ride pass: the next driver is asked at once. */
-  async decline(user: AuthUser, offerId: string): Promise<void> {
+  async decline(user: AuthUser, offerId: string, reason: string | null = null): Promise<void> {
     await this.db.transaction(async (trx) => {
       const offer = await trx
         .selectFrom('ride_offers')
@@ -515,12 +523,13 @@ export class DispatchService {
       if (offer.status !== 'pending') return;
       await trx
         .updateTable('ride_offers')
-        .set({ status: 'declined', responded_at: new Date() })
+        .set({ status: 'declined', responded_at: new Date(), decline_reason: reason })
         .where('id', '=', offer.id)
         .execute();
       await this.rides.event(trx, offer.ride_id, 'offer_declined', 'driver', user.userId, {
         offerId: offer.id,
         kind: offer.kind,
+        ...(reason ? { reason } : {}),
       });
       await emit(trx, 'ride.offer_closed', {
         offerId: offer.id,

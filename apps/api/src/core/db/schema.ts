@@ -156,6 +156,8 @@ export interface VehiclesTable {
   seats: number;
   class: RideClassColumn;
   features: Generated<VehicleFeature[]>;
+  /** A CNG tank in the trunk: no room for luggage even in a big trunk. */
+  cng_in_trunk: Generated<boolean>;
   photo_upload_id: string | null;
   updated_at: Timestamp;
 }
@@ -337,6 +339,7 @@ export interface RideOffersTable {
   created_at: Generated<Date>;
   expires_at: Timestamp;
   responded_at: Timestamp | null;
+  decline_reason: string | null;
 }
 
 export interface RatingsTable {
@@ -458,6 +461,18 @@ export interface PaymentTransactionsTable {
   created_at: CreatedAt;
 }
 
+export interface DriverAppealsTable {
+  id: string;
+  driver_id: string;
+  status_at: 'rejected' | 'blocked';
+  text: string;
+  status: Generated<'open' | 'resolved'>;
+  resolution: string | null;
+  resolved_by: string | null;
+  resolved_at: Timestamp | null;
+  created_at: CreatedAt;
+}
+
 export interface DB {
   users: UsersTable;
   admins: AdminsTable;
@@ -485,4 +500,5 @@ export interface DB {
   uploads: UploadsTable;
   payment_intents: PaymentIntentsTable;
   payment_transactions: PaymentTransactionsTable;
+  driver_appeals: DriverAppealsTable;
 }
