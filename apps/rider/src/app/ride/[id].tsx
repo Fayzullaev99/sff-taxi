@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { BackHandler, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { describeError } from '../../api/client';
 import { endpoints } from '../../api/endpoints';
@@ -58,15 +58,6 @@ export default function RideScreenRoute() {
     }
   }, [final, id, queryClient]);
 
-  // Android back: to the map (the ride goes on), never back into the order form
-  useEffect(() => {
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      router.dismissTo('/home');
-      return true;
-    });
-    return () => sub.remove();
-  }, []);
-
   if (!ride) {
     return (
       <View style={styles.root}>
@@ -104,9 +95,10 @@ function TopBar({ ride, overMap = false }: { ride: Ride; overMap?: boolean }) {
     >
       <IconButton
         name="arrow-back"
-        label="Xaritaga qaytish"
+        label="Orqaga"
         size={46}
-        onPress={() => router.dismissTo('/home')}
+        // the order form was replaced by this screen: back leads to the map or the history
+        onPress={() => (router.canGoBack() ? router.back() : router.replace('/home'))}
         style={overMap ? shadow.card : null}
       />
       <View style={[styles.number, overMap ? shadow.card : null]}>
