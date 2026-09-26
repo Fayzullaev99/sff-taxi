@@ -1,0 +1,26 @@
+# Serves the built operator panel inside the web container. TLS, security headers and the /v1 proxy
+# are the edge Caddy's job (deploy/Caddyfile).
+{
+	admin off
+	auto_https off
+	persist_config off
+}
+
+:8080 {
+	root * /srv
+	encode zstd gzip
+
+	respond /healthz 200
+
+	# hashed bundles never change: cache for a year
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+
+	# the shell must be revalidated so a deploy reaches open browsers
+	@shell path / /index.html
+	header @shell Cache-Control "no-cache"
+
+	# single-page app: unknown paths render index.html
+	try_files {path} /index.html
+	file_server
+}

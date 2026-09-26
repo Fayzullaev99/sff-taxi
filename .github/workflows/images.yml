@@ -1,0 +1,63 @@
+name: Images
+
+# Builds the API image (API, worker and migrations) and the operator panel image and pushes them to
+# GHCR on a version tag:  git tag v1.2.0 && git push origin v1.2.0
+# Result: ghcr.io/<owner>/sff-taxi-api:1.2.0 and ghcr.io/<owner>/sff-taxi-web:1.2.0 (plus
+# :sha-<short sha> and :latest). Deploy them by setting the tags in deploy/.env.prod
+# (docs/deploy.md). The packages are private by default: the server logs in with a read-only
+# token (docs/deploy.md, "Registry access").
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    name: ${{ matrix.name }} image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            file: Dockerfile
+          - name: web
+            file: Dockerfile.web
+    steps:
+      - uses: actions/checkout@v5
+      # GHCR image names must be lowercase; the account name may not be
+      - name: Image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sff-taxi-${{ matrix.name }}" >> "$GITHUB_ENV"
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Sentry release tag inside the API image
+          build-args: APP_RELEASE=${{ github.ref_name }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

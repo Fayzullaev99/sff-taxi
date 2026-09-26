@@ -1,0 +1,153 @@
+# Edge proxy: automatic HTTPS (Let's Encrypt) for every site below, renewed by Caddy.
+# Site addresses come from deploy/.env.prod. A value with an explicit http:// scheme serves
+# plain HTTP (local testing); a *.localhost name gets a certificate from Caddy's internal CA.
+{
+	email {$ACME_EMAIL}
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 60s
+			# no write timeout: server-sent-event streams (riders, drivers, operators) stay open for hours
+			idle 5m
+		}
+	}
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		-Server
+		-X-Powered-By
+	}
+}
+
+# Every API instance (API_REPLICAS) is found through Docker's DNS. A request whose connection
+# fails (an instance restarting during a deploy) is retried on another one for up to 10 s.
+(api_upstream) {
+	dynamic a {
+		name api
+		port 3200
+		refresh 5s
+	}
+	lb_policy round_robin
+	lb_try_duration 10s
+	lb_try_interval 250ms
+	fail_duration 30s
+	# Keep request bodies (API bodies are small) so a retried POST can be sent again; without
+	# this a retry fails with "invalid Read on closed Body" and the client gets a 502.
+	request_buffers 512KB
+	# A fresh connection per request (cheap on the Docker network): a stopping instance then
+	# refuses the connection, which is always retried elsewhere, instead of dropping a request
+	# sent on a pooled keep-alive connection it is closing (not retried for POSTs).
+	# Measured with deploy/update.sh under load: 0 failed requests out of 2214.
+	transport http {
+		keepalive off
+	}
+}
+
+(api_routes) {
+	request_body {
+		max_size 5MB
+	}
+
+	# Prometheus scrapes the API over the internal network only. (A handle, not a bare
+	# respond: handle blocks run before respond in Caddy's directive order.)
+	@metrics path /metrics /metrics/*
+	handle @metrics {
+		respond 404
+	}
+
+	# Server-sent events: no buffering, no compression, flush every event at once; on a
+	# config reload open streams get 5 minutes before they are closed (clients reconnect).
+	@stream path /v1/stream
+	handle @stream {
+		reverse_proxy {
+			import api_upstream
+			flush_interval -1
+			stream_close_delay 5m
+		}
+	}
+
+	handle {
+		encode zstd gzip
+		reverse_proxy {
+			import api_upstream
+		}
+	}
+}
+
+# The API: the rider and driver apps, share-trip pages, payment callbacks (Payme, Click).
+{$API_DOMAIN} {
+	import security_headers
+	header Referrer-Policy no-referrer
+	import api_routes
+}
+
+# The operator (dispatcher) panel. /v1 on the same origin goes to the API, so the panel image
+# carries no API address and needs no CORS.
+{$PANEL_DOMAIN} {
+	import security_headers
+	header {
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+	handle /v1/* {
+		import api_routes
+	}
+	handle {
+		encode zstd gzip
+		# the panel container is recreated on deploy: retry for a few seconds meanwhile
+		reverse_proxy web:8080 {
+			lb_try_duration 5s
+		}
+	}
+}
+
+# Private file storage (SeaweedFS, compose profile "seaweedfs"): driver documents and photos.
+# The apps PUT uploads and GET files only with URLs the API presigned for this host (the bucket
+# has no anonymous access); the Host header is passed through unchanged, which the signature
+# covers. Without FILES_DOMAIN this site is a dummy that never matches.
+{$FILES_DOMAIN:http://files.invalid} {
+	import security_headers
+	header {
+		# uploaded bytes are never rendered as a page, never indexed, never cached by proxies
+		X-Robots-Tag noindex
+		Cache-Control private
+		Content-Security-Policy "default-src 'none'; sandbox"
+		Cross-Origin-Resource-Policy cross-origin
+	}
+
+	@preflight method OPTIONS
+	handle @preflight {
+		header {
+			Access-Control-Allow-Origin {$PANEL_ORIGIN}
+			Access-Control-Allow-Methods "GET, HEAD, PUT"
+			Access-Control-Allow-Headers "Content-Type, Content-Length"
+			Access-Control-Max-Age 600
+			Vary Origin
+		}
+		respond 204
+	}
+
+	@allowed method GET HEAD PUT
+	handle @allowed {
+		header {
+			Access-Control-Allow-Origin {$PANEL_ORIGIN}
+			Vary Origin
+		}
+		request_body {
+			max_size 11MB
+		}
+		reverse_proxy seaweedfs:8333 {
+			# one set of CORS headers: ours
+			header_down -Access-Control-Allow-Origin
+			header_down -Access-Control-Allow-Methods
+			header_down -Access-Control-Allow-Headers
+			header_down -Access-Control-Expose-Headers
+			header_down -Access-Control-Allow-Credentials
+		}
+	}
+
+	respond 405
+}

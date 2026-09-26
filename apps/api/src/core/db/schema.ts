@@ -108,7 +108,8 @@ export const DOCUMENT_KINDS = [
   'selfie',
 ] as const;
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
-export type LedgerKind = 'topup' | 'commission' | 'tax' | 'pass' | 'adjustment';
+export type LedgerKind =
+  'topup' | 'commission' | 'tax' | 'pass' | 'adjustment' | 'card_fare' | 'payout';
 export type RideClassColumn = 'economy' | 'comfort';
 
 /** Dates (Postgres `date`) are read as "YYYY-MM-DD" strings: see database.ts. */
@@ -140,6 +141,9 @@ export interface DriversTable {
   rides_cancelled: Generated<number>;
   rating_sum: Generated<number>;
   rating_count: Generated<number>;
+  photo_upload_id: string | null;
+  licence_status: Generated<'unverified' | 'valid' | 'invalid'>;
+  licence_checked_at: Timestamp | null;
   created_at: CreatedAt;
   updated_at: Timestamp;
 }
@@ -154,13 +158,18 @@ export interface VehiclesTable {
   seats: number;
   class: RideClassColumn;
   features: Generated<VehicleFeature[]>;
+  /** A CNG tank in the trunk: no room for luggage even in a big trunk. */
+  cng_in_trunk: Generated<boolean>;
+  photo_upload_id: string | null;
   updated_at: Timestamp;
 }
 
 export interface DriverDocumentsTable {
   driver_id: string;
   kind: DocumentKind;
-  url: string;
+  /** Apps built before uploads send a URL; otherwise upload_id. Exactly one is set. */
+  url: string | null;
+  upload_id: string | null;
   expires_on: DateOnly | null;
   uploaded_at: Timestamp;
 }
@@ -183,6 +192,8 @@ export interface DriverLedgerTable {
   ride_id: string | null;
   note: string | null;
   created_by: string | null;
+  payment_intent_id: string | null;
+  booking_id: string | null;
   created_at: CreatedAt;
 }
 
@@ -198,6 +209,10 @@ export interface DriverPassesTable {
 }
 
 export const RIDE_STATUSES = [
+  /** Ordered for later: dispatch starts 15 minutes before scheduled_for. */
+  'scheduled',
+  /** A card ride waiting for its prepayment (Payme/Click) before dispatch. */
+  'awaiting_payment',
   'searching',
   'driver_assigned',
   'driver_arrived',
@@ -208,8 +223,12 @@ export const RIDE_STATUSES = [
 export type RideStatus = (typeof RIDE_STATUSES)[number];
 /** A driver is busy with a ride in these. */
 export const ACTIVE_RIDE_STATUSES = ['driver_assigned', 'driver_arrived', 'in_progress'] as const;
-/** Not finished yet. */
+/** Not finished yet, but dispatched: a driver is searched for or busy with it. */
 export const OPEN_RIDE_STATUSES = ['searching', ...ACTIVE_RIDE_STATUSES] as const;
+/** Not finished yet, including a card ride still waiting for its payment. */
+export const UNFINISHED_RIDE_STATUSES = ['awaiting_payment', ...OPEN_RIDE_STATUSES] as const;
+export type RidePaymentStatus =
+  'pending' | 'paid' | 'not_charged' | 'failed' | 'refund_pending' | 'refunded';
 export type RideActor = 'rider' | 'driver' | 'operator' | 'system';
 export type OfferStatus = 'pending' | 'accepted' | 'declined' | 'expired' | 'withdrawn';
 export type DispatchStage = 'direct' | 'broadcast' | 'operator';
@@ -247,6 +266,8 @@ export interface QuotesTable {
   fares: Json<Record<string, unknown>>;
   tariff: Json<Record<string, unknown>>;
   expires_at: Timestamp;
+  /** A quote for later: priced at this time (night add-on). */
+  scheduled_for: Timestamp | null;
   created_at: CreatedAt;
 }
 
@@ -283,7 +304,7 @@ export interface RidesTable {
   commission_note: string | null;
   tax: Generated<number>;
   payment_method: Generated<'cash' | 'card'>;
-  payment_status: Generated<'pending' | 'paid' | 'not_charged'>;
+  payment_status: Generated<RidePaymentStatus>;
   status: RideStatus;
   driver_id: string | null;
   vehicle: NullableJson<VehicleSnapshot>;
@@ -294,6 +315,7 @@ export interface RidesTable {
   cancelled_by: RideActor | null;
   cancel_reason: string | null;
   share_token: string | null;
+  scheduled_for: Timestamp | null;
   requested_at: Generated<Date>;
   assigned_at: Timestamp | null;
   arrived_at: Timestamp | null;
@@ -325,6 +347,7 @@ export interface RideOffersTable {
   created_at: Generated<Date>;
   expires_at: Timestamp;
   responded_at: Timestamp | null;
+  decline_reason: string | null;
 }
 
 export interface RatingsTable {
@@ -355,7 +378,9 @@ export interface SosEventsTable {
 
 export interface TaxWithholdingsTable {
   id: string;
-  ride_id: string;
+  /** A ride or an intercity booking: exactly one is set. */
+  ride_id: string | null;
+  booking_id: string | null;
   driver_id: string;
   pinfl: string;
   period: string;
@@ -394,6 +419,246 @@ export interface NotificationsTable {
   created_at: CreatedAt;
 }
 
+export const UPLOAD_PURPOSES = ['document', 'profile_photo', 'vehicle_photo'] as const;
+export type UploadPurpose = (typeof UPLOAD_PURPOSES)[number];
+export type UploadContentType = 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';
+
+export interface UploadsTable {
+  id: string;
+  owner_id: string;
+  purpose: UploadPurpose;
+  object_key: string;
+  content_type: UploadContentType;
+  size_bytes: number;
+  status: Generated<'pending' | 'ready'>;
+  created_at: CreatedAt;
+  completed_at: Timestamp | null;
+}
+
+export type PaymentProvider = 'payme' | 'click';
+export type PaymentIntentStatus =
+  'pending' | 'paid' | 'expired' | 'cancelled' | 'refund_pending' | 'refunded';
+
+export interface PaymentIntentsTable {
+  id: string;
+  purpose: 'ride' | 'topup';
+  ride_id: string | null;
+  driver_id: string | null;
+  user_id: string;
+  amount: number;
+  status: Generated<PaymentIntentStatus>;
+  provider: PaymentProvider | null;
+  expires_at: Timestamp;
+  paid_at: Timestamp | null;
+  refund_requested_at: Timestamp | null;
+  refunded_at: Timestamp | null;
+  refund_reference: string | null;
+  created_at: CreatedAt;
+}
+
+export interface PaymentTransactionsTable {
+  id: string;
+  seq: Generated<number>;
+  provider: PaymentProvider;
+  external_id: string;
+  intent_id: string;
+  amount: number;
+  state: Generated<'created' | 'performed' | 'cancelled' | 'refunded'>;
+  provider_time: number | null;
+  performed_at: Timestamp | null;
+  cancelled_at: Timestamp | null;
+  cancel_reason: number | null;
+  created_at: CreatedAt;
+}
+
+export interface DriverAppealsTable {
+  id: string;
+  driver_id: string;
+  status_at: 'rejected' | 'blocked';
+  text: string;
+  status: Generated<'open' | 'resolved'>;
+  resolution: string | null;
+  resolved_by: string | null;
+  resolved_at: Timestamp | null;
+  created_at: CreatedAt;
+}
+
+export interface IntercityPointsTable {
+  id: Generated<string>;
+  slug: string;
+  name_uz: string;
+  name_ru: string;
+  lat: number;
+  lng: number;
+  city_id: string | null;
+  meeting_point: string;
+  is_active: Generated<boolean>;
+  sort: Generated<number>;
+}
+
+export interface IntercityFaresTable {
+  from_point_id: string;
+  to_point_id: string;
+  price_rear: number;
+  price_front: number;
+  updated_at: Timestamp;
+}
+
+export const TRIP_STATUSES = ['scheduled', 'boarding', 'departed', 'arrived', 'cancelled'] as const;
+export type TripStatus = (typeof TRIP_STATUSES)[number];
+export const BOOKING_STATUSES = ['booked', 'boarded', 'completed', 'cancelled', 'no_show'] as const;
+export type BookingStatus = (typeof BOOKING_STATUSES)[number];
+
+export interface IntercityTripsTable {
+  id: string;
+  number: Generated<number>;
+  driver_id: string;
+  from_point_id: string;
+  to_point_id: string;
+  departure_at: Timestamp;
+  meeting_point: string;
+  comment: string | null;
+  class: RideClassColumn;
+  vehicle: Json<VehicleSnapshot>;
+  distance_m: number;
+  seats_total: number;
+  seats_booked: Generated<number>;
+  front_seat: boolean;
+  front_booked: Generated<boolean>;
+  price_rear: number;
+  price_front: number;
+  reference_rear: number;
+  status: Generated<TripStatus>;
+  cancelled_by: 'driver' | 'operator' | null;
+  cancel_reason: string | null;
+  boarding_at: Timestamp | null;
+  departed_at: Timestamp | null;
+  arrived_at: Timestamp | null;
+  cancelled_at: Timestamp | null;
+  created_at: CreatedAt;
+  updated_at: Timestamp;
+}
+
+export interface IntercityBookingsTable {
+  id: string;
+  number: Generated<number>;
+  trip_id: string;
+  rider_id: string;
+  rider_phone: string;
+  rider_name: string | null;
+  channel: Generated<'app' | 'phone'>;
+  created_by: string;
+  client_request_id: string | null;
+  seats: number;
+  front: Generated<boolean>;
+  price: number;
+  pickup_note: string | null;
+  status: Generated<BookingStatus>;
+  cancelled_by: 'rider' | 'driver' | 'operator' | null;
+  cancel_reason: string | null;
+  cancellation_fee: Generated<number>;
+  commission: Generated<number>;
+  commission_note: string | null;
+  tax: Generated<number>;
+  created_at: CreatedAt;
+  boarded_at: Timestamp | null;
+  completed_at: Timestamp | null;
+  cancelled_at: Timestamp | null;
+  updated_at: Timestamp;
+}
+
+export interface FiscalReceiptsTable {
+  id: string;
+  ride_id: string | null;
+  booking_id: string | null;
+  provider: string;
+  status: Generated<'pending' | 'sent' | 'skipped'>;
+  amount: number;
+  payload: Json<Record<string, unknown>>;
+  receipt_id: string | null;
+  fiscal_sign: string | null;
+  receipt_url: string | null;
+  attempts: Generated<number>;
+  last_error: string | null;
+  created_at: CreatedAt;
+  sent_at: Timestamp | null;
+}
+
+export interface LicenceChecksTable {
+  id: string;
+  driver_id: string;
+  source: 'manual' | 'mintrans';
+  licence_card_number: string;
+  result: 'valid' | 'invalid';
+  expires_on: DateOnly | null;
+  note: string | null;
+  raw: NullableJson<unknown>;
+  checked_by: string | null;
+  created_at: CreatedAt;
+}
+
+export const PLACE_KINDS = ['home', 'work', 'other'] as const;
+export type PlaceKind = (typeof PLACE_KINDS)[number];
+
+export interface RiderPlacesTable {
+  id: string;
+  user_id: string;
+  kind: PlaceKind;
+  label: string | null;
+  address: string | null;
+  landmark: string | null;
+  lat: number;
+  lng: number;
+  created_at: CreatedAt;
+  updated_at: Timestamp;
+}
+
+export const COMPLAINT_TYPES = [
+  'lost_item',
+  'driver_behaviour',
+  'route',
+  'price',
+  'car_condition',
+  'safety',
+  'other',
+] as const;
+export type ComplaintType = (typeof COMPLAINT_TYPES)[number];
+export const COMPLAINT_RESOLUTIONS = [
+  'item_returned',
+  'refund',
+  'driver_warned',
+  'driver_blocked',
+  'rejected',
+  'no_action',
+] as const;
+export type ComplaintResolution = (typeof COMPLAINT_RESOLUTIONS)[number];
+export type ComplaintStatus = 'open' | 'in_progress' | 'resolved';
+
+export interface ComplaintsTable {
+  id: string;
+  ride_id: string;
+  rider_id: string;
+  driver_id: string | null;
+  type: ComplaintType;
+  status: Generated<ComplaintStatus>;
+  text: string;
+  resolution: ComplaintResolution | null;
+  resolution_note: string | null;
+  resolved_by: string | null;
+  resolved_at: Timestamp | null;
+  created_at: CreatedAt;
+  updated_at: Timestamp;
+}
+
+export interface ComplaintMessagesTable {
+  id: string;
+  complaint_id: string;
+  author_id: string | null;
+  author_role: 'rider' | 'admin';
+  text: string;
+  created_at: CreatedAt;
+}
+
 export interface DB {
   users: UsersTable;
   admins: AdminsTable;
@@ -418,4 +683,17 @@ export interface DB {
   tax_withholdings: TaxWithholdingsTable;
   push_devices: PushDevicesTable;
   notifications: NotificationsTable;
+  uploads: UploadsTable;
+  payment_intents: PaymentIntentsTable;
+  payment_transactions: PaymentTransactionsTable;
+  driver_appeals: DriverAppealsTable;
+  intercity_points: IntercityPointsTable;
+  intercity_fares: IntercityFaresTable;
+  intercity_trips: IntercityTripsTable;
+  intercity_bookings: IntercityBookingsTable;
+  fiscal_receipts: FiscalReceiptsTable;
+  licence_checks: LicenceChecksTable;
+  rider_places: RiderPlacesTable;
+  complaints: ComplaintsTable;
+  complaint_messages: ComplaintMessagesTable;
 }

@@ -5,6 +5,7 @@ import { ENV, type Env } from '../../config/env.js';
 import { type AuthUser, CurrentUser } from '../../core/auth/auth-context.js';
 import { Database } from '../../core/db/database.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
+import { IntercityNotificationsHandler } from './intercity-notifications.handler.js';
 import { NotificationsHandler } from './notifications.handler.js';
 import { Notifier } from './notifier.js';
 import {
@@ -83,7 +84,7 @@ export class NotificationsModule {}
 /** The worker's notification sender (an outbox handler). */
 @Module({
   imports: [NotificationsCoreModule],
-  providers: [NotificationsHandler],
-  exports: [NotificationsHandler],
+  providers: [NotificationsHandler, IntercityNotificationsHandler],
+  exports: [NotificationsHandler, IntercityNotificationsHandler],
 })
 export class NotificationsWorkerModule {}

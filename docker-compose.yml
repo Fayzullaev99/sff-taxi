@@ -1,6 +1,6 @@
 # Local development infrastructure only. Credentials here are dev-only defaults.
-# Ports differ from SFF Eats (5450/6393) and SFF Automation (5440/6391) so all stacks run
-# side by side.
+# Ports differ from SFF Eats (5450/6393/8334) and SFF Automation (5440/6391/8333) so all
+# stacks run side by side.
 name: sff-taxi
 
 services:
@@ -35,6 +35,20 @@ services:
       timeout: 3s
       retries: 20
 
+  # S3-compatible storage for driver documents and photos (dev credentials in
+  # infra/seaweedfs/s3.json). Private: no anonymous read, the API hands out presigned URLs.
+  s3:
+    image: chrislusf/seaweedfs:4.47
+    command: >-
+      server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json
+      -master.volumeSizeLimitMB=256 -volume.max=0
+    ports:
+      - '8335:8333'
+    volumes:
+      - s3data:/data
+      - ./infra/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+
 volumes:
   pgdata:
   redisdata:
+  s3data:

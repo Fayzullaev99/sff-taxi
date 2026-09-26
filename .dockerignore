@@ -1,0 +1,25 @@
+**/node_modules
+**/dist
+**/.expo
+**/.env
+**/.env.*
+!**/.env.example
+**/.vitest
+**/coverage
+**/test-results
+**/*.tsbuildinfo
+.git
+.github
+.claude
+docs
+infra
+deploy/backups
+deploy/osrm/data
+deploy/.env.prod
+*.md
+# the images need only the API and the operator panel; the apps' package.json files stay so
+# the panel build installs the workspace exactly as the monorepo does (shared hoisted types)
+apps/rider/*
+!apps/rider/package.json
+apps/driver/*
+!apps/driver/package.json

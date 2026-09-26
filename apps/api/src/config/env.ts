@@ -26,7 +26,7 @@ const EnvSchema = z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
       .default('info'),
     /** Web panel origins allowed to call the API from a browser, comma-separated. */
-    CORS_ORIGINS: list(z.url()).default(['http://localhost:5190']),
+    CORS_ORIGINS: list(z.url()).default(['http://localhost:5280']),
     /** Number of reverse proxies in front of the API (nginx, load balancer); 0 = direct. */
     TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
 
@@ -36,6 +36,12 @@ const EnvSchema = z
     DB_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
     /** A single query may not hold a connection longer than this (0 = no limit). */
     DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(0).default(30_000),
+    /** How long a request waits for a free pooled connection before answering 503 (0 = forever). */
+    DB_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(0).default(10_000),
+    /** How long a statement waits for a row or table lock before answering 409 (0 = forever). */
+    DB_LOCK_TIMEOUT_MS: z.coerce.number().int().min(0).default(15_000),
+    /** A transaction left idle this long is ended by Postgres, releasing its locks (0 = never). */
+    DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().min(0).default(60_000),
 
     JWT_ACCESS_SECRET: z.string().min(32),
     JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
@@ -72,7 +78,7 @@ const EnvSchema = z
     /** IP-keyed limits are multiplied by this (tests run from one IP). */
     RATE_LIMIT_IP_MULTIPLIER: z.coerce.number().min(1).max(1000).default(1),
 
-    // Card payments (hooks only for now: see src/modules/payments) -------------------
+    // Card payments (docs/payments.md): rides prepaid by card, driver top-ups ---------
     /** The platform's Payme merchant (cabinet → "ID кассы") and its key for the Merchant API. */
     PAYME_MERCHANT_ID: z
       .string()
@@ -83,6 +89,23 @@ const EnvSchema = z
     CLICK_SERVICE_ID: z.string().regex(/^\d+$/, 'digits').optional(),
     CLICK_MERCHANT_ID: z.string().regex(/^\d+$/, 'digits').optional(),
     CLICK_SECRET: z.string().min(8).optional(),
+    /** Payme's sandbox checkout (checkout.test.paycom.uz) instead of the real one. */
+    PAYME_TEST: bool('false'),
+    /**
+     * Where the provider's page sends the payer back: the app's deep link or a web page.
+     * "{intentId}" is replaced with the payment's id. Unset = the providers' default page.
+     */
+    PAYMENT_RETURN_URL: z.string().min(8).max(500).optional(),
+
+    // Uploads (S3-compatible, private bucket; all or none: uploads answer 503 until set) -------
+    /** Omit for AWS S3; set for any other S3-compatible service (SeaweedFS, MinIO...). */
+    STORAGE_S3_ENDPOINT: z.url().optional(),
+    /** Endpoint the apps PUT to and read from, when it differs from the one the API reaches. */
+    STORAGE_S3_PUBLIC_ENDPOINT: z.url().optional(),
+    STORAGE_S3_REGION: z.string().min(1).default('us-east-1'),
+    STORAGE_S3_BUCKET: z.string().min(3).max(63).optional(),
+    STORAGE_S3_ACCESS_KEY: z.string().min(1).optional(),
+    STORAGE_S3_SECRET_KEY: z.string().min(1).optional(),
 
     // Geography (docs/architecture.md) ------------------------------------------
     /** Address search and reverse geocoding; yandex falls back to nominatim when that is configured too. */
@@ -109,6 +132,32 @@ const EnvSchema = z
     /** How often the dispatcher looks at waiting rides and expiring offers. */
     DISPATCH_TICK_MS: z.coerce.number().int().min(200).max(60_000).default(1000),
 
+    // Legal integrations (docs/fiscal-and-licence.md) --------------------------------------
+    /** Electronic fiscal receipts: none = prepared and kept, not sent (until the OFD contract). */
+    FISCAL_PROVIDER: z.enum(['none']).default('none'),
+    /** Licence card checks: manual = operators check the Ministry's registry by hand. */
+    LICENCE_REGISTRY: z.enum(['manual']).default('manual'),
+
+    // Apps' configuration (GET /v1/config) ------------------------------------------------
+    /** The operators' phone line riders and drivers call (E.164). */
+    SUPPORT_PHONE: z
+      .string()
+      .regex(/^\+998\d{9}$/, 'E.164, e.g. +998901234567')
+      .optional(),
+    /** Support in Telegram: @username or https://t.me/... */
+    SUPPORT_TELEGRAM: z.string().min(2).max(100).optional(),
+    /** The office where drivers top up in cash and bring documents. */
+    OFFICE_ADDRESS: z.string().min(5).max(300).optional(),
+    /** Older app versions are asked to update (semver). */
+    MIN_RIDER_APP_VERSION: z
+      .string()
+      .regex(/^\d+\.\d+\.\d+$/, 'x.y.z')
+      .default('1.0.0'),
+    MIN_DRIVER_APP_VERSION: z
+      .string()
+      .regex(/^\d+\.\d+\.\d+$/, 'x.y.z')
+      .default('1.0.0'),
+
     /** Public origin of the page that opens share-trip links: {origin}/t/{token}. */
     SHARE_BASE_URL: z.url().default('https://taxi.sff.uz'),
 
@@ -121,6 +170,12 @@ const EnvSchema = z
     EXPO_PUSH_BASE_URL: z.url().default('https://exp.host/--/api/v2/push'),
     /** SMS to riders who ordered by phone (no app): car, plate and arrival. Costs money. */
     NOTIFY_SMS_PHONE_ORDERS: bool('true'),
+
+    /**
+     * Tests only: the instant the business calendar (night add-on, commission day/week, tax
+     * month, promo) reads as "now" when the process starts. Refused in production.
+     */
+    TEST_CALENDAR_AT: z.iso.datetime({ offset: true }).optional(),
 
     // Observability ------------------------------------------------------------
     METRICS_TOKEN: z.string().min(16).optional(),
@@ -148,11 +203,26 @@ const EnvSchema = z
     if (env.CLICK_SERVICE_ID || env.CLICK_MERCHANT_ID || env.CLICK_SECRET) {
       require(['CLICK_SERVICE_ID', 'CLICK_MERCHANT_ID', 'CLICK_SECRET'], 'for Click');
     }
+    const storage = [
+      'STORAGE_S3_BUCKET',
+      'STORAGE_S3_ACCESS_KEY',
+      'STORAGE_S3_SECRET_KEY',
+    ] as const;
+    if (storage.some((key) => env[key])) require([...storage], 'for uploads');
     if (env.GEOCODER === 'yandex') require(['YANDEX_GEOCODER_KEY'], 'for GEOCODER=yandex');
     if (env.GEOCODER === 'nominatim') {
       require(['GEOCODER_CONTACT_EMAIL'], 'for GEOCODER=nominatim (usage policy)');
     }
     if (env.ROUTER === 'osrm') require(['OSRM_URL'], 'for ROUTER=osrm');
+    if (env.NODE_ENV === 'production' && env.TEST_CALENDAR_AT) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['TEST_CALENDAR_AT'],
+        message: 'a pinned business calendar is for tests only',
+      });
+    }
+    // /metrics lists routes, error rates and queue sizes: never open in production
+    if (env.NODE_ENV === 'production') require(['METRICS_TOKEN'], 'in production');
     if (env.NODE_ENV === 'production' && env.SMS_PROVIDER === 'console') {
       ctx.addIssue({
         code: 'custom',

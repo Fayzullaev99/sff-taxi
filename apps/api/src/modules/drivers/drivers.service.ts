@@ -10,6 +10,7 @@ import { type Selectable, sql } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { AuthUser } from '../../core/auth/auth-context.js';
 import { Database, type Tx } from '../../core/db/database.js';
+import { containsPattern } from '../../core/db/like.js';
 import {
   ACTIVE_RIDE_STATUSES,
   DOCUMENT_KINDS,
@@ -29,8 +30,11 @@ import {
 } from '../../lib/driver-rules.js';
 import { priority } from '../../lib/priority.js';
 import { DriverTrackService } from '../geo/driver-track.service.js';
+import { PickupEtaService } from '../geo/pickup-eta.service.js';
 import { RealtimeBus } from '../realtime/realtime.publisher.js';
 import { LedgerService } from '../billing/ledger.service.js';
+import { UploadsService } from '../uploads/uploads.service.js';
+import { recordLicenceCheck } from './licence-registry.js';
 
 type Db = Tx | Database['kysely'];
 
@@ -52,6 +56,7 @@ export interface ApplicationInput {
     seats: number;
     class: 'economy' | 'comfort';
     features: VehicleFeature[];
+    cngInTrunk: boolean;
   };
 }
 
@@ -90,6 +95,8 @@ export class DriversService {
     private readonly track: DriverTrackService,
     private readonly ledger: LedgerService,
     private readonly realtime: RealtimeBus,
+    private readonly uploads: UploadsService,
+    private readonly pickupEta: PickupEtaService,
   ) {}
 
   // Driver side ------------------------------------------------------------------------
@@ -107,10 +114,12 @@ export class DriversService {
     await this.db.transaction(async (trx) => {
       const existing = await trx
         .selectFrom('drivers')
-        .select('status')
+        .select(['status', 'licence_card_number', 'licence_status'])
         .where('user_id', '=', user.userId)
         .forUpdate()
         .executeTakeFirst();
+      // a new licence card (or a new driver) must be checked with the registry again
+      const recheck = !existing || existing.licence_card_number !== input.licenceCardNumber;
       if (existing && existing.status !== 'pending' && existing.status !== 'rejected') {
         throw new ConflictException(
           'Arizangiz allaqachon ko‘rib chiqilgan: o‘zgartirish uchun operatorga murojaat qiling',
@@ -127,6 +136,7 @@ export class DriversService {
         licence_card_expires_on: input.licenceCardExpiresOn,
         status: 'pending' as const,
         status_reason: null,
+        ...(recheck ? { licence_status: 'unverified' as const, licence_checked_at: null } : {}),
         updated_at: new Date(),
       };
       if (existing) {
@@ -157,6 +167,7 @@ export class DriversService {
         seats: v.seats,
         class: v.class,
         features: [...new Set(v.features)],
+        cng_in_trunk: v.cngInTrunk,
         updated_at: new Date(),
       };
       await trx
@@ -164,6 +175,7 @@ export class DriversService {
         .values({ driver_id: user.userId, ...vehicle })
         .onConflict((oc) => oc.column('driver_id').doUpdateSet(vehicle))
         .execute();
+      if (recheck) await emit(trx, 'driver.licence_check_requested', { driverId: user.userId });
       if (!user.fullName) {
         await trx
           .updateTable('users')
@@ -178,18 +190,54 @@ export class DriversService {
   async setDocument(
     user: AuthUser,
     kind: DocumentKind,
-    input: { url: string; expiresOn: string | null },
+    input: { uploadId?: string; url?: string; expiresOn: string | null },
   ) {
     await this.driverRow(user.userId);
     if (input.expiresOn && input.expiresOn < tashkentDate(new Date())) {
       throw new BadRequestException('Hujjat muddati o‘tgan');
     }
-    const values = { url: input.url, expires_on: input.expiresOn, uploaded_at: new Date() };
+    if (input.uploadId) {
+      // a photo of the car or a selfie may be the same file as the one riders see
+      await this.uploads.requireAttachable(user.userId, input.uploadId, [
+        'document',
+        ...(kind === 'vehicle_photo' ? (['vehicle_photo'] as const) : []),
+        ...(kind === 'selfie' ? (['profile_photo'] as const) : []),
+      ]);
+    }
+    const values = {
+      url: input.uploadId ? null : (input.url ?? null),
+      upload_id: input.uploadId ?? null,
+      expires_on: input.expiresOn,
+      uploaded_at: new Date(),
+    };
     await this.db.kysely
       .insertInto('driver_documents')
       .values({ driver_id: user.userId, kind, ...values })
       .onConflict((oc) => oc.columns(['driver_id', 'kind']).doUpdateSet(values))
       .execute();
+    return this.me(user);
+  }
+
+  /** Sets the driver's photo or the car's photo that riders see. */
+  async setPhoto(user: AuthUser, of: 'driver' | 'vehicle', uploadId: string) {
+    await this.driverRow(user.userId);
+    await this.uploads.requireAttachable(user.userId, uploadId, [
+      of === 'driver' ? 'profile_photo' : 'vehicle_photo',
+    ]);
+    if (of === 'driver') {
+      await this.db.kysely
+        .updateTable('drivers')
+        .set({ photo_upload_id: uploadId, updated_at: new Date() })
+        .where('user_id', '=', user.userId)
+        .execute();
+    } else {
+      const res = await this.db.kysely
+        .updateTable('vehicles')
+        .set({ photo_upload_id: uploadId, updated_at: new Date() })
+        .where('driver_id', '=', user.userId)
+        .executeTakeFirst();
+      if (!res.numUpdatedRows) throw new NotFoundException('Avtomobil ma’lumotlari yo‘q');
+    }
     return this.me(user);
   }
 
@@ -228,6 +276,11 @@ export class DriversService {
         throw new ForbiddenException(this.statusMessage(d.status, d.status_reason));
       if (d.licence_card_expires_on < tashkentDate(new Date())) {
         throw new ForbiddenException('Litsenziya kartochkasi muddati o‘tgan: yangisini yuklang');
+      }
+      if (d.licence_status !== 'valid') {
+        throw new ForbiddenException(
+          'Litsenziya kartochkasi tasdiqlanmagan: operatorga murojaat qiling',
+        );
       }
       const standing = await this.ledger.standing(user.userId, trx);
       if (!standing.canWork) {
@@ -280,11 +333,18 @@ export class DriversService {
     // the rider of the driver's ride watches the car come
     const ride = await this.db.kysely
       .selectFrom('rides')
-      .select(['id', 'rider_id'])
+      .select(['id', 'rider_id', 'status', 'pickup_lat', 'pickup_lng'])
       .where('driver_id', '=', user.userId)
       .where('status', 'in', [...ACTIVE_RIDE_STATUSES])
       .executeTakeFirst();
     if (ride) {
+      // on the way to the pickup: the road ETA (one router call per ~15 s, cached)
+      const eta =
+        ride.status === 'driver_assigned'
+          ? await this.pickupEta
+              .eta(ride.id, fix, { lat: ride.pickup_lat, lng: ride.pickup_lng }, now)
+              .catch(() => null)
+          : null;
       await this.realtime.publish({
         to: { userIds: [ride.rider_id] },
         event: {
@@ -294,6 +354,7 @@ export class DriversService {
           lng: fix.lng,
           heading: fix.heading ?? null,
           at: now.toISOString(),
+          etaS: eta?.etaS ?? null,
         },
       });
     }
@@ -319,27 +380,55 @@ export class DriversService {
         'v.make',
         'v.model',
         'v.class',
+        'd.lat',
+        'd.lng',
+        'd.located_at as locatedAt',
+        'd.offers_received',
+        'd.offers_accepted',
+        'd.rides_cancelled',
+        'd.rating_sum',
+        'd.rating_count',
+        'd.rides_completed as ridesCompleted',
+        'd.licence_status as licenceStatus',
+        balanceOf('d.user_id').as('balance'),
       ])
       .$if(Boolean(filter.status), (q) => q.where('d.status', '=', filter.status!))
       .$if(Boolean(filter.q), (q) =>
         q.where((eb) =>
           eb.or([
-            eb('d.full_name', 'ilike', `%${filter.q}%`),
-            eb('u.phone', 'like', `%${filter.q}%`),
-            eb('v.plate', 'like', `%${filter.q!.replace(/\s/g, '').toUpperCase()}%`),
+            eb('d.full_name', 'ilike', containsPattern(filter.q!)),
+            eb('u.phone', 'like', containsPattern(filter.q!)),
+            eb('v.plate', 'like', containsPattern(filter.q!.replace(/\s/g, '').toUpperCase())),
           ]),
         ),
       )
       .orderBy('d.created_at', 'desc')
       .limit(200)
       .execute();
-    return rows.map((r) => ({ ...r, plateFormatted: r.plate ? formatPlate(r.plate) : null }));
+    return rows.map(
+      ({ offers_received, offers_accepted, rides_cancelled, rating_sum, rating_count, ...r }) => {
+        const p = priority({
+          offersReceived: offers_received,
+          offersAccepted: offers_accepted,
+          ridesCancelled: rides_cancelled,
+          ratingSum: rating_sum,
+          ratingCount: rating_count,
+        });
+        return {
+          ...r,
+          balance: Number(r.balance),
+          rating: p.stars,
+          priority: p.score,
+          plateFormatted: r.plate ? formatPlate(r.plate) : null,
+        };
+      },
+    );
   }
 
   /** Everything an operator needs to verify a driver, with the status history. */
   async adminView(driverId: string) {
     const view = await this.view(driverId);
-    const [history, standing] = await Promise.all([
+    const [history, standing, licenceChecks] = await Promise.all([
       this.db.kysely
         .selectFrom('driver_status_changes')
         .select([
@@ -353,8 +442,23 @@ export class DriversService {
         .orderBy('created_at', 'desc')
         .execute(),
       this.ledger.standing(driverId),
+      this.db.kysely
+        .selectFrom('licence_checks')
+        .select([
+          'source',
+          'licence_card_number as licenceCardNumber',
+          'result',
+          'expires_on as expiresOn',
+          'note',
+          'checked_by as checkedBy',
+          'created_at as at',
+        ])
+        .where('driver_id', '=', driverId)
+        .orderBy('created_at', 'desc')
+        .limit(20)
+        .execute(),
     ]);
-    return { ...view, history, balance: standing.balance };
+    return { ...view, history, licenceChecks, balance: standing.balance };
   }
 
   /**
@@ -416,7 +520,7 @@ export class DriversService {
   /** Operators may re-class a car or correct its features after an inspection. */
   async updateVehicle(
     driverId: string,
-    input: { class?: 'economy' | 'comfort'; features?: VehicleFeature[] },
+    input: { class?: 'economy' | 'comfort'; features?: VehicleFeature[]; cngInTrunk?: boolean },
   ) {
     const v = await this.db.kysely
       .selectFrom('vehicles')
@@ -429,10 +533,127 @@ export class DriversService {
     if (problems.length) throw invalid(problems);
     await this.db.kysely
       .updateTable('vehicles')
-      .set({ class: next.class, features: [...new Set(next.features)], updated_at: new Date() })
+      .set({
+        class: next.class,
+        features: [...new Set(next.features)],
+        cng_in_trunk: input.cngInTrunk ?? v.cng_in_trunk,
+        updated_at: new Date(),
+      })
       .where('driver_id', '=', driverId)
       .execute();
     return this.adminView(driverId);
+  }
+
+  // Licence card ------------------------------------------------------------------------
+
+  /** An operator's check of the licence card in the Ministry of Transport's registry. */
+  async recordLicenceCheck(
+    admin: AuthUser,
+    driverId: string,
+    input: { result: 'valid' | 'invalid'; note: string; expiresOn: string | null },
+  ) {
+    await this.db.transaction(async (trx) => {
+      const d = await trx
+        .selectFrom('drivers')
+        .select(['licence_card_number'])
+        .where('user_id', '=', driverId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!d) throw new NotFoundException('Haydovchi topilmadi');
+      await recordLicenceCheck(trx, {
+        driverId,
+        source: 'manual',
+        licenceCardNumber: d.licence_card_number,
+        verdict: { result: input.result, expiresOn: input.expiresOn, note: input.note, raw: null },
+        checkedBy: admin.userId,
+      });
+      if (input.result === 'invalid') await this.withdrawOffers(trx, driverId);
+    });
+    return this.adminView(driverId);
+  }
+
+  // Appeals ----------------------------------------------------------------------------
+
+  /** A rejected or blocked driver asks for a review; one open appeal at a time. */
+  async appeal(user: AuthUser, text: string) {
+    const d = await this.driverRow(user.userId);
+    if (d.status !== 'rejected' && d.status !== 'blocked') {
+      throw new ConflictException(
+        'Faqat rad etilgan yoki bloklangan hisob uchun murojaat qilinadi',
+      );
+    }
+    const id = uuidv7();
+    await this.db.transaction(async (trx) => {
+      const open = await trx
+        .selectFrom('driver_appeals')
+        .select('id')
+        .where('driver_id', '=', user.userId)
+        .where('status', '=', 'open')
+        .executeTakeFirst();
+      if (open) throw new ConflictException('Murojaatingiz ko‘rib chiqilmoqda');
+      await trx
+        .insertInto('driver_appeals')
+        .values({ id, driver_id: user.userId, status_at: d.status as 'rejected' | 'blocked', text })
+        .execute();
+      await emit(trx, 'driver.appeal', { appealId: id, driverId: user.userId });
+    });
+    return (await this.appeals(user.userId))[0]!;
+  }
+
+  async appeals(driverId: string) {
+    return this.db.kysely
+      .selectFrom('driver_appeals')
+      .select([
+        'id',
+        'status_at as statusAt',
+        'text',
+        'status',
+        'resolution',
+        'resolved_at as resolvedAt',
+        'created_at as createdAt',
+      ])
+      .where('driver_id', '=', driverId)
+      .orderBy('created_at', 'desc')
+      .limit(20)
+      .execute();
+  }
+
+  async appealQueue(status: 'open' | 'resolved') {
+    return this.db.kysely
+      .selectFrom('driver_appeals as a')
+      .innerJoin('drivers as d', 'd.user_id', 'a.driver_id')
+      .innerJoin('users as u', 'u.id', 'a.driver_id')
+      .select([
+        'a.id',
+        'a.driver_id as driverId',
+        'd.full_name as fullName',
+        'u.phone',
+        'd.status as driverStatus',
+        'd.status_reason as statusReason',
+        'a.status_at as statusAt',
+        'a.text',
+        'a.status',
+        'a.resolution',
+        'a.resolved_by as resolvedBy',
+        'a.resolved_at as resolvedAt',
+        'a.created_at as createdAt',
+      ])
+      .where('a.status', '=', status)
+      .orderBy('a.created_at', status === 'open' ? 'asc' : 'desc')
+      .limit(200)
+      .execute();
+  }
+
+  async resolveAppeal(admin: AuthUser, appealId: string, resolution: string) {
+    const res = await this.db.kysely
+      .updateTable('driver_appeals')
+      .set({ status: 'resolved', resolution, resolved_by: admin.userId, resolved_at: new Date() })
+      .where('id', '=', appealId)
+      .where('status', '=', 'open')
+      .returning('driver_id')
+      .executeTakeFirst();
+    if (!res) throw new NotFoundException('Ochiq murojaat topilmadi');
+    return this.appeals(res.driver_id).then((all) => all.find((a) => a.id === appealId)!);
   }
 
   // Shared -----------------------------------------------------------------------------
@@ -462,7 +683,13 @@ export class DriversService {
         .executeTakeFirst(),
       this.db.kysely
         .selectFrom('driver_documents')
-        .select(['kind', 'url', 'expires_on as expiresOn', 'uploaded_at as uploadedAt'])
+        .select([
+          'kind',
+          'url',
+          'upload_id',
+          'expires_on as expiresOn',
+          'uploaded_at as uploadedAt',
+        ])
         .where('driver_id', '=', driverId)
         .orderBy('kind')
         .execute(),
@@ -474,6 +701,12 @@ export class DriversService {
     ]);
     if (!d) throw new NotFoundException('Haydovchi topilmadi');
     const have = new Set(docs.map((x) => x.kind));
+    const urls = await this.uploads.readUrls([
+      ...docs.map((x) => x.upload_id),
+      d.photo_upload_id,
+      v?.photo_upload_id ?? null,
+    ]);
+    const readUrl = (id: string | null) => (id ? (urls.get(id) ?? null) : null);
     return {
       id: d.user_id,
       fullName: d.full_name,
@@ -485,7 +718,13 @@ export class DriversService {
         categories: d.licence_categories,
         issuedOn: d.licence_issued_on,
       },
-      licenceCard: { number: d.licence_card_number, expiresOn: d.licence_card_expires_on },
+      licenceCard: {
+        number: d.licence_card_number,
+        expiresOn: d.licence_card_expires_on,
+        // unverified until an operator or the Ministry's registry checked it
+        verification: d.licence_status,
+        checkedAt: d.licence_checked_at,
+      },
       status: d.status,
       statusReason: d.status_reason,
       approvedAt: d.approved_at,
@@ -495,8 +734,14 @@ export class DriversService {
         d.lat !== null && d.lng !== null
           ? { lat: d.lat, lng: d.lng, heading: d.heading, at: d.located_at }
           : null,
-      vehicle: v ? vehicleView(v) : null,
-      documents: docs,
+      photoUrl: readUrl(d.photo_upload_id),
+      vehicle: v ? { ...vehicleView(v), photoUrl: readUrl(v.photo_upload_id) } : null,
+      documents: docs.map(({ upload_id, url, ...doc }) => ({
+        ...doc,
+        uploadId: upload_id,
+        // uploaded files: a short-lived read URL; old apps: the URL they sent
+        url: upload_id ? readUrl(upload_id) : url,
+      })),
       missingDocuments: DOCUMENT_KINDS.filter((k) => !have.has(k)),
       priority: priority({
         offersReceived: d.offers_received,
@@ -522,6 +767,12 @@ export class DriversService {
     if (view.missingDocuments.length) out.push('Hujjatlar to‘liq yuklanmagan');
     if (view.licenceCard.expiresOn < tashkentDate(new Date())) {
       out.push('Litsenziya kartochkasi muddati o‘tgan');
+    }
+    if (view.licenceCard.verification === 'unverified') {
+      out.push('Litsenziya kartochkasi tekshirilmoqda');
+    }
+    if (view.licenceCard.verification === 'invalid') {
+      out.push('Litsenziya kartochkasi tasdiqlanmadi');
     }
     if (!canWork) out.push('Balans juda past');
     return out;
@@ -578,6 +829,15 @@ export class DriversService {
         });
       }
     }
+    if (d.licence_status !== 'valid') {
+      problems.push({
+        path: 'licenceCard',
+        message:
+          d.licence_status === 'invalid'
+            ? 'Litsenziya kartochkasi reyestrda tasdiqlanmadi'
+            : 'Litsenziya kartochkasini Transport vazirligi reyestrida tekshiring',
+      });
+    }
     if (problems.length) {
       throw new UnprocessableEntityException({ message: problems[0]!.message, issues: problems });
     }
@@ -616,6 +876,9 @@ export function vehicleView(v: Selectable<VehiclesTable>) {
     seats: v.seats,
     class: v.class,
     features: v.features,
+    cngInTrunk: v.cng_in_trunk,
+    /** What luggage rides need: a big trunk without a gas tank in it. */
+    luggage: v.features.includes('big_trunk') && !v.cng_in_trunk,
   };
 }
 

@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -8,12 +9,27 @@ import {
   ParseUUIDPipe,
   Post,
 } from '@nestjs/common';
+import { z } from 'zod';
 import { AdminOnly, type AuthUser, CurrentUser } from '../../core/auth/auth-context.js';
+import { ZodPipe } from '../../core/http/zod.pipe.js';
 import { GeoCoreModule } from '../geo/geo-core.module.js';
 import { RidesModule } from '../rides/rides.module.js';
 import { DispatchHandler } from './dispatch.handler.js';
 import { DispatchJob } from './dispatch.job.js';
 import { DispatchService } from './dispatch.service.js';
+
+/** Reasons the driver app offers when letting a ride pass (free text is fine too). */
+export const DECLINE_REASONS = {
+  too_far: 'Juda uzoq',
+  destination: 'Bu tomonga bormayman',
+  rider_rating: 'Yo‘lovchi reytingi past',
+  car_not_suitable: 'Avtomobil mos emas',
+  break: 'Dam olyapman',
+  other: 'Boshqa sabab',
+} as const;
+const DeclineBody = z
+  .object({ reason: z.string().trim().min(1).max(200).nullable().default(null) })
+  .default({ reason: null });
 
 @Controller('driver/offers')
 export class DriverOffersController {
@@ -33,8 +49,12 @@ export class DriverOffersController {
 
   @Post(':id/decline')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async decline(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    await this.dispatch.decline(user, id);
+  async decline(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(DeclineBody)) body: z.output<typeof DeclineBody>,
+  ) {
+    await this.dispatch.decline(user, id, body.reason);
   }
 }
 

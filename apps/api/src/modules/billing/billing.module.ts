@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { z } from 'zod';
 import { AdminOnly, type AuthUser, CurrentUser } from '../../core/auth/auth-context.js';
+import { BusinessCalendar } from '../../core/clock/business-calendar.js';
 import { Database } from '../../core/db/database.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
 import { tashkentDayStart, tashkentWeekStart } from '../../lib/commission.js';
@@ -25,7 +26,7 @@ const TaxQuery = z.object({ period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 
 const RemitBody = TaxQuery.extend({ reference: z.string().trim().min(3).max(100) });
 const PassBody = z.object({ kind: z.enum(['day', 'week']) });
 const EntryBody = z.object({
-  kind: z.enum(['topup', 'adjustment']),
+  kind: z.enum(['topup', 'adjustment', 'payout']),
   amount: z
     .number()
     .int()
@@ -41,6 +42,7 @@ export class DriverBillingController {
     private readonly ledger: LedgerService,
     private readonly charges: RideChargesService,
     private readonly db: Database,
+    private readonly calendar: BusinessCalendar,
   ) {}
 
   /** Today's or this week's rides, fares, cash collected, commission, tax and net (Tashkent time). */
@@ -51,7 +53,10 @@ export class DriverBillingController {
   ) {
     await this.assertDriver(user.userId);
     const now = new Date();
-    const from = q.period === 'day' ? tashkentDayStart(now) : tashkentWeekStart(now);
+    const at = this.calendar.at(now);
+    const from = this.calendar.real(
+      q.period === 'day' ? tashkentDayStart(at) : tashkentWeekStart(at),
+    );
     return this.charges.earnings(user.userId, from, now);
   }
 
@@ -131,7 +136,10 @@ export class AdminBillingController {
     return this.ledger.entries(id, q.cursor);
   }
 
-  /** Cash top-up received at the office, or a signed correction with a note. */
+  /**
+   * Cash top-up received at the office, a signed correction with a note, or a payout of the
+   * driver's card-ride money (amount paid out, positive; note with the transfer reference).
+   */
   @Post('drivers/:id/ledger')
   @HttpCode(HttpStatus.CREATED)
   record(

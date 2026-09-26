@@ -13,14 +13,18 @@ import { randomBytes } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
 import { ENV, type Env } from '../../config/env.js';
 import type { AuthUser } from '../../core/auth/auth-context.js';
+import { BusinessCalendar } from '../../core/clock/business-calendar.js';
 import { Database, type Tx } from '../../core/db/database.js';
+import { containsPattern } from '../../core/db/like.js';
 import {
   ACTIVE_RIDE_STATUSES,
   OPEN_RIDE_STATUSES,
   type Place,
   type RideActor,
+  type RidePaymentStatus,
   type RidesTable,
   type RideStatus,
+  UNFINISHED_RIDE_STATUSES,
 } from '../../core/db/schema.js';
 import { msg } from '../../core/http/messages.js';
 import { emit } from '../../core/outbox/outbox.js';
@@ -39,10 +43,17 @@ import {
   waitingFee,
 } from '../../lib/tariff.js';
 import { RideChargesService } from '../billing/charges.service.js';
+import { LedgerService } from '../billing/ledger.service.js';
 import { GeoService, publicCity } from '../geo/geo.service.js';
 import { RoutingService } from '../geo/routing.service.js';
+import { FiscalService } from '../fiscal/fiscal.service.js';
+import { IntentsService } from '../payments/intents.service.js';
 import { type PaymentMethod, PaymentsService } from '../payments/payments.service.js';
 import { SettingsService } from '../settings/settings.module.js';
+import { UploadsService } from '../uploads/uploads.service.js';
+import { DriverTrackService } from '../geo/driver-track.service.js';
+import { PickupEtaService } from '../geo/pickup-eta.service.js';
+import { AvailabilityService } from './availability.service.js';
 
 type Db = Tx | Database['kysely'];
 type Ride = Selectable<RidesTable>;
@@ -61,7 +72,15 @@ export interface QuoteInput {
   pickup: Point;
   dropoff: Point;
   options: RideOption[];
+  /** Ordering for later (30 min to 24 h ahead); null = now. */
+  scheduledFor?: Date | null;
 }
+
+/** Scheduled rides: how far ahead, when dispatch starts, how many a rider may hold. */
+export const SCHEDULE_MIN_AHEAD_MINUTES = 30;
+export const SCHEDULE_MAX_AHEAD_HOURS = 24;
+export const SCHEDULE_DISPATCH_BEFORE_MINUTES = 15;
+export const SCHEDULED_PER_RIDER = 3;
 
 export interface OrderInput {
   quoteId: string;
@@ -76,12 +95,22 @@ export interface OrderInput {
 export interface PhoneOrderInput {
   riderPhone: string;
   riderName: string | null;
-  pickup: PlaceInput;
-  dropoff: PlaceInput;
+  /** Coordinates may be left out when a quote (the operator's) gives them. */
+  pickup: Partial<Point> & { address: string | null; landmark: string | null };
+  dropoff: Partial<Point> & { address: string | null; landmark: string | null };
   class: RideClass;
   options: RideOption[];
   comment: string | null;
+  /** The operator's quote (POST admin/rides/quote): the fare read out to the caller. */
+  quoteId: string | null;
+  /** The panel's idempotency key: a double click creates one ride. */
+  clientRequestId: string | null;
 }
+
+const placeText = (p: { address: string | null; landmark: string | null }) => ({
+  address: p.address,
+  landmark: p.landmark,
+});
 
 export const DRIVER_CANCEL_REASONS = {
   rider_no_show: 'Yo‘lovchi chiqmadi',
@@ -94,6 +123,15 @@ export type DriverCancelReason = keyof typeof DRIVER_CANCEL_REASONS;
 
 const isActive = (s: RideStatus) => (ACTIVE_RIDE_STATUSES as readonly string[]).includes(s);
 const isOpen = (s: RideStatus) => (OPEN_RIDE_STATUSES as readonly string[]).includes(s);
+const isUnfinished = (s: RideStatus) => (UNFINISHED_RIDE_STATUSES as readonly string[]).includes(s);
+/** The rider may cancel until the trip starts. */
+const RIDER_CANCELLABLE: readonly RideStatus[] = [
+  'scheduled',
+  'awaiting_payment',
+  'searching',
+  'driver_assigned',
+  'driver_arrived',
+];
 
 /**
  * Rides: fixed-price quotes, ordering (by the rider or by an operator for a caller), the
@@ -109,7 +147,15 @@ export class RidesService {
     private readonly routing: RoutingService,
     private readonly settings: SettingsService,
     private readonly charges: RideChargesService,
+    private readonly ledger: LedgerService,
     private readonly payments: PaymentsService,
+    private readonly intents: IntentsService,
+    private readonly fiscal: FiscalService,
+    private readonly uploads: UploadsService,
+    private readonly calendar: BusinessCalendar,
+    private readonly availability: AvailabilityService,
+    private readonly pickupEta: PickupEtaService,
+    private readonly track: DriverTrackService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -117,7 +163,26 @@ export class RidesService {
 
   /** Prices a trip in every class. The quote is stored so the order uses exactly this price. */
   async quote(user: AuthUser, input: QuoteInput, now = new Date()) {
-    const priced = await this.price(input.pickup, input.dropoff, input.options, now);
+    const scheduledFor = input.scheduledFor ?? null;
+    if (scheduledFor) {
+      const ahead = (scheduledFor.getTime() - now.getTime()) / 60_000;
+      if (ahead < SCHEDULE_MIN_AHEAD_MINUTES || ahead > SCHEDULE_MAX_AHEAD_HOURS * 60) {
+        throw new BadRequestException(
+          msg(
+            'Oldindan buyurtma {0} daqiqadan {1} soatgacha oldin beriladi',
+            SCHEDULE_MIN_AHEAD_MINUTES,
+            SCHEDULE_MAX_AHEAD_HOURS,
+          ),
+        );
+      }
+    }
+    // a ride for later is priced for its own time (the night add-on), fixed now
+    const priced = await this.price(
+      input.pickup,
+      input.dropoff,
+      input.options,
+      scheduledFor ?? now,
+    );
     const id = uuidv7();
     const expiresAt = new Date(now.getTime() + QUOTE_TTL_SECONDS * 1000);
     await this.db.kysely
@@ -138,11 +203,13 @@ export class RidesService {
         fares: JSON.stringify(priced.fares),
         tariff: JSON.stringify(priced.tariff),
         expires_at: expiresAt,
+        scheduled_for: scheduledFor,
       })
       .execute();
     return {
       quoteId: id,
       expiresAt,
+      scheduledFor,
       city: publicCity(priced.city),
       kind: priced.kind,
       distanceM: priced.route.distanceM,
@@ -153,10 +220,14 @@ export class RidesService {
       paymentMethods: this.payments.methods(),
       waiting: priced.tariff.waiting,
       cancellationFee: priced.tariff.cancellation_fee,
+      // the nearest free car per class, by road: "~4 min" on the class buttons
+      availability: scheduledFor ? null : await this.availability.near(input.pickup, user.userId),
     };
   }
 
-  private async price(pickup: Point, dropoff: Point, options: RideOption[], at: Date) {
+  /** Prices a trip; `now` is real time, read through the business calendar for the night add-on. */
+  private async price(pickup: Point, dropoff: Point, options: RideOption[], now: Date) {
+    const at = this.calendar.at(now);
     const service = await this.geo.serviceCity(pickup);
     if (!service) {
       const where = await this.geo.resolve(pickup);
@@ -211,6 +282,9 @@ export class RidesService {
     if (!quote) throw new NotFoundException('Narx topilmadi: qayta hisoblang');
     if (quote.expires_at <= now) throw new GoneException('Narx eskirdi: qayta hisoblang');
     const fare = (quote.fares as unknown as Record<RideClass, Fare>)[input.class];
+    if (quote.scheduled_for && input.paymentMethod !== 'cash') {
+      throw new BadRequestException('Oldindan buyurtma hozircha faqat naqd to‘lov bilan');
+    }
 
     const rider = await this.db.kysely
       .selectFrom('users')
@@ -227,7 +301,22 @@ export class RidesService {
         .where('client_request_id', '=', input.clientRequestId)
         .executeTakeFirst();
       if (again) return again.id;
-      await this.assertNoOpenRide(trx, user.userId);
+      if (quote.scheduled_for) {
+        // a ride for later does not block riding now; a few may wait at once
+        const waiting = await trx
+          .selectFrom('rides')
+          .select((eb) => eb.fn.countAll<string>().as('n'))
+          .where('rider_id', '=', user.userId)
+          .where('status', '=', 'scheduled')
+          .executeTakeFirstOrThrow();
+        if (Number(waiting.n) >= SCHEDULED_PER_RIDER) {
+          throw new ConflictException(
+            msg('Oldindan {0} tadan ortiq buyurtma berib bo‘lmaydi', SCHEDULED_PER_RIDER),
+          );
+        }
+      } else {
+        await this.assertNoOpenRide(trx, user.userId);
+      }
       return this.createRide(trx, {
         riderId: user.userId,
         riderPhone: rider.phone,
@@ -248,6 +337,7 @@ export class RidesService {
         fare,
         tariff: quote.tariff,
         paymentMethod: input.paymentMethod,
+        scheduledFor: quote.scheduled_for,
       });
     });
     return { created: true, ride: await this.riderView(user, id) };
@@ -258,8 +348,85 @@ export class RidesService {
    * account is found or created by phone; the price is computed on the spot and read out.
    */
   async phoneOrder(operator: AuthUser, input: PhoneOrderInput, now = new Date()) {
-    const priced = await this.price(input.pickup, input.dropoff, input.options, now);
+    // a double click in the panel: the same request id from the same operator is one ride
+    const repeat = () =>
+      input.clientRequestId
+        ? this.db.kysely
+            .selectFrom('rides')
+            .select('id')
+            .where('created_by', '=', operator.userId)
+            .where('channel', '=', 'phone')
+            .where('client_request_id', '=', input.clientRequestId)
+            .executeTakeFirst()
+        : Promise.resolve(undefined);
+    const existing = await repeat();
+    if (existing) return { created: false, ride: await this.adminView(existing.id) };
+
+    // the price the operator read out to the caller (their quote), or priced on the spot
+    let priced: {
+      cityId: string;
+      pickup: PlaceInput;
+      dropoff: PlaceInput;
+      options: RideOption[];
+      distanceM: number;
+      durationS: number | null;
+      fare: Fare;
+      tariff: unknown;
+      quoteId: string | null;
+    };
+    if (input.quoteId) {
+      const quote = await this.db.kysely
+        .selectFrom('quotes')
+        .selectAll()
+        .where('id', '=', input.quoteId)
+        .where('user_id', '=', operator.userId)
+        .executeTakeFirst();
+      if (!quote) throw new NotFoundException('Narx topilmadi: qayta hisoblang');
+      if (quote.expires_at <= now) throw new GoneException('Narx eskirdi: qayta hisoblang');
+      priced = {
+        cityId: quote.city_id,
+        pickup: { lat: quote.pickup_lat, lng: quote.pickup_lng, ...placeText(input.pickup) },
+        dropoff: { lat: quote.dropoff_lat, lng: quote.dropoff_lng, ...placeText(input.dropoff) },
+        options: quote.options as RideOption[],
+        distanceM: quote.distance_m,
+        durationS: quote.duration_s,
+        fare: (quote.fares as unknown as Record<RideClass, Fare>)[input.class],
+        tariff: quote.tariff,
+        quoteId: quote.id,
+      };
+    } else {
+      if (input.pickup.lat === undefined || input.dropoff.lat === undefined) {
+        throw new BadRequestException('Manzillar koordinatasi yoki narx (quoteId) kerak');
+      }
+      const pickup = input.pickup as PlaceInput;
+      const dropoff = input.dropoff as PlaceInput;
+      const p = await this.price(pickup, dropoff, input.options, now);
+      priced = {
+        cityId: p.city.id,
+        pickup,
+        dropoff,
+        options: input.options,
+        distanceM: p.route.distanceM,
+        durationS: p.route.durationS === null ? null : Math.round(p.route.durationS),
+        fare: p.fares[input.class],
+        tariff: p.tariff,
+        quoteId: null,
+      };
+    }
     const id = await this.db.transaction(async (trx) => {
+      if (input.clientRequestId) {
+        await sql`select pg_advisory_xact_lock(hashtext(${operator.userId + input.clientRequestId}))`.execute(
+          trx,
+        );
+        const again = await trx
+          .selectFrom('rides')
+          .select('id')
+          .where('created_by', '=', operator.userId)
+          .where('channel', '=', 'phone')
+          .where('client_request_id', '=', input.clientRequestId)
+          .executeTakeFirst();
+        if (again) return { id: again.id, created: false };
+      }
       await trx
         .insertInto('users')
         .values({ id: uuidv7(), phone: input.riderPhone, full_name: input.riderName })
@@ -280,22 +447,22 @@ export class RidesService {
         channel: 'phone',
         createdBy: operator.userId,
         actor: 'operator',
-        clientRequestId: null,
-        quoteId: null,
-        cityId: priced.city.id,
+        clientRequestId: input.clientRequestId,
+        quoteId: priced.quoteId,
+        cityId: priced.cityId,
         rideClass: input.class,
-        pickup: input.pickup,
-        dropoff: input.dropoff,
-        options: input.options,
+        pickup: priced.pickup,
+        dropoff: priced.dropoff,
+        options: priced.options,
         comment: input.comment,
-        distanceM: priced.route.distanceM,
-        durationS: priced.route.durationS === null ? null : Math.round(priced.route.durationS),
-        fare: priced.fares[input.class],
+        distanceM: priced.distanceM,
+        durationS: priced.durationS,
+        fare: priced.fare,
         tariff: priced.tariff,
         paymentMethod: 'cash',
-      });
+      }).then((rideId) => ({ id: rideId, created: true }));
     });
-    return this.adminView(id);
+    return { created: id.created, ride: await this.adminView(id.id) };
   }
 
   private async assertNoOpenRide(trx: Tx, riderId: string): Promise<void> {
@@ -303,7 +470,7 @@ export class RidesService {
       .selectFrom('rides')
       .select(['id', 'number'])
       .where('rider_id', '=', riderId)
-      .where('status', 'in', [...OPEN_RIDE_STATUSES])
+      .where('status', 'in', [...UNFINISHED_RIDE_STATUSES])
       .executeTakeFirst();
     if (open) {
       throw new ConflictException({
@@ -335,10 +502,18 @@ export class RidesService {
       fare: Fare;
       tariff: unknown;
       paymentMethod: PaymentMethod;
+      scheduledFor?: Date | null;
     },
   ): Promise<string> {
     const id = uuidv7();
     const place = (p: PlaceInput): Place => ({ address: p.address, landmark: p.landmark });
+    // a card ride is dispatched once its fixed fare is prepaid (docs/payments.md)
+    // a ride for later waits until 15 minutes before its time
+    const status = r.scheduledFor
+      ? 'scheduled'
+      : r.paymentMethod === 'card'
+        ? 'awaiting_payment'
+        : 'searching';
     await trx
       .insertInto('rides')
       .values({
@@ -367,7 +542,8 @@ export class RidesService {
         tariff: JSON.stringify(r.tariff),
         fare_quoted: r.fare.total,
         payment_method: r.paymentMethod,
-        status: 'searching',
+        scheduled_for: r.scheduledFor ?? null,
+        status,
         updated_at: new Date(),
       })
       .execute();
@@ -375,8 +551,15 @@ export class RidesService {
       channel: r.channel,
       fare: r.fare.total,
       class: r.rideClass,
+      paymentMethod: r.paymentMethod,
     });
-    await emit(trx, 'ride.requested', { rideId: id });
+    if (status === 'awaiting_payment') {
+      await this.intents.createForRide(trx, { id, riderId: r.riderId, amount: r.fare.total });
+    } else if (status === 'scheduled') {
+      await emit(trx, 'ride.status_changed', { rideId: id, from: null, to: 'scheduled' });
+    } else {
+      await emit(trx, 'ride.requested', { rideId: id });
+    }
     return id;
   }
 
@@ -447,14 +630,16 @@ export class RidesService {
       })
       .where('id', '=', ride.id)
       .execute();
-    // every other offer of this ride is over
-    await trx
+    // every other offer of this ride is over: those drivers' screens must close it
+    const withdrawn = await trx
       .updateTable('ride_offers')
       .set({ status: 'withdrawn', responded_at: now })
       .where('ride_id', '=', ride.id)
       .where('status', '=', 'pending')
       .$if(Boolean(by.offerId), (q) => q.where('id', '!=', by.offerId!))
+      .returning(['id', 'driver_id'])
       .execute();
+    await this.offersClosed(trx, ride.id, withdrawn);
     if (previousDriverId) {
       await this.event(trx, ride.id, 'driver_released', by.actor, by.actorId, {
         driverId: previousDriverId,
@@ -484,7 +669,7 @@ export class RidesService {
     await this.db.transaction(async (trx) => {
       const ride = await this.lockRide(trx, rideId);
       if (ride.rider_id !== user.userId) throw new NotFoundException('Buyurtma topilmadi');
-      if (!isOpen(ride.status) || ride.status === 'in_progress') {
+      if (!RIDER_CANCELLABLE.includes(ride.status)) {
         throw new ConflictException('Bu bosqichda buyurtmani bekor qilib bo‘lmaydi');
       }
       const tariff = this.tariffOf(ride);
@@ -530,6 +715,17 @@ export class RidesService {
   async complete(user: AuthUser, rideId: string) {
     await this.driverStep(user, rideId, 'in_progress', 'completed', async (trx, ride, now) => {
       const total = ride.fare_quoted + ride.waiting_fee;
+      if (ride.payment_method === 'card') {
+        // the rider prepaid the quoted fare to the platform: it is the driver's money now
+        // (paid waiting on a card ride is collected in cash)
+        await this.ledger.post(trx, {
+          driverId: ride.driver_id!,
+          kind: 'card_fare',
+          amount: ride.fare_quoted,
+          rideId: ride.id,
+          note: `Karta orqali to‘langan safar #${ride.number}`,
+        });
+      }
       await trx
         .updateTable('drivers')
         .set((eb) => ({ rides_completed: eb('rides_completed', '+', 1) }))
@@ -543,11 +739,14 @@ export class RidesService {
         fareTotal: total,
         completedAt: now,
       });
+      // the electronic fiscal receipt, cash rides too (Resolution 200)
+      await emit(trx, 'fiscal.receipt_due', { rideId: ride.id });
       return {
         set: {
           completed_at: now,
           fare_total: total,
-          payment_status: ride.payment_method === 'cash' ? ('paid' as const) : ('pending' as const),
+          // cash went to the driver; a card fare was prepaid before dispatch
+          payment_status: 'paid' as const,
         },
         data: { fare: total, commission: charged.commission, tax: charged.tax },
       };
@@ -626,7 +825,9 @@ export class RidesService {
   async cancelByOperator(operator: AuthUser, rideId: string, reason: string) {
     await this.db.transaction(async (trx) => {
       const ride = await this.lockRide(trx, rideId);
-      if (!isOpen(ride.status)) throw new ConflictException('Buyurtma allaqachon yakunlangan');
+      if (!isUnfinished(ride.status) && ride.status !== 'scheduled') {
+        throw new ConflictException('Buyurtma allaqachon yakunlangan');
+      }
       await this.cancel(trx, ride, 'operator', operator.userId, reason, 0);
     });
     return this.adminView(rideId);
@@ -642,8 +843,15 @@ export class RidesService {
     actorId: string | null,
     reason: string | null,
     fee: number,
+    opts: { paymentStatus?: RidePaymentStatus } = {},
   ): Promise<void> {
     const now = new Date();
+    // a card ride's unpaid intent closes; a paid one is queued for a full refund
+    const paymentStatus =
+      opts.paymentStatus ??
+      (ride.payment_method === 'card'
+        ? await this.intents.onRideCancelled(trx, ride.id)
+        : 'not_charged');
     await trx
       .updateTable('rides')
       .set({
@@ -651,18 +859,20 @@ export class RidesService {
         cancelled_by: by,
         cancel_reason: reason,
         cancellation_fee: fee,
-        payment_status: 'not_charged',
+        payment_status: paymentStatus,
         cancelled_at: now,
         updated_at: now,
       })
       .where('id', '=', ride.id)
       .execute();
-    await trx
+    const withdrawn = await trx
       .updateTable('ride_offers')
       .set({ status: 'withdrawn', responded_at: now })
       .where('ride_id', '=', ride.id)
       .where('status', '=', 'pending')
+      .returning(['id', 'driver_id'])
       .execute();
+    await this.offersClosed(trx, ride.id, withdrawn);
     await this.event(trx, ride.id, 'cancelled', by, actorId, {
       reason,
       ...(fee ? { fee } : {}),
@@ -747,6 +957,22 @@ export class RidesService {
     });
   }
 
+  /** Tells drivers whose offers of this ride were withdrawn (realtime offer.closed). */
+  private async offersClosed(
+    trx: Tx,
+    rideId: string,
+    offers: { id: string; driver_id: string }[],
+  ): Promise<void> {
+    for (const o of offers) {
+      await emit(trx, 'ride.offer_closed', {
+        offerId: o.id,
+        rideId,
+        driverId: o.driver_id,
+        status: 'withdrawn',
+      });
+    }
+  }
+
   async event(
     trx: Tx,
     rideId: string,
@@ -770,6 +996,191 @@ export class RidesService {
 
   tariffOf(ride: Pick<Ride, 'tariff'>): Tariff {
     return Tariff.parse(ride.tariff);
+  }
+
+  // Operators: callers ----------------------------------------------------------------
+
+  /** Who is calling: the account, their open ride, recent rides and places (phone orders). */
+  async customerLookup(phone: string) {
+    const user = await this.db.kysely
+      .selectFrom('users')
+      .select([
+        'id',
+        'full_name',
+        'phone',
+        'status',
+        'rider_rating_sum',
+        'rider_rating_count',
+        'no_show_count',
+        'created_at',
+      ])
+      .where('phone', '=', phone)
+      .executeTakeFirst();
+    if (!user) return { found: false as const, phone };
+    const [open, recent, places] = await Promise.all([
+      this.db.kysely
+        .selectFrom('rides')
+        .select('id')
+        .where('rider_id', '=', user.id)
+        .where('status', 'in', [...UNFINISHED_RIDE_STATUSES])
+        .executeTakeFirst(),
+      this.db.kysely
+        .selectFrom('rides')
+        .selectAll()
+        .where('rider_id', '=', user.id)
+        .orderBy('id', 'desc')
+        .limit(10)
+        .execute(),
+      this.db.kysely
+        .selectFrom('rider_places')
+        .select(['id', 'kind', 'label', 'address', 'landmark', 'lat', 'lng'])
+        .where('user_id', '=', user.id)
+        .orderBy('created_at')
+        .execute(),
+    ]);
+    // pickups and drop-offs of recent rides, one per place, newest first
+    const seen = new Set<string>();
+    const recentPlaces: {
+      address: string | null;
+      landmark: string | null;
+      lat: number;
+      lng: number;
+    }[] = [];
+    for (const r of recent) {
+      for (const p of [
+        { ...r.pickup, lat: r.pickup_lat, lng: r.pickup_lng },
+        { ...r.dropoff, lat: r.dropoff_lat, lng: r.dropoff_lng },
+      ]) {
+        const k = `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        recentPlaces.push({ address: p.address, landmark: p.landmark, lat: p.lat, lng: p.lng });
+      }
+    }
+    return {
+      found: true as const,
+      phone,
+      user: {
+        id: user.id,
+        name: user.full_name,
+        status: user.status,
+        rating:
+          Math.round(((user.rider_rating_sum + 5 * 4.8) / (user.rider_rating_count + 5)) * 10) / 10,
+        noShows: user.no_show_count,
+        since: user.created_at,
+      },
+      openRide: open ? await this.adminView(open.id) : null,
+      recentRides: recent.map((r) => this.baseView(r)),
+      recentPlaces: recentPlaces.slice(0, 10),
+      savedPlaces: places,
+    };
+  }
+
+  // Scheduled rides --------------------------------------------------------------------
+
+  /** The rider's rides for later, soonest first. */
+  async riderScheduled(user: AuthUser) {
+    const rows = await this.db.kysely
+      .selectFrom('rides')
+      .selectAll()
+      .where('rider_id', '=', user.userId)
+      .where('status', '=', 'scheduled')
+      .orderBy('scheduled_for')
+      .execute();
+    return rows.map((r) => this.baseView(r));
+  }
+
+  /**
+   * Starts the search for scheduled rides whose time is near (the dispatch loop calls it
+   * every tick). A rider who is on another ride by then gets the scheduled one cancelled
+   * with a reason (one open ride per rider).
+   */
+  async activateScheduled(now = new Date()): Promise<number> {
+    const due = await this.db.kysely
+      .selectFrom('rides')
+      .select('id')
+      .where('status', '=', 'scheduled')
+      .where(
+        'scheduled_for',
+        '<=',
+        new Date(now.getTime() + SCHEDULE_DISPATCH_BEFORE_MINUTES * 60_000),
+      )
+      .orderBy('scheduled_for')
+      .limit(100)
+      .execute();
+    let started = 0;
+    for (const { id } of due) {
+      const done = await this.db.transaction(async (trx) => {
+        const ride = await trx
+          .selectFrom('rides')
+          .selectAll()
+          .where('id', '=', id)
+          .where('status', '=', 'scheduled')
+          .forUpdate()
+          .skipLocked()
+          .executeTakeFirst();
+        if (!ride) return false;
+        await sql`select pg_advisory_xact_lock(hashtext(${ride.rider_id}))`.execute(trx);
+        const busy = await trx
+          .selectFrom('rides')
+          .select('id')
+          .where('rider_id', '=', ride.rider_id)
+          .where('status', 'in', [...UNFINISHED_RIDE_STATUSES])
+          .executeTakeFirst();
+        if (busy) {
+          await this.cancel(trx, ride, 'system', null, 'Boshqa safaringiz davom etmoqda', 0);
+          return false;
+        }
+        await trx
+          .updateTable('rides')
+          .set({ status: 'searching', requested_at: now, updated_at: now })
+          .where('id', '=', ride.id)
+          .execute();
+        await this.event(trx, ride.id, 'dispatch_started', 'system', null, {
+          scheduledFor: ride.scheduled_for,
+        });
+        await emit(trx, 'ride.status_changed', {
+          rideId: ride.id,
+          from: 'scheduled',
+          to: 'searching',
+        });
+        await emit(trx, 'ride.requested', { rideId: ride.id });
+        return true;
+      });
+      if (done) started++;
+    }
+    return started;
+  }
+
+  // Card rides not paid in time -------------------------------------------------------
+
+  /**
+   * Cancels card rides whose payment window closed (worker housekeeping); returns how many.
+   * Each ride is re-checked under its lock: the payment may have completed since the scan.
+   */
+  async expireUnpaid(now = new Date(), limit = 100): Promise<number> {
+    const due = await this.intents.dueRideIntents(now, limit);
+    let expired = 0;
+    for (const rideId of due) {
+      const done = await this.db.transaction(async (trx) => {
+        const ride = await trx
+          .selectFrom('rides')
+          .selectAll()
+          .where('id', '=', rideId)
+          .where('status', '=', 'awaiting_payment')
+          .forUpdate()
+          .skipLocked()
+          .executeTakeFirst();
+        if (!ride) return false;
+        await this.intents.expireRideIntent(trx, ride.id);
+        await this.cancel(trx, ride, 'system', null, 'To‘lov vaqtida amalga oshirilmadi', 0, {
+          paymentStatus: 'failed',
+        });
+        return true;
+      });
+      if (done) expired++;
+    }
+    return expired;
   }
 
   // Share link ---------------------------------------------------------------------------
@@ -835,10 +1246,57 @@ export class RidesService {
     return {
       ...base,
       driver,
-      canCancel: ['searching', 'driver_assigned', 'driver_arrived'].includes(ride.status),
+      receipt: ride.status === 'completed' ? await this.fiscal.forRide(ride.id) : null,
+      canCancel: RIDER_CANCELLABLE.includes(ride.status),
       cancelFeeNow,
+      // card rides: the prepayment, with where to pay while it is pending
+      payment: ride.payment_method === 'card' ? await this.intents.forRide(ride.id) : null,
+      // this ride's own rules (the tariff it was ordered under), whatever changed since
+      rules: {
+        freeWaitingMinutes: tariff.waiting.free_minutes,
+        waitingPerMinute: tariff.waiting.per_minute,
+        cancellationFee: tariff.cancellation_fee,
+      },
+      rated: await this.rated(ride.id, 'rider'),
+      ...(await this.carProgress(ride)),
       events: await this.events(ride.id, RIDER_EVENTS),
     };
+  }
+
+  private async rated(rideId: string, role: 'rider' | 'driver'): Promise<boolean> {
+    const row = await this.db.kysely
+      .selectFrom('ratings')
+      .select('id')
+      .where('ride_id', '=', rideId)
+      .where('author_role', '=', role)
+      .executeTakeFirst();
+    return Boolean(row);
+  }
+
+  /**
+   * The car coming: its road ETA to the pickup (refreshed with its position every ~15 s)
+   * while the driver is on the way, and its recent trail since the assignment for a smooth
+   * marker (like SFF Eats' courier trail).
+   */
+  private async carProgress(ride: Ride) {
+    if (!ride.driver_id || !isActive(ride.status)) return { driverEta: null, trail: [] };
+    const [trail, car] = await Promise.all([
+      this.track.trail(ride.driver_id, ride.assigned_at),
+      this.db.kysely
+        .selectFrom('drivers')
+        .select(['lat', 'lng'])
+        .where('user_id', '=', ride.driver_id)
+        .executeTakeFirst(),
+    ]);
+    const driverEta =
+      ride.status === 'driver_assigned' && car?.lat != null && car.lng != null
+        ? await this.pickupEta.eta(
+            ride.id,
+            { lat: car.lat, lng: car.lng },
+            { lat: ride.pickup_lat, lng: ride.pickup_lng },
+          )
+        : null;
+    return { driverEta, trail };
   }
 
   /** The driver's view: the rider's name, phone and rating, the fare and deductions. */
@@ -872,6 +1330,7 @@ export class RidesService {
           'o.created_at as createdAt',
           'o.expires_at as expiresAt',
           'o.responded_at as respondedAt',
+          'o.decline_reason as declineReason',
         ])
         .where('o.ride_id', '=', ride.id)
         .orderBy('o.created_at')
@@ -933,6 +1392,7 @@ export class RidesService {
       startedAt: ride.started_at,
       completedAt: ride.completed_at,
       cancelledAt: ride.cancelled_at,
+      scheduledFor: ride.scheduled_for,
     };
   }
 
@@ -952,7 +1412,10 @@ export class RidesService {
     const d = await this.db.kysely
       .selectFrom('drivers as d')
       .innerJoin('users as u', 'u.id', 'd.user_id')
+      .leftJoin('vehicles as v', 'v.driver_id', 'd.user_id')
       .select([
+        'd.photo_upload_id',
+        'v.photo_upload_id as vehicle_photo_upload_id',
         'd.user_id',
         'd.full_name',
         'u.phone',
@@ -983,6 +1446,9 @@ export class RidesService {
       phone: d.phone,
       rating: p.stars,
       ridesCompleted: d.rides_completed,
+      // short-lived read URLs (private bucket); null until the driver uploaded them
+      photoUrl: await this.uploads.readUrl(d.photo_upload_id),
+      vehiclePhotoUrl: await this.uploads.readUrl(d.vehicle_photo_upload_id),
       location:
         d.lat !== null && d.lng !== null
           ? { lat: d.lat, lng: d.lng, heading: d.heading, at: d.located_at }
@@ -1039,7 +1505,7 @@ export class RidesService {
       .selectFrom('rides')
       .select('id')
       .where('rider_id', '=', user.userId)
-      .where('status', 'in', [...OPEN_RIDE_STATUSES])
+      .where('status', 'in', [...UNFINISHED_RIDE_STATUSES])
       .executeTakeFirst();
     return open ? this.riderView(user, open.id) : null;
   }
@@ -1071,22 +1537,49 @@ export class RidesService {
   }
 
   /** Operators' list: open rides by default, or by status, newest first. */
-  async adminList(filter: { status?: RideStatus | 'open'; q?: string }) {
+  /**
+   * Operators' list, newest first: open rides by default, or by status ("all" for any), a
+   * driver, a class, Tashkent days (from/to inclusive), a phone or number search; paged by
+   * `cursor` = the last id seen (200 per page).
+   */
+  async adminList(filter: {
+    status?: RideStatus | 'open' | 'all';
+    q?: string;
+    driverId?: string;
+    riderId?: string;
+    class?: RideClass;
+    from?: string;
+    to?: string;
+    cursor?: string;
+  }) {
     const statuses =
-      !filter.status || filter.status === 'open' ? [...OPEN_RIDE_STATUSES] : [filter.status];
+      filter.status === 'all'
+        ? null
+        : !filter.status || filter.status === 'open'
+          ? [...UNFINISHED_RIDE_STATUSES]
+          : [filter.status];
+    const dayStart = (d: string) => new Date(`${d}T00:00:00+05:00`);
     const rows = await this.db.kysely
       .selectFrom('rides')
       .selectAll()
-      .where('status', 'in', statuses)
+      .$if(statuses !== null, (q) => q.where('status', 'in', statuses!))
+      .$if(Boolean(filter.driverId), (q) => q.where('driver_id', '=', filter.driverId!))
+      .$if(Boolean(filter.riderId), (q) => q.where('rider_id', '=', filter.riderId!))
+      .$if(Boolean(filter.class), (q) => q.where('class', '=', filter.class!))
+      .$if(Boolean(filter.from), (q) => q.where('requested_at', '>=', dayStart(filter.from!)))
+      .$if(Boolean(filter.to), (q) =>
+        q.where('requested_at', '<', new Date(dayStart(filter.to!).getTime() + 86_400_000)),
+      )
+      .$if(Boolean(filter.cursor), (q) => q.where('id', '<', filter.cursor!))
       .$if(Boolean(filter.q), (q) =>
         q.where((eb) =>
           eb.or([
-            eb('rider_phone', 'like', `%${filter.q}%`),
+            eb('rider_phone', 'like', containsPattern(filter.q!)),
             ...(/^\d+$/.test(filter.q!) ? [eb('number', '=', Number(filter.q))] : []),
           ]),
         ),
       )
-      .orderBy('requested_at', 'desc')
+      .orderBy('id', 'desc')
       .limit(200)
       .execute();
     return rows.map((r) => ({
@@ -1103,6 +1596,9 @@ export class RidesService {
 /** Event types riders see in their ride's timeline. */
 const RIDER_EVENTS = [
   'requested',
+  'dispatch_started',
+  'paid',
+  'refunded',
   'assigned',
   'driver_released',
   'arrived',

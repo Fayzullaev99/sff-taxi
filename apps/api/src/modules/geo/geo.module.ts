@@ -12,6 +12,7 @@ import {
 import { z } from 'zod';
 import { ENV, type Env } from '../../config/env.js';
 import { AdminOnly, Meta, Public, type RequestMeta } from '../../core/auth/auth-context.js';
+import { RateLimit } from '../../core/http/rate-limit.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
 import { RateLimiter } from '../../core/redis/rate-limiter.js';
 import { GeoCoreModule } from './geo-core.module.js';
@@ -47,12 +48,14 @@ export class GeoController {
 
   /** Service areas: active cities and the upcoming ones ("tez orada"). */
   @Get('cities')
+  @RateLimit({ name: 'geo:cities', by: 'ip', max: 120, windowSeconds: 60 })
   async cities() {
     return (await this.geo.cities()).map(publicCity);
   }
 
   /** Which city a point is in; outside every one, the nearest ("we do not work here yet"). */
   @Get('resolve')
+  @RateLimit({ name: 'geo:resolve', by: 'ip', max: 120, windowSeconds: 60 })
   resolve(@Query(new ZodPipe(PointQuery)) q: z.output<typeof PointQuery>) {
     return this.geo.resolve(q);
   }

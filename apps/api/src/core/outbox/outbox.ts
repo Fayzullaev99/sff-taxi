@@ -16,7 +16,19 @@ export type OutboxTopic =
   /** { sosId, rideId } */
   | 'ride.sos'
   /** A driver was approved, rejected, blocked or unblocked. { driverId, from, to, reason } */
-  | 'driver.status_changed';
+  | 'driver.status_changed'
+  /** A rejected or blocked driver asked for a review. { appealId, driverId } */
+  | 'driver.appeal'
+  /** An intercity trip changed status. { tripId, from, to } */
+  | 'intercity.trip_changed'
+  /** A seat booking was made, cancelled, boarded, ... { bookingId, tripId, status, by } */
+  | 'intercity.booking_changed'
+  /** A completed ride or booking needs its fiscal receipt. { rideId } | { bookingId } */
+  | 'fiscal.receipt_due'
+  /** A driver's licence card must be checked with the registry. { driverId } */
+  | 'driver.licence_check_requested'
+  /** A complaint was opened, answered or resolved. { complaintId, rideId, riderId, status, by } */
+  | 'complaint.changed';
 
 /**
  * Records an event in the caller's transaction: it is delivered by the worker

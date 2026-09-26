@@ -1,0 +1,116 @@
+# Alert rules, visible at Prometheus /alerts and in Grafana. Delivery (Telegram, e-mail) is set
+# up in Grafana alerting: docs/deploy.md, "Monitoring and alerts".
+groups:
+  - name: sff-taxi
+    rules:
+      - alert: ApiDown
+        expr: up{job="api"} == 0 or absent(up{job="api"})
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: 'API instance {{ $labels.instance }} is not answering /metrics'
+          runbook: docs/runbook.md#api-down
+
+      - alert: WorkerDown
+        expr: up{job="worker"} == 0 or absent(up{job="worker"})
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Worker is not answering (dispatch, outbox, notifications, payment expiry stop)'
+          runbook: docs/runbook.md#worker-stalled-or-outbox-growing
+
+      - alert: OutboxBacklog
+        expr: max(outbox_pending_events) > 100
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: '{{ $value }} outbox events waiting for more than 5 minutes'
+          runbook: docs/runbook.md#worker-stalled-or-outbox-growing
+
+      # every ride's realtime updates, pushes and fiscal receipts wait in the outbox
+      - alert: OutboxStale
+        expr: max(outbox_oldest_pending_seconds) > 300
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'The oldest outbox event has waited {{ $value | humanizeDuration }}'
+          runbook: docs/runbook.md#worker-stalled-or-outbox-growing
+
+      - alert: OutboxDeadEvents
+        expr: max(outbox_dead_events) > 0
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: '{{ $value }} outbox events exhausted their attempts'
+          runbook: docs/runbook.md#worker-stalled-or-outbox-growing
+
+      - alert: ApiErrorRate
+        expr: >
+          sum(rate(http_request_duration_seconds_count{job="api",status=~"5.."}[5m]))
+          / clamp_min(sum(rate(http_request_duration_seconds_count{job="api"}[5m])), 0.001) > 0.01
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'More than 1% of API requests answer 5xx'
+          runbook: docs/runbook.md#api-down
+
+      - alert: ApiSlow
+        expr: >
+          histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="api",route!="/v1/stream"}[5m]))) > 1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: 'API p95 latency above 1 s'
+
+      - alert: PaymentCallbacksFailing
+        expr: >
+          sum(rate(http_request_duration_seconds_count{job="api",route=~"/v1/payments/.*",status=~"5.."}[10m])) > 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Payme/Click callbacks answer 5xx: prepaid card rides and top-ups may not be confirmed'
+          runbook: docs/runbook.md#payment-callbacks-failing
+
+      - alert: DiskAlmostFull
+        expr: >
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}) < 0.15
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Less than 15% disk free on {{ $labels.mountpoint }}'
+          runbook: docs/runbook.md#database-disk-full
+
+      # Redis runs with maxmemory-policy noeviction: at the limit it refuses writes (OTP,
+      # rate limits, stream tickets fail) instead of evicting. Act before that.
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / clamp_min(redis_memory_max_bytes, 1) > 0.8
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Redis uses {{ $value | humanizePercentage }} of maxmemory (noeviction)'
+          runbook: docs/runbook.md#redis-memory
+
+      - alert: RedisRejectingWrites
+        expr: >
+          redis_memory_used_bytes / clamp_min(redis_memory_max_bytes, 1) > 0.95
+          or increase(redis_errors_total{err="OOM"}[5m]) > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Redis is at maxmemory and refuses writes'
+          runbook: docs/runbook.md#redis-memory
+
+      - alert: RedisDown
+        expr: redis_up == 0 or absent(redis_up)
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Redis is not answering (sign-in, rate limits, realtime stop)'
+          runbook: docs/runbook.md#api-down
+
+      - alert: MemoryPressure
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Less than 10% memory available'
