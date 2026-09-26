@@ -142,6 +142,8 @@ export interface DriversTable {
   rating_sum: Generated<number>;
   rating_count: Generated<number>;
   photo_upload_id: string | null;
+  licence_status: Generated<'unverified' | 'valid' | 'invalid'>;
+  licence_checked_at: Timestamp | null;
   created_at: CreatedAt;
   updated_at: Timestamp;
 }
@@ -560,6 +562,36 @@ export interface IntercityBookingsTable {
   updated_at: Timestamp;
 }
 
+export interface FiscalReceiptsTable {
+  id: string;
+  ride_id: string | null;
+  booking_id: string | null;
+  provider: string;
+  status: Generated<'pending' | 'sent' | 'skipped'>;
+  amount: number;
+  payload: Json<Record<string, unknown>>;
+  receipt_id: string | null;
+  fiscal_sign: string | null;
+  receipt_url: string | null;
+  attempts: Generated<number>;
+  last_error: string | null;
+  created_at: CreatedAt;
+  sent_at: Timestamp | null;
+}
+
+export interface LicenceChecksTable {
+  id: string;
+  driver_id: string;
+  source: 'manual' | 'mintrans';
+  licence_card_number: string;
+  result: 'valid' | 'invalid';
+  expires_on: DateOnly | null;
+  note: string | null;
+  raw: NullableJson<unknown>;
+  checked_by: string | null;
+  created_at: CreatedAt;
+}
+
 export interface DB {
   users: UsersTable;
   admins: AdminsTable;
@@ -592,4 +624,6 @@ export interface DB {
   intercity_fares: IntercityFaresTable;
   intercity_trips: IntercityTripsTable;
   intercity_bookings: IntercityBookingsTable;
+  fiscal_receipts: FiscalReceiptsTable;
+  licence_checks: LicenceChecksTable;
 }

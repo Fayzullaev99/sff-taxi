@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 import { ConfigModule } from './config/config.module.js';
 import { ENV, type Env } from './config/env.js';
+import { createLicenceRegistry, LICENCE_REGISTRY } from './modules/drivers/licence-registry.js';
 import { CalendarModule } from './core/clock/business-calendar.js';
 import { DatabaseModule } from './core/db/database.js';
 import { createRegistry } from './core/observability/metrics.js';
@@ -17,7 +18,9 @@ import { NotificationsWorkerModule } from './modules/notifications/notifications
 import { PaymentsCoreModule } from './modules/payments/payments.module.js';
 import { RealtimePublisher } from './modules/realtime/realtime.publisher.js';
 import { RidesModule } from './modules/rides/rides.module.js';
+import { FiscalCoreModule, FiscalHandler } from './modules/fiscal/fiscal.module.js';
 import { HousekeepingJob } from './modules/housekeeping/housekeeping.job.js';
+import { LicenceHandler } from './modules/drivers/licence.handler.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
 import { UploadsModule } from './modules/uploads/uploads.module.js';
 import { WorkerRuntime } from './worker-runtime.js';
@@ -43,6 +46,7 @@ import { WorkerRuntime } from './worker-runtime.js';
     UploadsModule,
     RidesModule,
     PaymentsCoreModule,
+    FiscalCoreModule,
     DispatchModule,
     NotificationsWorkerModule,
   ],
@@ -55,12 +59,20 @@ import { WorkerRuntime } from './worker-runtime.js';
         RealtimePublisher,
         NotificationsHandler,
         IntercityNotificationsHandler,
+        FiscalHandler,
+        LicenceHandler,
       ],
       useFactory: (...handlers: OutboxHandler[]) => handlers,
     },
     { provide: WORKER_METRICS, useFactory: () => createRegistry('worker') },
     OutboxDispatcher,
     HousekeepingJob,
+    LicenceHandler,
+    {
+      provide: LICENCE_REGISTRY,
+      inject: [ENV],
+      useFactory: (env: Env) => createLicenceRegistry(env),
+    },
     WorkerRuntime,
   ],
 })

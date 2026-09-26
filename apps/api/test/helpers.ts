@@ -164,6 +164,11 @@ export async function createDriver(
       .expect(200);
   }
   const admin = api(app, (await signInAdmin(app)).accessToken);
+  // the licence card checked in the Ministry's registry (manual registry), then approval
+  await admin
+    .post(`/v1/admin/drivers/${id}/licence`)
+    .send({ result: 'valid', note: 'Reyestrda tekshirildi' })
+    .expect(200);
   await admin.post(`/v1/admin/drivers/${id}/approve`).send({}).expect(200);
   if (opts.topup) {
     await admin

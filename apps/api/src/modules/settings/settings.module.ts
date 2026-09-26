@@ -114,11 +114,39 @@ export const DEFAULT_INTERCITY: IntercityRules = {
   boarding_opens_minutes: 60,
 };
 
+/**
+ * What goes on the electronic fiscal receipt of a ride or a seat (src/modules/fiscal). The
+ * codes are PLACEHOLDERS until the classifier codes are confirmed with the tax authority
+ * (tasnif.soliq.uz): see docs/fiscal-and-licence.md.
+ */
+export const FiscalRules = z.object({
+  /** Item names on the receipt. */
+  city_item_name: z.string().trim().min(3).max(128),
+  intercity_item_name: z.string().trim().min(3).max(128),
+  /** MXIK (IKPU): the 17-digit product/service classifier code of passenger transport. */
+  mxik_code: z.string().regex(/^\d{17}$/, '17 ta raqam'),
+  /** The package (unit) code the classifier gives for the MXIK code. */
+  package_code: z.string().regex(/^\d{1,10}$/, 'raqamlar'),
+  /** Self-employed drivers under the turnover tax are not VAT payers: 0. */
+  vat_percent: z.number().min(0).max(20),
+});
+export type FiscalRules = z.infer<typeof FiscalRules>;
+
+export const DEFAULT_FISCAL: FiscalRules = {
+  city_item_name: 'Taksi xizmati (yo‘lovchi tashish)',
+  intercity_item_name: 'Shaharlararo yo‘lovchi tashish (o‘rindiq)',
+  // placeholders: no receipt is sent while FISCAL_PROVIDER=none
+  mxik_code: '00000000000000000',
+  package_code: '0000000',
+  vat_percent: 0,
+};
+
 const RULES = {
   tariff: { key: 'tariff', schema: Tariff, fallback: DEFAULT_TARIFF },
   dispatch: { key: 'dispatch', schema: DispatchRules, fallback: DEFAULT_DISPATCH },
   billing: { key: 'billing', schema: BillingRules, fallback: DEFAULT_BILLING },
   intercity: { key: 'intercity', schema: IntercityRules, fallback: DEFAULT_INTERCITY },
+  fiscal: { key: 'fiscal', schema: FiscalRules, fallback: DEFAULT_FISCAL },
 } as const;
 type RuleName = keyof typeof RULES;
 type RuleValue<N extends RuleName> = z.infer<(typeof RULES)[N]['schema']>;
@@ -167,6 +195,10 @@ export class SettingsService {
   intercity(db?: Db) {
     return this.get('intercity', db);
   }
+
+  fiscal(db?: Db) {
+    return this.get('fiscal', db);
+  }
 }
 
 @Controller('admin/settings')
@@ -213,6 +245,16 @@ export class SettingsController {
   @Put('intercity')
   setIntercity(@Body(new ZodPipe(IntercityRules)) body: IntercityRules) {
     return this.settings.set('intercity', body);
+  }
+
+  @Get('fiscal')
+  fiscal() {
+    return this.settings.fiscal();
+  }
+
+  @Put('fiscal')
+  setFiscal(@Body(new ZodPipe(FiscalRules)) body: FiscalRules) {
+    return this.settings.set('fiscal', body);
   }
 }
 

@@ -21,6 +21,8 @@ import { BillingModule } from '../billing/billing.module.js';
 import { GeoCoreModule } from '../geo/geo-core.module.js';
 import { RealtimeBus } from '../realtime/realtime.publisher.js';
 import { type DriverDecision, DriversService } from './drivers.service.js';
+import { createLicenceRegistry, LICENCE_REGISTRY } from './licence-registry.js';
+import { ENV, type Env } from '../../config/env.js';
 
 const DateString = z.iso.date('Sana YYYY-MM-DD ko‘rinishida');
 const Feature = z.enum(VEHICLE_FEATURES);
@@ -104,6 +106,12 @@ const VehiclePatch = z
   })
   .partial();
 const AppealBody = z.object({ text: z.string().trim().min(5).max(1000) });
+const LicenceCheckBody = z.object({
+  result: z.enum(['valid', 'invalid']),
+  /** What was checked, where: "Transport vazirligi reyestri, 27.09 tekshirildi". */
+  note: z.string().trim().min(3).max(500),
+  expiresOn: DateString.nullable().default(null),
+});
 const AppealsQuery = z.object({ status: z.enum(['open', 'resolved']).default('open') });
 const ResolveAppealBody = z.object({ resolution: z.string().trim().min(3).max(1000) });
 
@@ -221,6 +229,20 @@ export class AdminDriversController {
     return this.drivers.adminView(id);
   }
 
+  /**
+   * Records the licence card check an operator made in the Ministry of Transport's registry
+   * (the manual registry). Approval and going online need a valid card.
+   */
+  @Post(':id/licence')
+  @HttpCode(HttpStatus.OK)
+  checkLicence(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(LicenceCheckBody)) body: z.output<typeof LicenceCheckBody>,
+  ) {
+    return this.drivers.recordLicenceCheck(user, id, body);
+  }
+
   /** approve | reject | block | unblock, with a reason (required except for approval). */
   @Post(':id/:decision')
   @HttpCode(HttpStatus.OK)
@@ -246,7 +268,15 @@ export class AdminDriversController {
 @Module({
   imports: [GeoCoreModule, BillingModule],
   controllers: [DriverController, AdminDriversController],
-  providers: [DriversService, RealtimeBus],
+  providers: [
+    DriversService,
+    RealtimeBus,
+    {
+      provide: LICENCE_REGISTRY,
+      inject: [ENV],
+      useFactory: (env: Env) => createLicenceRegistry(env),
+    },
+  ],
   exports: [DriversService],
 })
 export class DriversModule {}

@@ -33,6 +33,7 @@ import { DriverTrackService } from '../geo/driver-track.service.js';
 import { RealtimeBus } from '../realtime/realtime.publisher.js';
 import { LedgerService } from '../billing/ledger.service.js';
 import { UploadsService } from '../uploads/uploads.service.js';
+import { recordLicenceCheck } from './licence-registry.js';
 
 type Db = Tx | Database['kysely'];
 
@@ -111,10 +112,12 @@ export class DriversService {
     await this.db.transaction(async (trx) => {
       const existing = await trx
         .selectFrom('drivers')
-        .select('status')
+        .select(['status', 'licence_card_number', 'licence_status'])
         .where('user_id', '=', user.userId)
         .forUpdate()
         .executeTakeFirst();
+      // a new licence card (or a new driver) must be checked with the registry again
+      const recheck = !existing || existing.licence_card_number !== input.licenceCardNumber;
       if (existing && existing.status !== 'pending' && existing.status !== 'rejected') {
         throw new ConflictException(
           'Arizangiz allaqachon ko‘rib chiqilgan: o‘zgartirish uchun operatorga murojaat qiling',
@@ -131,6 +134,7 @@ export class DriversService {
         licence_card_expires_on: input.licenceCardExpiresOn,
         status: 'pending' as const,
         status_reason: null,
+        ...(recheck ? { licence_status: 'unverified' as const, licence_checked_at: null } : {}),
         updated_at: new Date(),
       };
       if (existing) {
@@ -169,6 +173,7 @@ export class DriversService {
         .values({ driver_id: user.userId, ...vehicle })
         .onConflict((oc) => oc.column('driver_id').doUpdateSet(vehicle))
         .execute();
+      if (recheck) await emit(trx, 'driver.licence_check_requested', { driverId: user.userId });
       if (!user.fullName) {
         await trx
           .updateTable('users')
@@ -269,6 +274,11 @@ export class DriversService {
         throw new ForbiddenException(this.statusMessage(d.status, d.status_reason));
       if (d.licence_card_expires_on < tashkentDate(new Date())) {
         throw new ForbiddenException('Litsenziya kartochkasi muddati o‘tgan: yangisini yuklang');
+      }
+      if (d.licence_status !== 'valid') {
+        throw new ForbiddenException(
+          'Litsenziya kartochkasi tasdiqlanmagan: operatorga murojaat qiling',
+        );
       }
       const standing = await this.ledger.standing(user.userId, trx);
       if (!standing.canWork) {
@@ -380,7 +390,7 @@ export class DriversService {
   /** Everything an operator needs to verify a driver, with the status history. */
   async adminView(driverId: string) {
     const view = await this.view(driverId);
-    const [history, standing] = await Promise.all([
+    const [history, standing, licenceChecks] = await Promise.all([
       this.db.kysely
         .selectFrom('driver_status_changes')
         .select([
@@ -394,8 +404,23 @@ export class DriversService {
         .orderBy('created_at', 'desc')
         .execute(),
       this.ledger.standing(driverId),
+      this.db.kysely
+        .selectFrom('licence_checks')
+        .select([
+          'source',
+          'licence_card_number as licenceCardNumber',
+          'result',
+          'expires_on as expiresOn',
+          'note',
+          'checked_by as checkedBy',
+          'created_at as at',
+        ])
+        .where('driver_id', '=', driverId)
+        .orderBy('created_at', 'desc')
+        .limit(20)
+        .execute(),
     ]);
-    return { ...view, history, balance: standing.balance };
+    return { ...view, history, licenceChecks, balance: standing.balance };
   }
 
   /**
@@ -478,6 +503,34 @@ export class DriversService {
       })
       .where('driver_id', '=', driverId)
       .execute();
+    return this.adminView(driverId);
+  }
+
+  // Licence card ------------------------------------------------------------------------
+
+  /** An operator's check of the licence card in the Ministry of Transport's registry. */
+  async recordLicenceCheck(
+    admin: AuthUser,
+    driverId: string,
+    input: { result: 'valid' | 'invalid'; note: string; expiresOn: string | null },
+  ) {
+    await this.db.transaction(async (trx) => {
+      const d = await trx
+        .selectFrom('drivers')
+        .select(['licence_card_number'])
+        .where('user_id', '=', driverId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!d) throw new NotFoundException('Haydovchi topilmadi');
+      await recordLicenceCheck(trx, {
+        driverId,
+        source: 'manual',
+        licenceCardNumber: d.licence_card_number,
+        verdict: { result: input.result, expiresOn: input.expiresOn, note: input.note, raw: null },
+        checkedBy: admin.userId,
+      });
+      if (input.result === 'invalid') await this.withdrawOffers(trx, driverId);
+    });
     return this.adminView(driverId);
   }
 
@@ -627,7 +680,13 @@ export class DriversService {
         categories: d.licence_categories,
         issuedOn: d.licence_issued_on,
       },
-      licenceCard: { number: d.licence_card_number, expiresOn: d.licence_card_expires_on },
+      licenceCard: {
+        number: d.licence_card_number,
+        expiresOn: d.licence_card_expires_on,
+        // unverified until an operator or the Ministry's registry checked it
+        verification: d.licence_status,
+        checkedAt: d.licence_checked_at,
+      },
       status: d.status,
       statusReason: d.status_reason,
       approvedAt: d.approved_at,
@@ -670,6 +729,12 @@ export class DriversService {
     if (view.missingDocuments.length) out.push('Hujjatlar to‘liq yuklanmagan');
     if (view.licenceCard.expiresOn < tashkentDate(new Date())) {
       out.push('Litsenziya kartochkasi muddati o‘tgan');
+    }
+    if (view.licenceCard.verification === 'unverified') {
+      out.push('Litsenziya kartochkasi tekshirilmoqda');
+    }
+    if (view.licenceCard.verification === 'invalid') {
+      out.push('Litsenziya kartochkasi tasdiqlanmadi');
     }
     if (!canWork) out.push('Balans juda past');
     return out;
@@ -725,6 +790,15 @@ export class DriversService {
           message: `Hujjat muddati o‘tgan: ${doc.kind}`,
         });
       }
+    }
+    if (d.licence_status !== 'valid') {
+      problems.push({
+        path: 'licenceCard',
+        message:
+          d.licence_status === 'invalid'
+            ? 'Litsenziya kartochkasi reyestrda tasdiqlanmadi'
+            : 'Litsenziya kartochkasini Transport vazirligi reyestrida tekshiring',
+      });
     }
     if (problems.length) {
       throw new UnprocessableEntityException({ message: problems[0]!.message, issues: problems });

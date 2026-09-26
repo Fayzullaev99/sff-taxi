@@ -319,6 +319,7 @@ export class IntercityService {
       const now = new Date();
       for (const b of await this.liveBookings(trx, trip.id)) {
         await this.setBookingStatus(trx, b, 'completed', 'driver', { completed_at: now });
+        await emit(trx, 'fiscal.receipt_due', { bookingId: b.id });
         await this.charges.chargeBooking(trx, {
           id: b.id,
           number: b.number,

@@ -20,6 +20,7 @@ import { RateLimit } from '../../core/http/rate-limit.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
 import { RIDE_CLASSES, RIDE_OPTIONS } from '../../lib/tariff.js';
 import { BillingModule } from '../billing/billing.module.js';
+import { FiscalCoreModule } from '../fiscal/fiscal.module.js';
 import { GeoCoreModule } from '../geo/geo-core.module.js';
 import { GeoService } from '../geo/geo.service.js';
 import { PaymentsCoreModule } from '../payments/payments.module.js';
@@ -272,7 +273,7 @@ export class AdminRidesController {
 }
 
 @Module({
-  imports: [GeoCoreModule, BillingModule, PaymentsCoreModule],
+  imports: [GeoCoreModule, BillingModule, PaymentsCoreModule, FiscalCoreModule],
   controllers: [RidesController, TariffsController, DriverRidesController, AdminRidesController],
   providers: [RidesService],
   exports: [RidesService],

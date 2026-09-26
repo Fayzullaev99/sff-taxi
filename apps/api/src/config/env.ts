@@ -132,6 +132,12 @@ const EnvSchema = z
     /** How often the dispatcher looks at waiting rides and expiring offers. */
     DISPATCH_TICK_MS: z.coerce.number().int().min(200).max(60_000).default(1000),
 
+    // Legal integrations (docs/fiscal-and-licence.md) --------------------------------------
+    /** Electronic fiscal receipts: none = prepared and kept, not sent (until the OFD contract). */
+    FISCAL_PROVIDER: z.enum(['none']).default('none'),
+    /** Licence card checks: manual = operators check the Ministry's registry by hand. */
+    LICENCE_REGISTRY: z.enum(['manual']).default('manual'),
+
     // Apps' configuration (GET /v1/config) ------------------------------------------------
     /** The operators' phone line riders and drivers call (E.164). */
     SUPPORT_PHONE: z

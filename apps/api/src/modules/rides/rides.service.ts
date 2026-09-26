@@ -46,6 +46,7 @@ import { RideChargesService } from '../billing/charges.service.js';
 import { LedgerService } from '../billing/ledger.service.js';
 import { GeoService, publicCity } from '../geo/geo.service.js';
 import { RoutingService } from '../geo/routing.service.js';
+import { FiscalService } from '../fiscal/fiscal.service.js';
 import { IntentsService } from '../payments/intents.service.js';
 import { type PaymentMethod, PaymentsService } from '../payments/payments.service.js';
 import { SettingsService } from '../settings/settings.module.js';
@@ -127,6 +128,7 @@ export class RidesService {
     private readonly ledger: LedgerService,
     private readonly payments: PaymentsService,
     private readonly intents: IntentsService,
+    private readonly fiscal: FiscalService,
     private readonly uploads: UploadsService,
     private readonly calendar: BusinessCalendar,
     @Inject(ENV) private readonly env: Env,
@@ -584,6 +586,8 @@ export class RidesService {
         fareTotal: total,
         completedAt: now,
       });
+      // the electronic fiscal receipt, cash rides too (Resolution 200)
+      await emit(trx, 'fiscal.receipt_due', { rideId: ride.id });
       return {
         set: {
           completed_at: now,
@@ -935,6 +939,7 @@ export class RidesService {
     return {
       ...base,
       driver,
+      receipt: ride.status === 'completed' ? await this.fiscal.forRide(ride.id) : null,
       canCancel: RIDER_CANCELLABLE.includes(ride.status),
       cancelFeeNow,
       // card rides: the prepayment, with where to pay while it is pending

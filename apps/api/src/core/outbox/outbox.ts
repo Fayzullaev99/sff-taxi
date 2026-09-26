@@ -22,7 +22,11 @@ export type OutboxTopic =
   /** An intercity trip changed status. { tripId, from, to } */
   | 'intercity.trip_changed'
   /** A seat booking was made, cancelled, boarded, ... { bookingId, tripId, status, by } */
-  | 'intercity.booking_changed';
+  | 'intercity.booking_changed'
+  /** A completed ride or booking needs its fiscal receipt. { rideId } | { bookingId } */
+  | 'fiscal.receipt_due'
+  /** A driver's licence card must be checked with the registry. { driverId } */
+  | 'driver.licence_check_requested';
 
 /**
  * Records an event in the caller's transaction: it is delivered by the worker

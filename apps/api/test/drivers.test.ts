@@ -146,6 +146,15 @@ describe('drivers', () => {
       await uploadAll(http);
 
       await http.post('/v1/driver/shift').send({ online: true }).expect(403);
+      // Resolution 200: only a licence card checked in the Ministry's registry
+      const unchecked = await admin.post(`/v1/admin/drivers/${id}/approve`).send({}).expect(422);
+      expect(unchecked.body.message).toMatch(/Transport vazirligi/);
+      const checked = await admin
+        .post(`/v1/admin/drivers/${id}/licence`)
+        .send({ result: 'valid', note: 'Reyestrda bor, 2030 yilgacha', expiresOn: '2030-01-01' })
+        .expect(200);
+      expect(checked.body.licenceCard.verification).toBe('valid');
+      expect(checked.body.licenceChecks[0]).toMatchObject({ source: 'manual', result: 'valid' });
       const approved = await admin.post(`/v1/admin/drivers/${id}/approve`).send({}).expect(200);
       expect(approved.body).toMatchObject({ status: 'active', missingDocuments: [] });
       expect(approved.body.history[0]).toMatchObject({ from: 'pending', to: 'active' });
