@@ -18,7 +18,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "docker:build": "docker build -t sff-taxi-api:local . && docker build -f Dockerfile.web -t sff-taxi-web:local ."
   },
   "overrides": {
     "typescript": "~5.9.3"

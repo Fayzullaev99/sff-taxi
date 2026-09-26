@@ -12,3 +12,6 @@ coverage/
 test-results/
 .expo/
 .claude/
+
+# production secrets and backups on a server checkout
+deploy/backups/

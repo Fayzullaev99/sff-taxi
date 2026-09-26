@@ -1,0 +1,208 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24'
+  EXPO_NO_TELEMETRY: '1'
+
+jobs:
+  # Which apps this checkout has: the apps are added to the monorepo over time, and a job for
+  # an app that is not there yet is skipped instead of failing.
+  detect:
+    name: Detect apps
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      web: ${{ steps.apps.outputs.web }}
+      rider: ${{ steps.apps.outputs.rider }}
+      driver: ${{ steps.apps.outputs.driver }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: apps
+        run: |
+          for app in web rider driver; do
+            if [ -f "apps/$app/package.json" ]; then echo "$app=true"; else echo "$app=false"; fi
+          done >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+  static:
+    name: Typecheck, lint, format
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      # every workspace present (api, and web, rider, driver once they exist)
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+
+  api:
+    name: API tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # same host ports as local development (docker-compose.yml), so the test defaults apply
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: taxi_owner
+          POSTGRES_PASSWORD: taxi_owner_dev
+          POSTGRES_DB: taxi
+        ports:
+          - 5460:5432
+        options: >-
+          --health-cmd "pg_isready -U taxi_owner -d taxi"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6394:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      # the upload tests fail instead of skipping when the storage is missing
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      # service containers cannot take a command: start S3 storage by hand for the upload tests
+      - name: Start S3 storage (SeaweedFS)
+        run: |
+          docker run -d --name s3 -p 8335:8333 \
+            -v "$PWD/infra/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro" \
+            chrislusf/seaweedfs:4.47 server -dir=/data -s3 -s3.port=8333 \
+            -s3.config=/etc/seaweedfs/s3.json -master.volumeSizeLimitMB=256 -volume.max=0
+      - run: npm ci --no-audit --no-fund
+      - name: Create runtime role and test database
+        env:
+          PGPASSWORD: taxi_owner_dev
+        # the same script local development runs on first start (infra/postgres/init)
+        run: psql -h localhost -p 5460 -U taxi_owner -d taxi -v ON_ERROR_STOP=1 -f infra/postgres/init/01-roles.sql
+      - name: Wait for S3 storage
+        run: |
+          for _ in $(seq 1 60); do
+            curl -fs -o /dev/null localhost:8335/healthz && exit 0
+            sleep 1
+          done
+          docker logs s3; exit 1
+      - run: npm test -w apps/api
+      - run: npm run build -w apps/api
+
+  web:
+    name: Operator panel tests and build
+    needs: detect
+    if: needs.detect.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test -w apps/web
+      - run: npm run build -w apps/web
+        env:
+          # same origin, as in the production image
+          VITE_API_URL: ''
+
+  mobile:
+    name: ${{ matrix.app }} app
+    needs: detect
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [rider, driver]
+    steps:
+      - name: Present in this checkout?
+        id: present
+        run: echo "yes=${{ needs.detect.outputs[matrix.app] }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        if: steps.present.outputs.yes == 'true'
+      - uses: actions/setup-node@v5
+        if: steps.present.outputs.yes == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - if: steps.present.outputs.yes == 'true'
+        run: npm ci --no-audit --no-fund
+      - if: steps.present.outputs.yes == 'true'
+        run: npm run typecheck -w apps/${{ matrix.app }}
+      - if: steps.present.outputs.yes == 'true'
+        run: npm test -w apps/${{ matrix.app }} --if-present
+      # bundles the JavaScript exactly as a release build would: catches Metro resolution
+      # errors (duplicate React, missing modules) that typecheck and unit tests cannot see
+      - name: Android bundle (expo export)
+        if: steps.present.outputs.yes == 'true'
+        working-directory: apps/${{ matrix.app }}
+        env:
+          CI: '1'
+          EXPO_PUBLIC_API_URL: https://api.example.uz
+        run: npx expo export --platform android --output-dir "$RUNNER_TEMP/export"
+
+  images:
+    name: Docker images build
+    needs: detect
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            file: Dockerfile
+          - name: web
+            file: Dockerfile.web
+    steps:
+      - uses: actions/checkout@v5
+        if: matrix.name == 'api' || needs.detect.outputs.web == 'true'
+      - uses: docker/setup-buildx-action@v3
+        if: matrix.name == 'api' || needs.detect.outputs.web == 'true'
+      # build only (the images workflow pushes on tags); shares its layer cache
+      - uses: docker/build-push-action@v6
+        if: matrix.name == 'api' || needs.detect.outputs.web == 'true'
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          push: false
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  deploy-config:
+    name: Production compose and scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Compose file is valid
+        run: |
+          cp deploy/.env.prod.example deploy/.env.ci
+          sed -i 's/^\([A-Z_]*PASSWORD\)=$/\1=ci/; s/^JWT_ACCESS_SECRET=$/JWT_ACCESS_SECRET=ci/; s/^METRICS_TOKEN=$/METRICS_TOKEN=ci/; s/^REDIS_PASSWORD=$/REDIS_PASSWORD=ci/' deploy/.env.ci
+          COMPOSE_PROFILES=seaweedfs,osrm,monitoring TAXI_ENV_FILE=.env.ci \
+            deploy/compose.sh config --quiet
+      - name: Shell scripts
+        run: shellcheck deploy/*.sh deploy/postgres/*.sh deploy/osrm/*.sh

@@ -1,0 +1,39 @@
+# Prometheus for the "monitoring" compose profile. Scrapes over the internal Docker network;
+# /metrics is not reachable from the internet (the Caddyfile answers 404).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # every API replica, found through Docker's DNS (API_REPLICAS)
+  - job_name: api
+    dns_sd_configs:
+      - names: [api]
+        type: A
+        port: 3200
+        refresh_interval: 15s
+    metrics_path: /metrics
+    # METRICS_TOKEN from .env.prod (required in production: the API refuses to start without it)
+    authorization:
+      type: Bearer
+      credentials_file: /prometheus/metrics_token
+
+  - job_name: worker
+    static_configs:
+      - targets: ['worker:3201']
+    metrics_path: /metrics
+
+  - job_name: node
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  - job_name: redis
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
