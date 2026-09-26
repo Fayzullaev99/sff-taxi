@@ -21,7 +21,7 @@ import { LedgerService } from './ledger.service.js';
 
 const Cursor = z.object({ cursor: z.uuid().optional() });
 const EarningsQuery = z.object({ period: z.enum(['day', 'week']).default('day') });
-const TaxQuery = z.object({ period: z.string().regex(/^d{4}-(0[1-9]|1[0-2])$/, 'YYYY-MM') });
+const TaxQuery = z.object({ period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'YYYY-MM') });
 const RemitBody = TaxQuery.extend({ reference: z.string().trim().min(3).max(100) });
 const PassBody = z.object({ kind: z.enum(['day', 'week']) });
 const EntryBody = z.object({
