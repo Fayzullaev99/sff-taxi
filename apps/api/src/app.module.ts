@@ -13,6 +13,7 @@ import { DispatchModule } from './modules/dispatch/dispatch.module.js';
 import { DriversModule } from './modules/drivers/drivers.module.js';
 import { GeoModule } from './modules/geo/geo.module.js';
 import { RidesModule } from './modules/rides/rides.module.js';
+import { SafetyModule } from './modules/safety/safety.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
 
 @Module({
@@ -39,6 +40,7 @@ import { SettingsModule } from './modules/settings/settings.module.js';
     DriversModule,
     RidesModule,
     DispatchModule,
+    SafetyModule,
   ],
   controllers: [HealthController],
 })
