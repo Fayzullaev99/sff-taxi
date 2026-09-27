@@ -26,7 +26,7 @@ import { getPreferredNavApp, setPreferredNavApp } from '../../ui/actions';
 import { Banner, Button, Card, Choice, Loading, Muted, Row, Title } from '../../ui/components';
 import { haptics } from '../../ui/haptics';
 import { Screen } from '../../ui/screen';
-import { SupportCard } from '../../ui/widgets';
+import { LicenceCardStatus, SupportCard } from '../../ui/widgets';
 
 /** Profile and settings: car and licence, documents, notifications, GPS, navigator, sign-out. */
 export default function Profile() {
@@ -78,6 +78,18 @@ export default function Profile() {
             />
             <Row label="Davlat raqami" value={d.vehicle.plateFormatted} strong />
             <Row label="Sinf" value={RIDE_CLASSES[d.vehicle.class] ?? d.vehicle.class} />
+            {d.vehicle.cngInTrunk !== undefined ? (
+              <Row
+                label="Katta yukli buyurtmalar"
+                value={
+                  d.vehicle.luggage
+                    ? 'Keladi'
+                    : d.vehicle.cngInTrunk
+                      ? 'Kelmaydi: yukxonada gaz ballon'
+                      : 'Kelmaydi: katta yukxona belgilanmagan'
+                }
+              />
+            ) : null}
           </>
         ) : null}
         <Row label="Guvohnoma" value={d.licence.number} />
@@ -86,6 +98,7 @@ export default function Profile() {
           value={`${d.licenceCard.number} · ${date(d.licenceCard.expiresOn)} gacha`}
           tone={cardExpired ? 'danger' : undefined}
         />
+        <LicenceCardStatus verification={d.licenceCard.verification} showOk />
         {cardExpired ? (
           <Banner
             tone="danger"

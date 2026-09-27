@@ -2,13 +2,13 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSession } from '../auth/session';
-import { useDriverMe } from '../data/queries';
+import { useAppeals, useDriverMe } from '../data/queries';
 import { DOCUMENTS } from '../lib/application';
-import { dateTime, som } from '../lib/format';
+import { date, dateTime, som } from '../lib/format';
 import { Banner, Button, Card, Loading, Muted, Row, Title } from '../ui/components';
 import { Screen } from '../ui/screen';
 import { colors, space } from '../ui/theme';
-import { SupportCard } from '../ui/widgets';
+import { LicenceCardStatus, SupportCard } from '../ui/widgets';
 
 const LOOK = {
   pending: {
@@ -27,7 +27,7 @@ const LOOK = {
     icon: 'lock-closed' as const,
     color: colors.danger,
     title: 'Hisobingiz bloklangan',
-    text: 'Blok sababi quyida yozilgan. Rozi bo‘lmasangiz, operatorga murojaat qiling — har bir murojaatni inson ko‘rib chiqadi.',
+    text: 'Blok sababi quyida yozilgan. Rozi bo‘lmasangiz, murojaat yuboring — har bir murojaatni inson ko‘rib chiqadi.',
   },
 };
 
@@ -37,7 +37,13 @@ export default function Status() {
   const session = useSession();
   const me = useDriverMe();
   const d = me.data;
+  const canAppeal = d?.status === 'rejected' || d?.status === 'blocked';
+  const appeals = useAppeals(canAppeal);
   if (!d) return <Loading />;
+  const openAppeal = appeals.data?.find((a) => a.status === 'open') ?? null;
+  const lastAnswer = appeals.data?.find((a) => a.status === 'resolved') ?? null;
+  // the first blocker repeats the status (shown above): the rest is what still stops work
+  const blockers = d.status === 'active' ? d.blockers : d.blockers.slice(1);
   const look = LOOK[d.status as keyof typeof LOOK] ?? LOOK.pending;
   const missing = DOCUMENTS.filter((x) => d.missingDocuments.includes(x.kind));
 
@@ -51,6 +57,46 @@ export default function Status() {
 
       {d.statusReason ? (
         <Banner tone="danger" icon="information-circle" title="Sabab" text={d.statusReason} />
+      ) : null}
+
+      {canAppeal ? (
+        <Card>
+          <Title>Qarorga e’tiroz</Title>
+          {openAppeal ? (
+            <Banner
+              tone="info"
+              icon="hourglass"
+              title="Murojaatingiz ko‘rib chiqilmoqda"
+              text={`${dateTime(openAppeal.createdAt)} yuborilgan. Operator javobi shu yerda ko‘rinadi.`}
+            />
+          ) : lastAnswer?.resolution ? (
+            <Banner
+              tone="neutral"
+              icon="chatbox"
+              title="Operator javobi"
+              text={lastAnswer.resolution}
+            />
+          ) : (
+            <Muted>
+              Qaror noto‘g‘ri deb hisoblasangiz, yozing: har bir murojaatni inson ko‘rib chiqadi.
+            </Muted>
+          )}
+          <Button
+            title={openAppeal ? 'Murojaatlarim' : 'Murojaat yuborish'}
+            icon="create"
+            variant={openAppeal ? 'secondary' : 'primary'}
+            onPress={() => router.push('/appeals')}
+          />
+        </Card>
+      ) : null}
+
+      {blockers.length ? (
+        <Card>
+          <Title>Ishlash uchun</Title>
+          {blockers.map((b) => (
+            <Banner key={b} tone="warning" icon="alert-circle" text={b} />
+          ))}
+        </Card>
       ) : null}
 
       {missing.length ? (
@@ -83,6 +129,11 @@ export default function Status() {
           </>
         ) : null}
         <Row label="Yuborilgan" value={dateTime(d.createdAt)} />
+        <Row
+          label="Litsenziya kartochkasi"
+          value={`${d.licenceCard.number} · ${date(d.licenceCard.expiresOn)} gacha`}
+        />
+        <LicenceCardStatus verification={d.licenceCard.verification} showOk />
         {d.status === 'blocked' && d.balance < 0 ? (
           <Row label="Balans" value={som(d.balance)} tone="danger" />
         ) : null}
@@ -106,8 +157,8 @@ export default function Status() {
 
       {d.status === 'blocked' ? (
         <SupportCard
-          title="Blokdan shikoyat qilish"
-          text="Ofisga keling yoki qo‘ng‘iroq qiling: telefon raqamingizni ayting. Operator sababni tushuntiradi va qaror qayta ko‘rib chiqiladi."
+          title="Ofis"
+          text="Ofisga kelishingiz yoki qo‘ng‘iroq qilishingiz ham mumkin: telefon raqamingizni ayting, operator sababni tushuntiradi."
         />
       ) : (
         <SupportCard text="Savollaringiz bo‘lsa, ofisga keling yoki qo‘ng‘iroq qiling." />

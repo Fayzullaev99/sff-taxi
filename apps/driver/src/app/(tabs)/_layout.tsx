@@ -1,9 +1,11 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Tabs } from 'expo-router/js-tabs';
+import { useFeatures } from '../../data/queries';
 import { colors } from '../../ui/theme';
 
 /** The approved driver's tabs. The runtime (stream, GPS, offers) lives in the root layout. */
 export default function DriverTabs() {
+  const features = useFeatures();
   return (
     <Tabs
       screenOptions={{
@@ -34,6 +36,15 @@ export default function DriverTabs() {
         options={{
           title: 'Daromad',
           tabBarIcon: ({ color, size }) => <Ionicons name="wallet" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="intercity"
+        options={{
+          title: 'Qatnov',
+          // hidden while the operators have the intercity board switched off
+          href: features.features.intercity ? undefined : null,
+          tabBarIcon: ({ color, size }) => <Ionicons name="bus" color={color} size={size} />,
         }}
       />
       <Tabs.Screen

@@ -5,11 +5,18 @@ import { useRouter } from 'expo-router';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { driver } from '../../api/driver';
 import type { DriverMe } from '../../api/types';
-import { keys, useCurrentRide, useDriverMe, useEarnings } from '../../data/queries';
+import {
+  keys,
+  useCurrentRide,
+  useDriverConfig,
+  useDriverMe,
+  useEarnings,
+} from '../../data/queries';
 import { ApiError, errorMessage, isApiError } from '../../lib/api-client';
 import { tashkentToday } from '../../lib/application';
 import { RIDE_STATUSES, som } from '../../lib/format';
 import { balanceStatus, promoStatus } from '../../lib/money';
+import { scheduledLabel } from '../../lib/when';
 import {
   ensureLocationPermission,
   requestBackgroundPermission,
@@ -58,6 +65,7 @@ export default function Home() {
   const today = useEarnings('day');
   const mode = useTrackingMode();
   const push = usePushPermission();
+  const config = useDriverConfig();
 
   const shift = useMutation({
     mutationFn: async (goOnline: boolean): Promise<DriverMe> => {
@@ -91,8 +99,9 @@ export default function Home() {
   const d = me.data;
   const online = d.isOnline;
   const money = balanceStatus(d.balance, d.minBalance);
-  const promo = promoStatus(tashkentToday());
+  const promo = promoStatus(tashkentToday(), config.billing);
   const current = ride.data ?? null;
+  const scheduled = current ? scheduledLabel(current.scheduledFor, Date.now()) : null;
   // the balance is explained by its own card; the others are listed as they come
   const blockers = d.blockers.filter((b) => !/balans/i.test(b));
   const canGoOnline = money.canWork && blockers.length === 0;
@@ -147,6 +156,7 @@ export default function Home() {
         <Card style={{ borderColor: colors.brand, borderWidth: 2 }}>
           <Chip label={`#${current.number}`} tone="brand" />
           <Title>{RIDE_STATUSES[current.status] ?? current.status}</Title>
+          {scheduled ? <Chip label={scheduled} tone="info" icon="calendar" /> : null}
           <Muted>{current.pickup.address ?? current.pickup.landmark ?? 'Belgilangan nuqta'}</Muted>
           <Button
             title="Safarga qaytish"
@@ -264,7 +274,7 @@ export default function Home() {
         <Row label="Safarlar" value={String(today.data?.rides ?? 0)} />
         <Row label="Yo‘lovchilardan" value={som(today.data?.fares ?? 0)} />
         <Row label="Komissiya" value={som(-(today.data?.commission ?? 0))} />
-        <Row label="Soliq (1%)" value={som(-(today.data?.tax ?? 0))} />
+        <Row label={`Soliq (${config.billing.taxPercent}%)`} value={som(-(today.data?.tax ?? 0))} />
         <Row label="Sof daromad" value={som(today.data?.net ?? 0)} strong tone="success" />
         <Row
           label="Balans"

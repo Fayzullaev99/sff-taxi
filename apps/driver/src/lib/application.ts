@@ -23,7 +23,7 @@ export const FEATURE_LABELS: Record<VehicleFeature, string> = {
   ac: 'Konditsioner',
   child_seat: 'Bolalar o‘rindig‘i',
   pets: 'Uy hayvonlarini olaman',
-  big_trunk: 'Katta yukxona (bo‘sh)',
+  big_trunk: 'Katta yukxona',
 };
 
 /** Popular cars in Sirdaryo (market analysis: Cobalt 27%, Nexia 19%, Lacetti 16%). */
@@ -56,8 +56,8 @@ export interface ApplicationForm {
   vehicleClass: 'economy' | 'comfort';
   features: VehicleFeature[];
   /**
-   * The car runs on methane with a tank in the trunk. The API has no field for it (yet):
-   * it only means the trunk is not free, so "big trunk" cannot be ticked.
+   * The car runs on methane with the tank in the trunk (API `vehicle.cngInTrunk`): even a big
+   * trunk then gets no luggage rides.
    */
   cng: boolean;
 }
@@ -195,9 +195,6 @@ export function validateApplication(f: ApplicationForm, today: string): FormErro
       e.vehicleClass = 'Komfort uchun konditsioner kerak';
     }
   }
-  if (f.cng && f.features.includes('big_trunk')) {
-    e.features = 'Yukxonada gaz ballon bo‘lsa, “Katta yukxona” ni belgilamang';
-  }
   return e;
 }
 
@@ -224,6 +221,7 @@ export interface ApplicationBody {
     seats: number;
     class: 'economy' | 'comfort';
     features: VehicleFeature[];
+    cngInTrunk: boolean;
   };
 }
 
@@ -246,7 +244,8 @@ export function toApplicationBody(f: ApplicationForm): ApplicationBody {
       year: Number(f.year),
       seats: Number(f.seats),
       class: f.vehicleClass,
-      features: f.features.filter((x) => !(f.cng && x === 'big_trunk')),
+      features: [...new Set(f.features)],
+      cngInTrunk: f.cng,
     },
   };
 }
@@ -267,6 +266,7 @@ export function formFromProfile(p: {
     seats: number;
     class: string;
     features: string[];
+    cngInTrunk?: boolean;
   } | null;
 }): ApplicationForm {
   const v = p.vehicle;
@@ -290,7 +290,8 @@ export function formFromProfile(p: {
     seats: v ? String(v.seats) : '4',
     vehicleClass: v?.class === 'comfort' ? 'comfort' : 'economy',
     features,
-    cng: !features.includes('big_trunk'),
+    // most Cobalts/Nexias carry the tank in the trunk: on until the driver says otherwise
+    cng: v ? (v.cngInTrunk ?? !features.includes('big_trunk')) : true,
   };
 }
 
@@ -324,12 +325,3 @@ export const DOCUMENTS: { kind: string; label: string; hint: string; expires: bo
   },
   { kind: 'selfie', label: 'Selfi', hint: 'Yuzingiz aniq ko‘rinsin', expires: false },
 ];
-
-/**
- * A photo link the API accepts (an http/https URL). A regex rather than `new URL()`:
- * React Native's URL polyfill does not implement `protocol`/`hostname`.
- */
-export function isPhotoUrl(input: string): boolean {
-  const v = input.trim();
-  return v.length <= 2000 && /^https?:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*(:\d+)?(\/\S*)?$/i.test(v);
-}

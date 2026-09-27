@@ -1,20 +1,36 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_BILLING } from './driver-config';
 import { balanceStatus, passAdvice, passBreakEven, promoStatus } from './money';
+
+const until = (promoUntil: string | null) => ({ ...DEFAULT_BILLING, promoUntil });
 import { biggestGain, priorityParts, scoreLevel } from './priority';
 
 describe('promoStatus', () => {
   it('shows the 0% period with the days left', () => {
-    expect(promoStatus('2026-09-26', '2026-12-31')).toMatchObject({ active: true, daysLeft: 97 });
-    expect(promoStatus('2026-12-31', '2026-12-31')).toMatchObject({ active: true, daysLeft: 1 });
-    expect(promoStatus('2026-12-31', '2026-12-31').text).toMatch(/31\.12 gacha 0%/);
+    expect(promoStatus('2026-09-26', until('2026-12-31'))).toMatchObject({
+      active: true,
+      daysLeft: 97,
+    });
+    expect(promoStatus('2026-12-31', until('2026-12-31'))).toMatchObject({
+      active: true,
+      daysLeft: 1,
+    });
+    expect(promoStatus('2026-12-31', until('2026-12-31')).text).toMatch(/31\.12 gacha 0%/);
   });
 
   it('explains the capped commission after it', () => {
-    const p = promoStatus('2027-01-01', '2026-12-31');
+    const p = promoStatus('2027-01-01', until('2026-12-31'));
     expect(p.active).toBe(false);
     expect(p.text).toMatch(/5%/);
     expect(p.text).toMatch(/10 000 so‘m/);
-    expect(promoStatus('2026-09-26', null).active).toBe(false);
+    expect(promoStatus('2026-09-26', until(null)).active).toBe(false);
+    // the API's rules, not the launch defaults
+    const later = promoStatus('2027-02-01', {
+      ...DEFAULT_BILLING,
+      commissionPercent: 4,
+      dailyCap: 8_000,
+    });
+    expect(later.text).toMatch(/4%, kuniga ko‘pi bilan 8 000 so‘m/);
   });
 });
 
@@ -33,6 +49,9 @@ describe('balanceStatus', () => {
 describe('passes', () => {
   it('knows when a pass pays off and when it is pointless', () => {
     expect(passBreakEven('day')).toBe(180_000);
+    expect(
+      passBreakEven('week', { ...DEFAULT_BILLING, passWeek: 40_000, commissionPercent: 4 }),
+    ).toBe(1_000_000);
     expect(passAdvice(promoStatus('2026-09-26'), false)).toMatch(/0%/);
     expect(passAdvice(promoStatus('2027-02-01'), true)).toMatch(/amalda/);
     expect(passAdvice(promoStatus('2027-02-01'), false)).toBeNull();

@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { serverClock } from '../../api/client';
 import { driver } from '../../api/driver';
 import type { Offer } from '../../api/types';
-import { keys } from '../../data/queries';
+import { keys, useDriverConfig, useStreamOpen } from '../../data/queries';
 import { offerCountdown } from '../../lib/countdown';
 import {
   digits,
@@ -19,12 +19,8 @@ import {
   RIDE_OPTIONS,
   som,
 } from '../../lib/format';
-import {
-  DECLINE_REASONS,
-  OFFER_FAILURE_TEXT,
-  type OfferFailure,
-  offerFailure,
-} from '../../lib/ride-flow';
+import { OFFER_FAILURE_TEXT, type OfferFailure, offerFailure } from '../../lib/ride-flow';
+import { scheduledLabel } from '../../lib/when';
 import { announceOffer, dismissNotification, OFFER_VIBRATION } from '../../notifications/push';
 import { handledOffers } from '../../realtime/driver-runtime';
 import { useOfferClosed } from '../../realtime/use-realtime';
@@ -57,13 +53,16 @@ export default function OfferScreen() {
   const router = useRouter();
   const qc = useQueryClient();
 
-  // from the list that opened it, or fetched (opened from a push). Polled while open: the
-  // API does not send offer.closed when another driver takes the ride (README, API gaps).
+  const config = useDriverConfig();
+  const streamOpen = useStreamOpen();
+  // from the list that opened it, or fetched (opened from a push). `offer.closed` closes the
+  // screen at once; re-checking the list is only the fallback for a missed event (every 3 s
+  // without the stream, rarely with it).
   const offers = useQuery({
     queryKey: keys.offers,
     queryFn: driver.offers,
     refetchOnMount: 'always',
-    refetchInterval: 3_000,
+    refetchInterval: streamOpen ? 10_000 : 3_000,
   });
   const cached = offers.data?.find((o) => o.id.toLowerCase() === offerId);
   const [offer, setOffer] = useState<Offer | null>(cached ?? null);
@@ -84,11 +83,21 @@ export default function OfferScreen() {
   }, [offerId]);
 
   const countdown = offer
-    ? offerCountdown({ expiresAt: offer.expiresAt, kind: offer.kind, serverNow: now })
+    ? offerCountdown({
+        expiresAt: offer.expiresAt,
+        kind: offer.kind,
+        serverNow: now,
+        lengths: {
+          direct: config.rides.offerTimeoutSeconds,
+          broadcast: config.rides.broadcastTimeoutSeconds,
+        },
+      })
     : null;
+  // the server said the offer is over (taken, withdrawn, expired): the screen closes at once
+  const closedByServer = closedStatus !== null && !answered.current && failure === null;
   const closed: OfferFailure | null =
     failure ??
-    (closedStatus && !answered.current ? (CLOSED_TEXT[closedStatus] ?? 'gone') : null) ??
+    (closedByServer ? (CLOSED_TEXT[closedStatus] ?? 'gone') : null) ??
     (countdown?.expired && !answered.current ? 'expired' : null) ??
     // gone from the server's list: taken by another driver, or the rider cancelled
     (offers.isFetchedAfterMount && !cached && !answered.current
@@ -155,12 +164,13 @@ export default function OfferScreen() {
     else router.replace('/home');
   }, [router]);
 
-  // an offer that closed goes away by itself after a moment
+  // closed by the server: gone at once (the vibration tells the driver); closed otherwise
+  // (expired here, vanished from the list): the reason stays on screen for a moment
   useEffect(() => {
     if (!closed || closed === 'network' || closed === 'other') return;
-    const t = setTimeout(close, 4_000);
+    const t = setTimeout(close, closedByServer ? 0 : 4_000);
     return () => clearTimeout(t);
-  }, [closed, close]);
+  }, [closed, closedByServer, close]);
 
   if (!offer && !closed) return <Loading />;
 
@@ -179,6 +189,7 @@ export default function OfferScreen() {
   }
 
   const r = offer.ride;
+  const scheduled = scheduledLabel(r.scheduledFor, now);
   const pickupText = r.pickup.address ?? r.pickup.landmark ?? 'Xaritadagi nuqta';
   return (
     <SafeAreaView style={styles.safe}>
@@ -207,6 +218,13 @@ export default function OfferScreen() {
             </View>
           </View>
         </View>
+
+        {scheduled ? (
+          <View style={styles.scheduled}>
+            <Ionicons name="calendar" size={22} color={colors.info} />
+            <Text style={styles.scheduledText}>{scheduled}</Text>
+          </View>
+        ) : null}
 
         {offer.kind === 'broadcast' ? (
           <View style={styles.broadcast}>
@@ -262,7 +280,7 @@ export default function OfferScreen() {
           <>
             <Text style={styles.reasonTitle}>Nega? (ixtiyoriy)</Text>
             <View style={styles.reasons}>
-              {DECLINE_REASONS.map((d) => (
+              {config.declineReasons.map((d) => (
                 <Pressable
                   key={d.code}
                   onPress={() => decline(d.code)}
@@ -330,6 +348,15 @@ const styles = StyleSheet.create({
     padding: space.md,
     borderRadius: radius.md,
   },
+  scheduled: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    backgroundColor: colors.infoSoft,
+    padding: space.md,
+    borderRadius: radius.md,
+  },
+  scheduledText: { flex: 1, color: colors.info, fontWeight: '800', fontSize: 17 },
   broadcastText: { flex: 1, color: colors.warning, fontWeight: '700', fontSize: 15 },
   leg: { flexDirection: 'row', gap: space.md, alignItems: 'flex-start' },
   dot: { width: 16, height: 16, borderRadius: 8, marginTop: 4 },

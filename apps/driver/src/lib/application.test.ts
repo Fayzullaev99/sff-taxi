@@ -4,7 +4,6 @@ import {
   EMPTY_FORM,
   firstStepWithError,
   formFromProfile,
-  isPhotoUrl,
   parseDate,
   toApplicationBody,
   validateApplication,
@@ -64,6 +63,7 @@ describe('validateApplication', () => {
         seats: 4,
         class: 'economy',
         features: ['ac'],
+        cngInTrunk: true,
       },
     });
   });
@@ -100,8 +100,9 @@ describe('validateApplication', () => {
       validateApplication({ ...GOOD, vehicleClass: 'comfort', year: '2024', features: [] }, TODAY)
         .vehicleClass,
     ).toMatch(/konditsioner/);
-    const e = validateApplication({ ...GOOD, features: ['big_trunk'], cng: true }, TODAY);
-    expect(e.features).toMatch(/gaz ballon/);
+    // a big trunk with the gas tank in it is allowed: the API then skips luggage rides
+    expect(validateApplication({ ...GOOD, features: ['big_trunk'], cng: true }, TODAY)).toEqual({});
+    const e = validateApplication({ ...GOOD, vehicleClass: 'comfort', year: '2018' }, TODAY);
     expect(firstStepWithError(e)).toBe(2);
   });
 
@@ -148,13 +149,21 @@ describe('formFromProfile', () => {
     expect(toApplicationBody(form)).toEqual(body);
     expect(validateApplication(form, TODAY)).toEqual({});
   });
-});
 
-describe('isPhotoUrl', () => {
-  it('accepts http(s) links only', () => {
-    expect(isPhotoUrl('https://files.sff.uz/d/abc.jpg')).toBe(true);
-    expect(isPhotoUrl(' http://10.0.2.2:3200/x.png ')).toBe(true);
-    expect(isPhotoUrl('file:///sdcard/a.jpg')).toBe(false);
-    expect(isPhotoUrl('rasm')).toBe(false);
+  it('keeps the gas tank answer apart from the big trunk', () => {
+    const body = toApplicationBody({ ...GOOD, features: ['ac', 'big_trunk'], cng: false });
+    expect(body.vehicle).toMatchObject({ features: ['ac', 'big_trunk'], cngInTrunk: false });
+    const base = {
+      fullName: 'A B C',
+      birthDate: '1990-01-01',
+      pinfl: '12345678901234',
+      licence: { number: 'AF1234567', categories: ['B'], issuedOn: '2015-01-01' },
+      licenceCard: { number: 'LK-1', expiresOn: '2027-12-31' },
+    };
+    expect(formFromProfile({ ...base, vehicle: { ...body.vehicle, cngInTrunk: true } }).cng).toBe(
+      true,
+    );
+    expect(formFromProfile({ ...base, vehicle: body.vehicle }).cng).toBe(false);
+    expect(formFromProfile({ ...base, vehicle: null }).cng).toBe(true);
   });
 });

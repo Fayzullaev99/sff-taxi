@@ -45,6 +45,10 @@ describe('pushTarget', () => {
       kind: 'ride',
       rideId: id,
     });
+    expect(pushTarget({ kind: 'intercity_booked', tripId: id, bookingId: id })).toEqual({
+      kind: 'trip',
+      tripId: id,
+    });
     expect(pushTarget({ kind: 'driver_active' })).toEqual({ kind: 'home' });
   });
 

@@ -113,6 +113,19 @@ export function amountToCollect(fare: {
   return fare.total ?? fare.quoted + fare.waiting;
 }
 
+/**
+ * The cash the driver takes: the whole fare on a cash ride; on a card ride the fare was
+ * prepaid (Payme/Click, credited to the driver's balance on completion) and only the paid
+ * waiting is collected in cash (docs/payments.md).
+ */
+export function cashToCollect(
+  paymentMethod: string,
+  fare: { quoted: number; waiting: number; total: number | null },
+): number {
+  const total = amountToCollect(fare);
+  return paymentMethod === 'card' ? Math.max(0, total - fare.quoted) : total;
+}
+
 export type OfferFailure = 'taken' | 'expired' | 'gone' | 'offline' | 'network' | 'other';
 
 /** Why accepting an offer failed, from the API's answer (409/404 messages of DispatchService). */
@@ -152,11 +165,3 @@ export const OFFER_FAILURE_TEXT: Record<OfferFailure, { title: string; text: str
   },
   other: { title: 'Buyurtmani olib bo‘lmadi', text: 'Birozdan so‘ng qayta urinib ko‘ring.' },
 };
-
-/** Optional decline reasons (sent along; the API does not store them yet — see README). */
-export const DECLINE_REASONS: { code: string; label: string }[] = [
-  { code: 'too_far', label: 'Juda uzoq' },
-  { code: 'destination', label: 'Manzil to‘g‘ri kelmaydi' },
-  { code: 'low_fare', label: 'Narx past' },
-  { code: 'busy', label: 'Hozir band' },
-];

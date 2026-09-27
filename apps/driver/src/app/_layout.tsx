@@ -4,22 +4,28 @@ import '../location/tracker';
 import '../notifications/push';
 
 import { QueryClientProvider } from '@tanstack/react-query';
+import Constants from 'expo-constants';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { SessionProvider, useSession } from '../auth/session';
-import { createQueryClient, useDriverMe } from '../data/queries';
+import { createQueryClient, useDriverMe, usePublicConfig } from '../data/queries';
 import { installReactQueryNativeBindings } from '../data/react-native';
 import { errorMessage } from '../lib/api-client';
+import { mustUpdate } from '../lib/version';
 import { usePushIntro, usePushRegistration } from '../notifications/use-push';
 import { DriverRuntime } from '../realtime/driver-runtime';
 import { Button, ErrorState, Loading } from '../ui/components';
+import { ForcedUpdate } from '../ui/forced-update';
 import { NotificationsIntro } from '../ui/notifications-intro';
 import { colors, space } from '../ui/theme';
 
 installReactQueryNativeBindings();
+
+/** This build's version (app.json), compared with the API's minimum. */
+const APP_VERSION = Constants.expoConfig?.version ?? null;
 
 export default function RootLayout() {
   const [queryClient] = useState(createQueryClient);
@@ -42,6 +48,7 @@ export default function RootLayout() {
  */
 function RootNavigator() {
   const session = useSession();
+  const config = usePublicConfig();
   const signedIn = session.status === 'signedIn';
   const me = useDriverMe(signedIn);
   const active = signedIn && me.data?.status === 'active';
@@ -49,6 +56,11 @@ function RootNavigator() {
   usePushRegistration(signedIn);
   const intro = usePushIntro(active);
 
+  const minimum = config.data?.minDriverVersion ?? null;
+  // too old for the API: only the update screen (never blocks while the config is unknown)
+  if (APP_VERSION && minimum && mustUpdate(APP_VERSION, minimum)) {
+    return <ForcedUpdate current={APP_VERSION} minimum={minimum} />;
+  }
   if (session.status === 'loading' || (signedIn && me.isPending) || intro.needed === undefined) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -83,6 +95,7 @@ function RootNavigator() {
         <Stack.Protected guard={signedIn && !active}>
           <Stack.Screen name="status" />
           <Stack.Screen name="apply" />
+          <Stack.Screen name="appeals" />
         </Stack.Protected>
         <Stack.Protected guard={signedIn}>
           <Stack.Screen name="documents" />
@@ -101,6 +114,9 @@ function RootNavigator() {
           <Stack.Screen name="ride-done/[id]" options={{ gestureEnabled: false }} />
           <Stack.Screen name="ledger" />
           <Stack.Screen name="rides" />
+          <Stack.Screen name="topup" />
+          <Stack.Screen name="intercity/new" />
+          <Stack.Screen name="intercity/[id]" />
         </Stack.Protected>
       </Stack>
     </>

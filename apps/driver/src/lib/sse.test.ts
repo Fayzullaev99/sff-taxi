@@ -47,6 +47,16 @@ describe('parseRealtimeEvent', () => {
       type: 'driver.updated',
       status: 'blocked',
     });
+    expect(
+      parseRealtimeEvent(
+        '{"type":"intercity.updated","tripId":"t1","bookingId":null,"status":"boarding"}',
+      ),
+    ).toEqual({ type: 'intercity.updated', tripId: 't1', bookingId: null, status: 'boarding' });
+    expect(
+      parseRealtimeEvent(
+        '{"type":"offer.closed","offerId":"o2","rideId":"r2","driverId":"d1","status":"withdrawn"}',
+      ),
+    ).toEqual({ type: 'offer.closed', offerId: 'o2', rideId: 'r2', status: 'withdrawn' });
   });
 
   it('refuses malformed and unknown events', () => {

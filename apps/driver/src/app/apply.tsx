@@ -320,16 +320,9 @@ export default function Apply() {
           </View>
           <ToggleRow
             label="Metan (gaz) ballon yukxonada"
-            description="Ko‘p Cobalt va Nexialarda shunday: katta yukli buyurtmalar sizga berilmaydi"
+            description="Ko‘p Cobalt va Nexialarda shunday: yukxona katta bo‘lsa ham katta yukli buyurtmalar sizga berilmaydi"
             value={form.cng}
-            onChange={(v) => {
-              set('cng', v);
-              if (v)
-                set(
-                  'features',
-                  form.features.filter((x) => x !== 'big_trunk'),
-                );
-            }}
+            onChange={(v) => set('cng', v)}
           />
           <View style={{ gap: space.xs }}>
             <Text style={styles.label}>Qulayliklar</Text>
@@ -337,7 +330,6 @@ export default function Apply() {
               options={VEHICLE_FEATURES.map((f) => ({ value: f, label: FEATURE_LABELS[f] }))}
               selected={form.features}
               onToggle={toggleFeature}
-              disabled={(f) => f === 'big_trunk' && form.cng}
             />
             {shown.features ? <Text style={styles.error}>{shown.features}</Text> : null}
           </View>
