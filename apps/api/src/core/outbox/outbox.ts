@@ -36,7 +36,9 @@ export type OutboxTopic =
   /** A driver's card top-up was paid. { intentId, driverId, amount, provider } */
   | 'driver.topup_paid'
   /** An operator answered a driver's appeal. { appealId, driverId } */
-  | 'driver.appeal_resolved';
+  | 'driver.appeal_resolved'
+  /** A driver's licence card was checked (by an operator or the registry). { driverId, result } */
+  | 'driver.licence_checked';
 
 /**
  * Records an event in the caller's transaction: it is delivered by the worker

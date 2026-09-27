@@ -161,6 +161,15 @@ export class RealtimePublisher implements OutboxHandler {
           to: { userIds: [String(p.driverId)], admins: true },
           event: { type: 'driver.updated', driverId: String(p.driverId), status: String(p.to) },
         });
+      case 'driver.licence_checked':
+        return this.bus.publish({
+          to: { userIds: [String(p.driverId)], admins: true },
+          event: {
+            type: 'driver.updated',
+            driverId: String(p.driverId),
+            status: `licence_${String(p.result)}`,
+          },
+        });
       case 'driver.appeal_resolved':
         return this.bus.publish({
           to: { userIds: [String(p.driverId)], admins: true },

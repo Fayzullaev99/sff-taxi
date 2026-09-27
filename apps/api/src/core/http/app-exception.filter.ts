@@ -67,6 +67,20 @@ export class AppExceptionFilter extends BaseExceptionFilter {
       const req = host.switchToHttp().getRequest<Request>();
       reportError(error, { method: req.method, route: req.route?.path ?? req.path });
     }
+    // exceptions built from msg() carry { message, key, params } only: give every error body
+    // the same statusCode/error fields the apps read
+    if (error instanceof HttpException) {
+      const body = error.getResponse();
+      if (typeof body === 'object' && body !== null && !('statusCode' in body)) {
+        const status = error.getStatus();
+        host
+          .switchToHttp()
+          .getResponse<Response>()
+          .status(status)
+          .json({ statusCode: status, error: HttpStatus[status] ?? 'Error', ...body });
+        return;
+      }
+    }
     super.catch(error, host);
   }
 }

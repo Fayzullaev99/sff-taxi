@@ -224,9 +224,12 @@ export class RidesService {
       routeSource: priced.route.source,
       options: [...new Set(input.options)],
       fares: priced.fares,
-      paymentMethods: this.payments.methods(),
+      // rides for later are cash only (a card ride is prepaid before dispatch)
+      paymentMethods: scheduledFor
+        ? this.payments.methods().filter((m) => m === 'cash')
+        : this.payments.methods(),
       // which card providers a card payment can go through (Payme, Click)
-      cardProviders: this.payments.providers(),
+      cardProviders: scheduledFor ? [] : this.payments.providers(),
       owedFee: opts.forRider ? await this.owedFeeLine(user.userId) : null,
       waiting: priced.tariff.waiting,
       cancellationFee: priced.tariff.cancellation_fee,

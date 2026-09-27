@@ -1,6 +1,7 @@
 import { v7 as uuidv7 } from 'uuid';
 import type { Env } from '../../config/env.js';
 import type { Tx } from '../../core/db/database.js';
+import { emit } from '../../core/outbox/outbox.js';
 
 /** What a registry (or an operator) says about a driver's passenger-transport licence card. */
 export interface LicenceVerdict {
@@ -94,4 +95,6 @@ export async function recordLicenceCheck(
     })
     .where('user_id', '=', c.driverId)
     .execute();
+  // the driver's status screen updates at once instead of on its next refetch
+  await emit(trx, 'driver.licence_checked', { driverId: c.driverId, result: c.verdict.result });
 }
