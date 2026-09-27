@@ -12,7 +12,14 @@ export interface AreaNotice {
  * (the villages within the service radius of Guliston are served; the caller checks
  * that with /tariffs first and asks /geo/resolve only when the answer was "no").
  */
-export function areaNotice(resolve: GeoResolve | undefined): AreaNotice {
+export function areaNotice(resolve: GeoResolve | undefined, withMap = true): AreaNotice {
+  // without a map (Android build without a Maps key) there is no pin to move
+  const move = withMap
+    ? 'Pinni o‘sha tomonga suring.'
+    : 'Olib ketish joyini «Qayerdan» qatoridan tanlang.';
+  const elsewhere = withMap
+    ? 'Pinni boshqa joyga qo‘yib ko‘ring.'
+    : 'Olib ketish joyini «Qayerdan» qatoridan tanlang.';
   if (resolve && resolve.status === 'upcoming') {
     return {
       title: `${resolve.city.name} — tez orada`,
@@ -23,8 +30,8 @@ export function areaNotice(resolve: GeoResolve | undefined): AreaNotice {
   return {
     title: 'Bu hududda hozircha ishlamaymiz',
     message: nearest
-      ? `Eng yaqin xizmat hududi: ${nearest.city.name}, ${formatDistance(nearest.distanceM)} uzoqlikda. Pinni o‘sha tomonga suring.`
-      : 'Xizmat hududlari tez orada kengayadi. Pinni boshqa joyga qo‘yib ko‘ring.',
+      ? `Eng yaqin xizmat hududi: ${nearest.city.name}, ${formatDistance(nearest.distanceM)} uzoqlikda. ${move}`
+      : `Xizmat hududlari tez orada kengayadi. ${elsewhere}`,
   };
 }
 

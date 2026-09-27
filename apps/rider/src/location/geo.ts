@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 import { endpoints } from '../api/endpoints';
 import type { GeoCity } from '../api/types';
+import { deviceAddressLine } from '../lib/device-address';
 
 /**
  * Guliston (Sirdaryo region), the launch city: where the map starts when neither the
@@ -11,18 +12,29 @@ export const DEFAULT_CENTER = { lat: 40.49598, lng: 68.77587 };
 export type LocateResult =
   { ok: true; lat: number; lng: number } | { ok: false; reason: 'denied' | 'unavailable' };
 
-/** Asks for permission if needed and returns the device's position. */
-export async function locateDevice(): Promise<LocateResult> {
+/**
+ * Asks for permission if needed and returns the device's position. `fresh` (the rider tapped
+ * "my location") asks the system for a new fix first: the cached last-known position can be
+ * minutes behind a moving phone (seen on the emulator: the button kept returning the old
+ * place, only a restart moved it). The first automatic lookup takes a recent cached fix,
+ * which is instant.
+ */
+export async function locateDevice(fresh = false): Promise<LocateResult> {
   try {
     const permission = await Location.requestForegroundPermissionsAsync();
     if (permission.status !== 'granted') return { ok: false, reason: 'denied' };
-    const last = await Location.getLastKnownPositionAsync({ maxAge: 60_000 }).catch(() => null);
-    const position =
-      last ??
-      (await Promise.race([
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+    const current = () =>
+      Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(
+          () => null,
+        ),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
-      ]));
+      ]);
+    const cached = (maxAge: number) =>
+      Location.getLastKnownPositionAsync({ maxAge }).catch(() => null);
+    const position = fresh
+      ? ((await current()) ?? (await cached(5 * 60_000)))
+      : ((await cached(60_000)) ?? (await current()));
     if (!position) return { ok: false, reason: 'unavailable' };
     return { ok: true, lat: position.coords.latitude, lng: position.coords.longitude };
   } catch {
@@ -62,13 +74,7 @@ export async function describePoint(lat: number, lng: number): Promise<PointInfo
 async function deviceAddress(lat: number, lng: number): Promise<string | null> {
   try {
     const [place] = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-    if (!place) return null;
-    const street = [place.street, place.streetNumber].filter(Boolean).join(' ');
-    const parts = [street || place.name, place.district, place.city ?? place.subregion].filter(
-      (p): p is string => Boolean(p && p.trim()),
-    );
-    const unique = parts.filter((p, i) => parts.indexOf(p) === i);
-    return unique.length ? unique.join(', ') : null;
+    return place ? deviceAddressLine(place) : null;
   } catch {
     return null;
   }

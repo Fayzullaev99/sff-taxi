@@ -30,6 +30,20 @@ describe('service area notices', () => {
     expect(n.message.replace(/\u00a0/g, ' ')).toContain('Guliston, 23 km');
   });
 
+  it('asks to move the pin only where there is a map', () => {
+    const outside = {
+      status: 'outside' as const,
+      city: null,
+      nearest: null,
+      nearestActive: { city: city('Guliston', true), distanceM: 93_000 },
+    };
+    expect(areaNotice(outside).message).toContain('Pinni o‘sha tomonga suring');
+    const noMap = areaNotice(outside, false).message;
+    expect(noMap).not.toContain('Pin');
+    expect(noMap).toContain('«Qayerdan» qatoridan tanlang');
+    expect(areaNotice(undefined, false).message).not.toContain('Pin');
+  });
+
   it('still explains itself without an answer from /geo/resolve', () => {
     expect(areaNotice(undefined).title).toBe('Bu hududda hozircha ishlamaymiz');
   });
