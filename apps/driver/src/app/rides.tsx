@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { DriverRide } from '../api/types';
 import { useRides } from '../data/queries';
 import { errorMessage } from '../lib/api-client';
-import { dateTime, RIDE_STATUSES, som } from '../lib/format';
+import { CANCEL_FEE_STATUS, dateTime, RIDE_STATUSES, som } from '../lib/format';
 import { Button, EmptyState, ErrorState, Loading } from '../ui/components';
 import { OfflineBanner } from '../ui/screen';
 import { colors, space } from '../ui/theme';
@@ -22,6 +22,12 @@ function RideRow({ item }: { item: DriverRide }) {
           {RIDE_STATUSES[item.status] ?? item.status}
           {!done && item.cancelReason ? ` · ${item.cancelReason}` : ''}
         </Text>
+        {!done && item.fare.cancellationFee > 0 && item.fare.cancellationFeeStatus ? (
+          <Text style={styles.meta}>
+            Bekor qilish haqi {som(item.fare.cancellationFee)}:{' '}
+            {CANCEL_FEE_STATUS[item.fare.cancellationFeeStatus] ?? item.fare.cancellationFeeStatus}
+          </Text>
+        ) : null}
       </View>
       <View style={{ alignItems: 'flex-end' }}>
         <Text style={[styles.amount, !done && { color: colors.muted }]}>

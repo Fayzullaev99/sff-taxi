@@ -8,15 +8,16 @@ import Constants from 'expo-constants';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { SessionProvider, useSession } from '../auth/session';
 import { createQueryClient, useDriverMe, usePublicConfig } from '../data/queries';
 import { installReactQueryNativeBindings } from '../data/react-native';
 import { errorMessage } from '../lib/api-client';
+import { storeUrlFor } from '../lib/driver-config';
 import { mustUpdate } from '../lib/version';
 import { usePushIntro, usePushRegistration } from '../notifications/use-push';
-import { DriverRuntime } from '../realtime/driver-runtime';
+import { ApplicantRuntime, DriverRuntime } from '../realtime/driver-runtime';
 import { Button, ErrorState, Loading } from '../ui/components';
 import { ForcedUpdate } from '../ui/forced-update';
 import { NotificationsIntro } from '../ui/notifications-intro';
@@ -59,7 +60,13 @@ function RootNavigator() {
   const minimum = config.data?.minDriverVersion ?? null;
   // too old for the API: only the update screen (never blocks while the config is unknown)
   if (APP_VERSION && minimum && mustUpdate(APP_VERSION, minimum)) {
-    return <ForcedUpdate current={APP_VERSION} minimum={minimum} />;
+    return (
+      <ForcedUpdate
+        current={APP_VERSION}
+        minimum={minimum}
+        storeUrl={config.data ? storeUrlFor(config.data.storeUrls, Platform.OS) : null}
+      />
+    );
   }
   if (session.status === 'loading' || (signedIn && me.isPending) || intro.needed === undefined) {
     return (
@@ -80,7 +87,7 @@ function RootNavigator() {
 
   return (
     <>
-      {active ? <DriverRuntime /> : null}
+      {active ? <DriverRuntime /> : signedIn && me.data ? <ApplicantRuntime /> : null}
       <Stack
         screenOptions={{
           headerShown: false,

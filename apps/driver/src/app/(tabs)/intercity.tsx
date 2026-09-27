@@ -2,7 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { DriverTrip } from '../../api/types';
-import { useDriverMe, useTrips } from '../../data/queries';
+import { useDriverMe, useTripHistory, useUpcomingTrips } from '../../data/queries';
 import { errorMessage } from '../../lib/api-client';
 import { som } from '../../lib/format';
 import { seatsSold, TRIP_STATUS_TEXT } from '../../lib/intercity';
@@ -23,25 +23,34 @@ import { colors, radius, space } from '../../ui/theme';
 const LIVE = new Set(['scheduled', 'boarding', 'departed']);
 
 /**
- * The driver's intercity departures: the ones coming (and the one on the road) first, then
- * the past ones. A new departure is published from here; each opens its passenger list.
+ * The driver's intercity departures: the ones coming (and the one on the road), soonest
+ * first (`scope=upcoming`), then the past ones (`scope=all`, latest first, paged). A new
+ * departure is published from here; each opens its passenger list.
  */
 export default function Intercity() {
   const router = useRouter();
   const me = useDriverMe();
-  const trips = useTrips();
-  const items = trips.data?.pages.flatMap((p) => p.items) ?? [];
-  const live = items
-    .filter((t) => LIVE.has(t.status))
-    .sort((a, b) => Date.parse(a.departureAt) - Date.parse(b.departureAt));
-  const past = items.filter((t) => !LIVE.has(t.status));
+  const upcoming = useUpcomingTrips();
+  const history = useTripHistory();
+  // the API orders both lists by departure: nothing to sort here
+  const live = upcoming.data ?? [];
+  const past = (history.data?.pages.flatMap((p) => p.items) ?? []).filter(
+    (t) => !LIVE.has(t.status),
+  );
+  const empty = !live.length && !past.length;
+  const pending = upcoming.isPending || history.isPending;
+  const error = upcoming.error ?? history.error;
+  const refresh = () => {
+    void upcoming.refetch();
+    void history.refetch();
+  };
   const canWork = (me.data?.blockers ?? []).filter((b) => !/balans/i.test(b)).length === 0;
 
   return (
     <Screen
       title="Shaharlararo"
-      refreshing={trips.isRefetching}
-      onRefresh={() => void trips.refetch()}
+      refreshing={upcoming.isRefetching || history.isRefetching}
+      onRefresh={refresh}
     >
       <Muted>
         Qatnov e’lon qiling: yo‘lovchilar ilova yoki operator orqali joy band qiladi. Joy narxi naqd
@@ -61,11 +70,11 @@ export default function Intercity() {
         onPress={() => router.push('/intercity/new')}
       />
 
-      {trips.isPending ? (
+      {pending && empty ? (
         <Loading />
-      ) : trips.error && !items.length ? (
-        <ErrorState message={errorMessage(trips.error)} onRetry={() => void trips.refetch()} />
-      ) : !items.length ? (
+      ) : error && empty ? (
+        <ErrorState message={errorMessage(error)} onRetry={refresh} />
+      ) : empty ? (
         <EmptyState
           icon="bus-outline"
           title="Hali qatnovlar yo‘q"
@@ -81,12 +90,12 @@ export default function Intercity() {
       {past.map((t) => (
         <TripRow key={t.id} trip={t} onPress={() => router.push(`/intercity/${t.id}`)} />
       ))}
-      {trips.hasNextPage ? (
+      {history.hasNextPage ? (
         <Button
           title="Yana ko‘rsatish"
           variant="secondary"
-          loading={trips.isFetchingNextPage}
-          onPress={() => void trips.fetchNextPage()}
+          loading={history.isFetchingNextPage}
+          onPress={() => void history.fetchNextPage()}
         />
       ) : null}
     </Screen>

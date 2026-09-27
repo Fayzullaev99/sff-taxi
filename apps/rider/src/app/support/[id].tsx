@@ -10,6 +10,7 @@ import { useLiveRides } from '../../api/realtime';
 import type { ComplaintMessage } from '../../api/types';
 import { COMPLAINT_STATUS_LABELS, RESOLUTION_LABELS } from '../../lib/complaints';
 import { formatDateTime } from '../../lib/format';
+import { PhotoAttach, PhotoStrip, useComplaintPhotos } from '../../ui/ComplaintPhotos';
 import { Banner, Button, Card, IconButton, T, TextField } from '../../ui/primitives';
 import { ErrorView, LoadingView } from '../../ui/states';
 import { colors, radius, space } from '../../ui/theme';
@@ -25,16 +26,19 @@ export default function ComplaintScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const c = query.data;
+  const photos = useComplaintPhotos(c?.photos?.length ?? 0);
+  const canSend = Boolean(text.trim()) && photos.settled && !busy;
 
   const send = async () => {
-    if (!c || !text.trim()) return;
+    if (!c || !canSend) return;
     setBusy(true);
     setError(null);
     try {
-      const updated = await endpoints.replyComplaint(c.id, text.trim());
+      const updated = await endpoints.replyComplaint(c.id, text.trim(), photos.uploadIds);
       queryClient.setQueryData(keys.complaint(c.id), updated);
       void queryClient.invalidateQueries({ queryKey: keys.complaints });
       setText('');
+      photos.reset();
     } catch (e) {
       setError(describeError(e));
     } finally {
@@ -90,6 +94,7 @@ export default function ComplaintScreen() {
         ) : null}
 
         <Bubble mine text={c.text} at={c.createdAt} />
+        {c.photos?.length ? <PhotoStrip photos={c.photos} /> : null}
         {c.messages.map((m) => (
           <Message key={m.id} message={m} />
         ))}
@@ -117,12 +122,13 @@ export default function ComplaintScreen() {
               name="send"
               label="Yuborish"
               size={46}
-              background={text.trim() ? colors.brand : colors.surface}
+              background={canSend ? colors.brand : colors.surface}
               color={colors.ink}
-              onPress={busy || !text.trim() ? undefined : () => void send()}
+              onPress={canSend ? () => void send() : undefined}
             />
           </Card>
         ) : null}
+        {!resolved ? <PhotoAttach state={photos} compact /> : null}
         {error ? <Banner tone="danger" message={error} /> : null}
         {busy ? (
           <T variant="small" color={colors.textMuted}>

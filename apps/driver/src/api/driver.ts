@@ -1,5 +1,6 @@
 import type { TokenPair } from '../lib/api-client';
 import type { ApplicationBody } from '../lib/application';
+import type { TripEditBody } from '../lib/intercity';
 import type { LocationPayload } from '../lib/location-throttle';
 import type { CancelReason } from '../lib/ride-flow';
 import type { CreatedUpload, UploadContentType, UploadPurpose } from '../lib/upload-flow';
@@ -119,8 +120,17 @@ export const intercity = {
       `/v1/driver/intercity/fares?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&class=${rideClass}`,
     ),
   publish: (body: PublishTripBody) => api.post<DriverTrip>('/v1/driver/intercity/trips', body),
-  trips: (cursor?: string) =>
-    api.get<Page<DriverTrip>>(`/v1/driver/intercity/trips${cursor ? `?cursor=${cursor}` : ''}`),
+  /**
+   * `upcoming`: not arrived or cancelled, soonest first, all at once (nextCursor null);
+   * `all`: every trip, latest departure first, paged by cursor.
+   */
+  trips: (scope: 'upcoming' | 'all', cursor?: string) =>
+    api.get<Page<DriverTrip>>(
+      `/v1/driver/intercity/trips?scope=${scope}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+    ),
+  /** Time, seats, price, front seat, meeting point, comment: only before the first booking (409). */
+  edit: (id: string, body: TripEditBody) =>
+    api.patch<DriverTrip>(`/v1/driver/intercity/trips/${id}`, body),
   trip: (id: string) => api.get<DriverTrip>(`/v1/driver/intercity/trips/${id}`),
   step: (id: string, step: 'boarding' | 'depart' | 'arrive') =>
     api.post<DriverTrip>(`/v1/driver/intercity/trips/${id}/${step}`),

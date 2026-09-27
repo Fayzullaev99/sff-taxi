@@ -10,11 +10,12 @@ import { keys, useCurrentRide, useWaitingRules } from '../data/queries';
 import { errorMessage, isApiError } from '../lib/api-client';
 import { clock, digits, distance, PAYMENT_METHODS, RIDE_OPTIONS, som } from '../lib/format';
 import {
-  amountToCollect,
   cancelChoices,
-  cashToCollect,
   canCancel,
   type CancelReason,
+  cashBreakdown,
+  cashPartsText,
+  owedFeeNote,
   stepOf,
 } from '../lib/ride-flow';
 import { waitingState, type WaitingRules } from '../lib/waiting';
@@ -115,17 +116,20 @@ function ActiveRide(props: {
     },
   });
 
+  // the cash to take (the API's collectCash; the live waiting fee while the timer runs)
+  const cash = cashBreakdown(ride, waiting ? waiting.fee : undefined);
+  const owedNote = owedFeeNote(cash.owedFee);
+
   const onStep = () => {
     if (!step) return;
     if (step.action === 'complete') {
-      const cashNow = cashToCollect(ride.paymentMethod, ride.fare);
       Alert.alert(
         'Safarni yakunlaysizmi?',
         ride.paymentMethod === 'card'
-          ? cashNow > 0
-            ? `Safar kartada oldindan to‘langan. Kutish uchun ${som(cashNow)} naqd oling.`
+          ? cash.total > 0
+            ? `Safar kartada oldindan to‘langan. Kutish uchun ${som(cash.total)} naqd oling.`
             : 'Safar kartada oldindan to‘langan: naqd pul olmang.'
-          : `Yo‘lovchidan ${som(cashNow)} oling.`,
+          : `Yo‘lovchidan ${som(cash.total)} oling.${owedNote ? ` (${owedNote}.)` : ''}`,
         [
           { text: 'Yo‘q', style: 'cancel' },
           { text: 'Yakunlash', onPress: () => act.mutate('complete') },
@@ -138,10 +142,7 @@ function ActiveRide(props: {
 
   const scheduled = scheduledLabel(ride.scheduledFor, Date.now());
   const target = step?.navigateTo === 'dropoff' ? ride.dropoff : ride.pickup;
-  const collect = amountToCollect({
-    ...ride.fare,
-    waiting: waiting ? waiting.fee : ride.fare.waiting,
-  });
+  const parts = cashPartsText(cash);
 
   return (
     <Screen
@@ -220,7 +221,7 @@ function ActiveRide(props: {
             <Banner
               tone="info"
               icon="information-circle"
-              text="Yo‘lovchi chiqmasa, bekor qilishda “Yo‘lovchi chiqmadi” ni tanlang — bekor qilish haqi sizga yoziladi."
+              text="Yo‘lovchi chiqmasa, bekor qilishda “Yo‘lovchi chiqmadi” ni tanlang — bekor qilish haqi sizga yoziladi (naqd safarda — yo‘lovchi keyingi safarida to‘laganda)."
             />
           )}
         </Card>
@@ -231,20 +232,30 @@ function ActiveRide(props: {
           <Text style={styles.waitLabel}>
             {ride.paymentMethod === 'cash'
               ? 'Yo‘lovchidan olinadi (naqd)'
-              : 'Kartada oldindan to‘langan — balansingizga yoziladi'}
+              : cash.total > 0
+                ? 'Kutish uchun naqd olinadi'
+                : 'Naqd olmang — safar kartada to‘langan'}
           </Text>
           <Text style={styles.collect} adjustsFontSizeToFit numberOfLines={1}>
-            {digits(collect)} <Text style={styles.collectUnit}>so‘m</Text>
+            {digits(cash.total)} <Text style={styles.collectUnit}>so‘m</Text>
           </Text>
-          {ride.paymentMethod === 'card' && collect > ride.fare.quoted ? (
-            <Muted>Kutish {som(collect - ride.fare.quoted)} — yo‘lovchidan naqd oling</Muted>
-          ) : collect !== ride.fare.quoted ? (
+          {ride.paymentMethod === 'card' ? (
             <Muted>
-              Narx {som(ride.fare.quoted)} + kutish {som(collect - ride.fare.quoted)}
+              Safar narxi {som(ride.fare.quoted)} kartada oldindan to‘langan — balansingizga
+              yoziladi
             </Muted>
+          ) : parts ? (
+            <Muted>{parts}</Muted>
           ) : (
             <Muted>Narx oldindan belgilangan va o‘zgarmaydi</Muted>
           )}
+          {owedNote ? (
+            <Banner
+              tone="info"
+              icon="information-circle"
+              text={`${owedNote[0]!.toUpperCase()}${owedNote.slice(1)}. U balansingizdan o‘sha safar haydovchisiga o‘tkaziladi.`}
+            />
+          ) : null}
         </Card>
       ) : null}
 

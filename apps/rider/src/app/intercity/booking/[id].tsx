@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { describeError } from '../../../api/client';
 import { endpoints } from '../../../api/endpoints';
 import { keys, useBooking } from '../../../api/queries';
+import { useIntercityRules } from '../../../api/support';
 import { useLiveRides } from '../../../api/realtime';
 import { confirm } from '../../../lib/dialogs';
 import { formatDateTime, formatMoney, formatPhone } from '../../../lib/format';
@@ -13,7 +14,7 @@ import {
   BOOKING_STATUS_LABELS,
   bookingCancelledText,
   bookingCancelTerms,
-  CANCEL_RULE_TEXT,
+  cancelRulesFrom,
   TRIP_STATUS_LABELS,
 } from '../../../lib/intercity';
 import { useNow } from '../../../lib/hooks';
@@ -35,6 +36,7 @@ export default function BookingScreen() {
   const now = useNow(30_000);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const configRules = useIntercityRules();
   const b = query.data;
 
   if (!b) {
@@ -46,7 +48,12 @@ export default function BookingScreen() {
   }
 
   const t = b.trip;
-  const terms = bookingCancelTerms(t.departureAt, b.price, now);
+  // the booking's own rules and times (the API's), /config for an older API, else defaults
+  const rules = cancelRulesFrom(b.cancelRules, configRules);
+  const terms = bookingCancelTerms(t.departureAt, b.price, now, rules, {
+    freeUntil: b.cancelFreeUntil,
+    feeNow: b.cancelFeeNow,
+  });
   const ended = bookingCancelledText(b);
 
   const cancel = async () => {
@@ -147,10 +154,7 @@ export default function BookingScreen() {
 
       {b.canCancel ? (
         <>
-          <Banner
-            tone={terms.fee > 0 ? 'warning' : 'info'}
-            message={terms.fee > 0 ? terms.message : CANCEL_RULE_TEXT}
-          />
+          <Banner tone={terms.fee > 0 ? 'warning' : 'info'} message={terms.message} />
           {error ? <Banner tone="danger" message={error} /> : null}
           <Button
             title="Bronni bekor qilish"

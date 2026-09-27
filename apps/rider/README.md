@@ -34,23 +34,23 @@ React is hoisted to the repo root by another workspace later.
 
 ## Screens and flow
 
-| Route                                          | What                                                                                                                                                                                                                                                                                                                               |
-| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sign-in`                                      | Phone → 6-digit SMS code (resend after the API's `resendAfterSeconds`, 60 s) → name for new accounts                                                                                                                                                                                                                               |
-| `home`                                         | Full-screen map (start: the rider's GPS, else `/geo/config` default = Guliston); the centre pin is the pickup, reverse-geocoded; "Qayerga?"; Home/Work and "Shaharlararo" chips; out-of-area notice (`/tariffs` → `/geo/resolve`); pill back to an open ride (or "To‘lov kutilmoqda"), else to the next ride for later             |
-| `search`                                       | Destination (or pickup / a place to save) search with suggestions, saved places (API), recent destinations (`/places/recent`), "my location", "choose on the map"                                                                                                                                                                  |
-| `pick-on-map`                                  | A point by moving the map under a pin                                                                                                                                                                                                                                                                                              |
-| `order`                                        | "Hozir / Keyinroq" (a ride for later: quarter-hour slots 35 min–24 h ahead, cash); Economy / Comfort cards with the **fixed quoted price** and the **nearest free car** (`availability`, "~4 daq"), intercity banner, night add-on, options with prices, landmark, comment, cash / card ("Karta (Payme, Click)"), waiting rule     |
-| `ride/[id]`                                    | Ride for later (time, when the search starts, free cancel) · card payment (amount, 10-min countdown, Payme / Click checkout in an in-app browser tab, "check") → searching → driver on the way (**API road ETA**, the API trail + live fixes) → arrived (free-waiting countdown by the ride's own `rules`) → on the trip → summary |
-| (summary)                                      | Fare lines, **fiscal receipt link**, card refund state, rating (API `rated`), "Narsam qoldi" / "Shikoyat" (7 days), order again                                                                                                                                                                                                    |
-| `history`                                      | Rides, 30 per page, pull to refresh                                                                                                                                                                                                                                                                                                |
-| `scheduled`                                    | Rides for later (up to 3), when their search starts, free cancel                                                                                                                                                                                                                                                                   |
-| `places`                                       | Saved places in the account: home, work, others (up to 20); add via the search, delete                                                                                                                                                                                                                                             |
-| `support`, `support/new`, `support/[id]`       | My complaints (status, outcome); a new complaint on a ride (type incl. lost item, text); the thread with the operators and a reply box                                                                                                                                                                                             |
-| `intercity`                                    | The trip board: from / to town, day (today + 7), passengers → departures with free seats and seat prices                                                                                                                                                                                                                           |
-| `intercity/trip/[id]`                          | A departure: meeting point, car, driver (first name), seats, **front seat surcharge**, pickup note, cancellation rule, book                                                                                                                                                                                                        |
-| `intercity/bookings`, `intercity/booking/[id]` | My bookings; a booking with the **driver's name, phone (call) and plate**, cancel with its price said first (free until 60 min before departure, then 30%)                                                                                                                                                                         |
-| `profile`                                      | Name, links to places / scheduled / bookings / complaints, notifications, support phone and Telegram (`/config`), sign-out                                                                                                                                                                                                         |
+| Route                                          | What                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sign-in`                                      | Phone → 6-digit SMS code (resend after the API's `resendAfterSeconds`, 60 s) → name for new accounts                                                                                                                                                                                                                                                                                                                                                 |
+| `home`                                         | Full-screen map (start: the rider's GPS, else `/geo/config` default = Guliston); the centre pin is the pickup, reverse-geocoded; "Qayerga?"; Home/Work and "Shaharlararo" chips; out-of-area notice (`/tariffs` → `/geo/resolve`); pill back to an open ride (or "To‘lov kutilmoqda"), else to the next ride for later                                                                                                                               |
+| `search`                                       | Destination (or pickup / a place to save) search with suggestions, saved places (API), recent destinations (`/places/recent`; **long press or the eye button hides one**, "Yashirish"), "my location", "choose on the map"                                                                                                                                                                                                                           |
+| `pick-on-map`                                  | A point by moving the map under a pin                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `order`                                        | "Hozir / Keyinroq" (a ride for later: quarter-hour slots 35 min–24 h ahead, cash); Economy / Comfort cards with the **fixed quoted price** and the **nearest free car** (`availability`, "~4 daq"), intercity banner, night add-on, **owed cancellation fees as their own line** ("Oldingi bekor qilingan safar uchun"), options with prices, landmark, comment, cash / card (providers from the quote: "Karta (Payme, Click)"), waiting rule        |
+| `ride/[id]`                                    | Ride for later (time, when the search starts, free cancel) · card payment (amount, 10-min countdown, Payme / Click checkout in an in-app browser tab, "check") → searching → driver on the way (**API road ETA**, the API trail + live fixes) → arrived (free-waiting countdown by the ride's own `rules`) → on the trip (**API road ETA to the destination**) → summary; a cash ride carrying an owed fee says the total cash and what the extra is |
+| (summary)                                      | Fare lines + the owed-fee line (`fare.owedFee`), **fiscal receipt link**, card refund state (live: `ride.refund`), this ride's own cancellation fee (owed / collected / waived), rating (API `rated`), "Narsam qoldi" / "Shikoyat" (7 days), order again                                                                                                                                                                                             |
+| `history`                                      | Rides, 30 per page, pull to refresh                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `scheduled`                                    | Rides for later (up to 3), when their search starts, free cancel                                                                                                                                                                                                                                                                                                                                                                                     |
+| `places`                                       | Saved places in the account: home, work, others (up to 20); add via the search, delete; bring hidden recent destinations back                                                                                                                                                                                                                                                                                                                        |
+| `support`, `support/new`, `support/[id]`       | My complaints (status, outcome); a new complaint on a ride (type incl. lost item, text, **up to 3 photos**: camera / gallery); the thread with the operators, its photos (tap: full screen) and a reply box (photos too, 3 per complaint in all)                                                                                                                                                                                                     |
+| `intercity`                                    | The trip board: from / to town, day (today + 7), passengers → departures with free seats and seat prices                                                                                                                                                                                                                                                                                                                                             |
+| `intercity/trip/[id]`                          | A departure: meeting point, car, driver (first name), seats, **front seat surcharge**, pickup note, the cancellation rule (the trip's `cancelRules`), book                                                                                                                                                                                                                                                                                           |
+| `intercity/bookings`, `intercity/booking/[id]` | My bookings; a booking with the **driver's name, phone (call) and plate**, cancel with its price said first (the booking's `cancelFreeUntil` / `cancelFeeNow`; rules from the booking, `/config`, else 60 min / 30%)                                                                                                                                                                                                                                 |
+| `profile`                                      | Name, links to places / scheduled / bookings / complaints, notifications, support phone and Telegram (`/config`), sign-out                                                                                                                                                                                                                                                                                                                           |
 
 - **Ordering**: one `clientRequestId` per attempt ([src/lib/order-attempt.ts](src/lib/order-attempt.ts)):
   kept while an unanswered order is retried (the API returns the same ride), renewed when the
@@ -64,11 +64,16 @@ React is hoisted to the repo root by another workspace later.
   `expo-web-browser`. The ride is polled every 4 s (and nudged over SSE) until the payment
   lands and the search starts; an expired window shows the API's cancellation
   ("To‘lov amalga oshmadi", nothing charged). Cancelled paid rides show the refund state
-  (`refund_pending` → `refunded`). Rides for later are cash only.
+  (`refund_pending` → `refunded`): the summary of a refund still pending keeps the stream open
+  for `ride.refund`, and the `refund_pending` / `refunded` pushes refetch it. Rides for later
+  are cash only.
 - **Cancelling** says the price first ([src/lib/fare.ts](src/lib/fare.ts) `cancelTerms`) from
   the ride's own `rules`: free while scheduled, unpaid, searching and on the way; after arrival
   free until the free waiting ends (with a countdown warning), then the ride's fee
-  (`cancelFeeNow`); a paid card ride is refunded in full.
+  (`cancelFeeNow`); a paid card ride is refunded in full. A cash ride's fee is **owed**: the
+  rider's next cash ride collects it as a separate line (`quote.owedFee`, `fare.owedFee`,
+  "Oldingi bekor qilingan safar uchun"); a card ride leaves it owed (the order screen says so);
+  operators can waive it (the cancelled ride then says "Operator bu to‘lovni kechirdi").
 - **No driver found** (the system cancelled the search): "Qayta buyurtma berish" re-opens the
   tariff screen with the same route; "Operatorga qo‘ng‘iroq qilish" dials the office. A ride for
   later the system dropped before its search (the rider was on another ride) shows the reason.
@@ -76,26 +81,39 @@ React is hoisted to the repo root by another workspace later.
   is in the foreground (single-use tickets, exponential back-off, recycled every 15 min);
   `ride.updated` refetches, `driver.location` moves the car and carries `etaS` (the pickup ETA
   shown, counted down since it was computed; the straight-line estimate only without a fresh
-  one), `intercity.updated` and `complaint.updated` refetch bookings and threads. A slow poll
-  covers stream outages.
+  one) and, on the trip, `destinationEtaS` (the same for the destination; the ride's
+  `destinationEta` when fetched), `ride.refund` refetches the ride, `intercity.updated` and
+  `complaint.updated` refetch bookings and threads. A slow poll covers stream outages.
 - **Session**: the refresh token rotates on every use and a reuse revokes the session, so the
   client runs strictly one refresh at a time for every caller (401s, SSE tickets), never while
   the app is in the background, persists the new pair before retrying, and drops answers for a
   session replaced meanwhile ([src/api/client.ts](src/api/client.ts), unit-tested).
 - **Config** (`GET /config`, cached): the support phone and Telegram (the build's
-  `EXPO_PUBLIC_OPERATOR_PHONE` only as a fallback), feature switches (intercity, rides for later)
-  and the riders' minimum version: below it a full-screen "Ilovani yangilang" covers the app
-  (Google Play link, the office's number).
+  `EXPO_PUBLIC_OPERATOR_PHONE` only as a fallback), feature switches (intercity, rides for later,
+  uploads), the seat board's cancellation rules and the riders' minimum version (null: no forced
+  update): below it a full-screen "Ilovani yangilang" covers the app (the store page from
+  `storeUrls.rider`, else Google Play by package id; the office's number).
 - **Saved places** live in the account (`/places`); home and work kept on the phone by older
   versions are moved there once at start (where the account has none) and then deleted.
 - **Push** (`expo-notifications`): Android channel `rides` (the API sends on it); permission is
   asked right after the first order, or from the profile; the token is registered with
-  `PUT /devices` (`app: 'rider'`) and removed on sign-out; tapping a push opens its ride or
-  intercity booking. Skipped quietly in Expo Go and without an EAS project id.
+  `PUT /devices` (`app: 'rider'`) and removed on sign-out; tapping a push opens its ride
+  (refunds: `refund_pending`, `refunded` too), its ticket (`complaint_answered`,
+  `complaint_resolved`: `complaintId`) or its intercity booking; a push arriving in the
+  foreground refetches that ride / ticket / booking. Skipped quietly in Expo Go and without an
+  EAS project id.
+- **Complaint photos** ([src/uploads/complaint-photo.ts](src/uploads/complaint-photo.ts),
+  [src/lib/complaint-photos.ts](src/lib/complaint-photos.ts)): `expo-image-picker` (camera, or
+  the system photo picker: no storage permission) → JPEG, longest side 1600 px (smaller passes
+  while over 5 MB, `expo-image-manipulator`) → `POST /uploads` (`complaint_photo`) → PUT to the
+  presigned URL (`expo-file-system`) → `complete`; sent as soon as picked, the form waits for
+  the last one; a failed photo is retried from its prepared file. The complaint / reply carries
+  `photoUploadIds` (3 per complaint). Hidden while `/config` says uploads are off.
 - **Offline**: a banner over every screen while the API cannot be reached (any request without
   an answer; a small `/health` probe clears it).
 - **Low-end Android**: one map per screen, static marker views (`tracksViewChanges={false}`),
-  native-driver animations only (still with "reduce motion"), no images, light lists.
+  native-driver animations only (still with "reduce motion"), no images (except complaint
+  photo thumbnails), light lists.
 - **Accessibility**: labelled buttons and switches, radio groups for tariffs, payment, times and
   towns, adjustable star rating, live-region status titles, 44–56 pt targets, texts wrap or
   truncate (`numberOfLines`) instead of overflowing with long addresses or large fonts.
@@ -107,12 +125,16 @@ src/app/            screens (expo-router)
 src/api/            client (refresh), session, endpoints, queries, config/support, SSE
                     (stream, realtime, parser), the car's live track and ETA
 src/lib/            pure logic: format, fare lines / waiting / cancel terms, ride state → screen,
-                    ETAs, card payments, rides for later, intercity, complaints, places, config
+                    ETAs, card payments, rides for later, intercity, complaints and their
+                    photos, places, config, owed fees
 src/ride/           ride screen parts: payment, schedule picker, cancel, SOS, rating, summary
-src/trip/           in-app state: the trip draft, saved places (API) and their migration
+src/trip/           in-app state: the trip draft, saved places (API) and their migration,
+                    hiding recent destinations
 src/location/       map layers (OSM tiles / service areas), point picker, geocoding helpers
-src/notifications/  push registration and taps
-src/ui/             theme and UI kit (primitives, sheets, map, driver card, offline, update)
+src/notifications/  push registration, taps and foreground refetches
+src/uploads/        complaint photos: pick, shrink, presigned upload
+src/ui/             theme and UI kit (primitives, sheets, map, driver card, offline, update,
+                    complaint photos)
 ```
 
 ## Checks
@@ -133,37 +155,32 @@ parser. It is skipped unless `SMOKE_API_URL` is set; see the file header for the
 
 ## API gaps (found while building; the API was not changed)
 
-Closed by backend wave 2 and used by the app: the assigned car's road ETA (`driverEta`,
+Closed by backend waves 2 and 3 and used by the app: the assigned car's road ETA (`driverEta`,
 `driver.location.etaS`) and trail, the nearest free car per class (`availability`), the ride's
 own `rules`, `rated`, saved and recent places, the support phone / Telegram and minimum version
 (`/config`), card payments, fiscal receipt links, complaints / lost items, the intercity board,
-rides for later.
+rides for later; wave 3: intercity cancellation rules (`/config`, the trip's `cancelRules`, the
+booking's `cancelFreeUntil` / `cancelFeeNow`), per-purpose payment return URLs
+(`PAYMENT_RETURN_URL_RIDE`), refund and complaint-answer pushes and the `ride.refund` event,
+the road ETA to the destination, card providers on the quote, store links, complaint photos,
+hiding recent destinations, owed cancellation fees (a quote line, `fare.owedFee`).
 
-1. **Intercity cancellation rules are not published to riders** (`free_cancel_minutes`,
-   `late_cancel_fee_percent` live in the operators' settings only): the app states the defaults
-   (60 minutes, 30%). Suggest them in `/config` or in the trip / booking view (e.g.
-   `cancelFreeUntil`, `cancelFeeNow` like rides).
-2. **One `PAYMENT_RETURN_URL` for ride payments and driver top-ups**: the app handles
-   `sfftaxi://payments/{intentId}` (as in the API's test config: the checkout tab closes by
-   itself and the ride screen is shown again), but production must set exactly that, and then
-   driver top-ups would return to the rider app. Suggest a per-purpose return URL. Without it
-   the rider closes the tab and the ride screen (poll + stream) picks the payment up.
-3. **No push or stream event for a refund** (`refund_pending` → `refunded` only writes a ride
-   event): the rider sees it when opening the ride. Also **no push for an operator's answer to a
-   complaint** (`complaint.updated` is SSE only).
-4. **No ETA to the destination** during the trip (`driverEta` is only for the way to the
-   pickup): the app keeps the straight-line estimate for "on the trip".
-5. **The quote lists `paymentMethods` but not the card providers**: the app reads them from
-   `/config` (or `/tariffs`).
-6. **No store links in `/config`** for the forced update: the app opens Google Play by package
-   id; the App Store id is unknown (iOS shows a text only).
-7. **Complaints take no photos** (uploads purposes are driver documents and photos only).
-8. **Recent destinations cannot be hidden** by the rider (they come from the ride history).
-9. **Fiscal receipts** have no link until an OFD provider is switched on (`FISCAL_PROVIDER=none`
+1. **Fiscal receipts** have no link until an OFD provider is switched on (`FISCAL_PROVIDER=none`
    keeps them `pending`/`skipped`): the summary says the receipt is being prepared.
-10. **No tips** in the API: the summary says a tip can be given in cash.
-11. **The driver's real phone number** is given to the rider (rides and intercity bookings; no
-    masked calls, MA R4; `/config` says `maskedCalls: false`).
-12. **Not in the API yet, so not in the app**: extra stops, promo codes.
+2. **No tips** in the API: the summary says a tip can be given in cash.
+3. **The driver's real phone number** is given to the rider (rides and intercity bookings; no
+   masked calls, MA R4; `/config` says `maskedCalls: false`).
+4. **Not in the API yet, so not in the app**: extra stops, promo codes.
+5. **Owed fees are only visible on a quote**: there is no rider endpoint listing what is owed
+   (the profile cannot show it), and a rider who only pays by card never settles it (card rides
+   leave it owed). Suggest `GET /me` (or `/rides/owed`) with the owed line, and a decision on
+   card rides (e.g. add it to the card amount).
+6. **Hidden recent destinations cannot be listed**: `DELETE /places/recent/hidden` brings all
+   of them back at once; there is no list to unhide one.
+7. **`ride.refund` and `complaint.updated` reach only an open stream**: the app keeps the
+   stream only while a live ride, a pending refund, a booking or a thread is on screen; elsewhere
+   the pushes (`refund_pending`, `refunded`, `complaint_*`) and the polls cover it.
+8. **Complaint photos have short-lived read URLs** in the thread (`photos[].url`): a thread left
+   open long enough shows broken thumbnails until the next refetch (every minute).
 
 Also not done in the app: Russian and Uzbek Cyrillic UI (R1; Uzbek Latin only for now).

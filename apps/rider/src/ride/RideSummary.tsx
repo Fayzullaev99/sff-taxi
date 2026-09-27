@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSupport } from '../api/support';
 import type { Ride } from '../api/types';
 import { canComplain } from '../lib/complaints';
-import { CLASS_LABELS, fareLines } from '../lib/fare';
+import { cancellationFeeNote, CLASS_LABELS, fareLines, OWED_FEE_LABEL } from '../lib/fare';
 import { firstName, formatDateTime, formatMoney, placeLine } from '../lib/format';
 import { callPhone, openLink } from '../lib/links';
 import { cardMoneyNote } from '../lib/payment';
@@ -27,7 +27,9 @@ export function RideSummary({ ride }: { ride: Ride }) {
   const support = useSupport();
   const screen = rideScreen(ride);
   const completed = ride.status === 'completed';
-  const total = ride.fare.total ?? ride.fare.quoted + ride.fare.waiting;
+  // fees owed from earlier cancelled rides this ride collected: a line apart from the fare
+  const owedFee = ride.fare.owedFee ?? 0;
+  const total = (ride.fare.total ?? ride.fare.quoted + ride.fare.waiting) + owedFee;
   const now = new Date();
   const canRate =
     completed &&
@@ -81,7 +83,7 @@ export function RideSummary({ ride }: { ride: Ride }) {
         <Banner
           tone="warning"
           title={`Bekor qilish to‘lovi: ${formatMoney(ride.fare.cancellationFee)}`}
-          message="Haydovchi yetib kelib, bepul kutish vaqti tugaganidan keyin bekor qilindi."
+          message={cancellationFeeNote(ride.fare)}
         />
       ) : null}
       {money && screen.phase !== 'payment_failed' ? (
@@ -108,6 +110,15 @@ export function RideSummary({ ride }: { ride: Ride }) {
           {fareLines(ride.fare.breakdown, ride.fare.waiting).map((line) => (
             <KeyValue key={line.label} label={line.label} value={formatMoney(line.amount)} />
           ))}
+          {owedFee > 0 ? (
+            <>
+              <KeyValue label={OWED_FEE_LABEL} value={formatMoney(owedFee)} />
+              <T variant="small" color={colors.textMuted}>
+                Avvalgi safaringiz haydovchi kutgandan keyin bekor qilingan edi: o‘sha bekor qilish
+                to‘lovi shu safarda naqd olindi.
+              </T>
+            </>
+          ) : null}
           <Divider style={styles.divider} />
           <KeyValue label="Jami" value={formatMoney(total)} strong />
           <T variant="small" color={colors.textMuted}>

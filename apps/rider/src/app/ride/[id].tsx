@@ -6,13 +6,20 @@ import { ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { describeError } from '../../api/client';
 import { endpoints } from '../../api/endpoints';
-import { clearTrack, useCarTrack, useLiveEta } from '../../api/live-track';
+import { clearTrack, useCarTrack, useLiveDestinationEta, useLiveEta } from '../../api/live-track';
 import { keys, useRide } from '../../api/queries';
 import { useLiveRides } from '../../api/realtime';
 import { carPosition, mergeTrail, type TrackPoint } from '../../api/realtime-logic';
 import type { Ride, SosResult } from '../../api/types';
 import { confirm, notify } from '../../lib/dialogs';
-import { type RideRules, rideRules, waitingRuleText, waitingState } from '../../lib/fare';
+import {
+  cashToPay,
+  OWED_FEE_LABEL,
+  type RideRules,
+  rideRules,
+  waitingRuleText,
+  waitingState,
+} from '../../lib/fare';
 import {
   formatClock,
   formatDateTime,
@@ -23,7 +30,7 @@ import {
 } from '../../lib/format';
 import { useNow } from '../../lib/hooks';
 import { shareText } from '../../lib/links';
-import { etaMinutes, newerEta, pickupEta, type RideScreen, rideScreen } from '../../lib/ride-state';
+import { newerEta, pickupEta, type RideScreen, rideScreen } from '../../lib/ride-state';
 import { searchStartsAt } from '../../lib/schedule';
 import { CancelSheet } from '../../ride/CancelSheet';
 import { PaymentPanel } from '../../ride/PaymentPanel';
@@ -54,6 +61,8 @@ export default function RideScreenRoute() {
   const ride = query.data;
   const screen = ride ? rideScreen(ride) : null;
   const final = screen?.final;
+  // a cancelled card ride's refund is still on its way: keep listening for ride.refund
+  const refundPending = ride?.paymentStatus === 'refund_pending';
 
   useEffect(() => {
     if (id) markRideShown(id);
@@ -61,13 +70,13 @@ export default function RideScreenRoute() {
 
   useEffect(() => {
     if (final === undefined) return;
-    setStreamWanted(!final);
+    setStreamWanted(!final || refundPending);
     if (final && id) {
       clearTrack(id);
       void queryClient.invalidateQueries({ queryKey: keys.currentRide });
       void queryClient.invalidateQueries({ queryKey: keys.scheduled });
     }
-  }, [final, id, queryClient]);
+  }, [final, refundPending, id, queryClient]);
 
   if (!ride) {
     return (
@@ -347,6 +356,7 @@ function PhaseHeader({
 }) {
   const now = useNow(15_000);
   const liveEta = useLiveEta(ride.id);
+  const liveDestinationEta = useLiveDestinationEta(ride.id);
   let line: string | null = null;
   if (screen.phase === 'assigned') {
     // the API's road ETA (fetched or streamed, whichever is newer); the estimate only without
@@ -355,7 +365,13 @@ function PhaseHeader({
       ? `Taxminan ${formatMinutes(eta.minutes)}da yetib keladi`
       : 'Haydovchi yo‘lga chiqdi';
   } else if (screen.phase === 'on_trip') {
-    const eta = etaMinutes(car, ride.dropoff);
+    // the API's road ETA to the destination; the straight-line estimate only without one
+    const eta = pickupEta(
+      newerEta(ride.destinationEta ?? null, liveDestinationEta),
+      car,
+      ride.dropoff,
+      now,
+    )?.minutes;
     line = `${placeLine(ride.dropoff)}${eta ? ` · ~${formatMinutes(eta)}` : ''}`;
   } else if (screen.phase === 'scheduled' && ride.scheduledFor) {
     line = `${formatDateTime(ride.scheduledFor)} ga`;
@@ -371,12 +387,34 @@ function PhaseHeader({
         </T>
       ) : null}
       {screen.phase === 'arrived' ? <WaitingClock ride={ride} rules={rules} /> : null}
-      {screen.phase === 'on_trip' || screen.phase === 'assigned' ? (
-        <T variant="smallStrong">
-          {formatMoney(ride.fare.quoted)} ·{' '}
-          {ride.paymentMethod === 'cash' ? 'naqd' : 'karta orqali to‘langan'} · narx o‘zgarmaydi
-        </T>
-      ) : null}
+      {screen.phase === 'on_trip' || screen.phase === 'assigned' ? <FareLine ride={ride} /> : null}
+    </View>
+  );
+}
+
+/**
+ * The price on the way and on the trip. A cash ride that also collects fees owed from
+ * earlier cancelled rides says the total to hand over and what the extra is.
+ */
+function FareLine({ ride }: { ride: Ride }) {
+  const cash = cashToPay(ride);
+  if (cash.owedFee <= 0) {
+    return (
+      <T variant="smallStrong">
+        {formatMoney(ride.fare.quoted)} ·{' '}
+        {ride.paymentMethod === 'cash' ? 'naqd' : 'karta orqali to‘langan'} · narx o‘zgarmaydi
+      </T>
+    );
+  }
+  return (
+    <View style={styles.owed}>
+      <T variant="smallStrong">
+        Naqd: {formatMoney(ride.fare.quoted + cash.owedFee)} · narx o‘zgarmaydi
+      </T>
+      <T variant="small" color={colors.textMuted}>
+        Safar {formatMoney(ride.fare.quoted)} + {OWED_FEE_LABEL.toLowerCase()}{' '}
+        {formatMoney(cash.owedFee)} (bekor qilish to‘lovi)
+      </T>
     </View>
   );
 }
@@ -439,10 +477,7 @@ function SearchingInfo({ ride }: { ride: Ride }) {
         Yaqin atrofdagi haydovchilarga taklif yuborilmoqda · {formatClock(elapsed)}
       </T>
       <RouteBox ride={ride} />
-      <T variant="bodyStrong">
-        {formatMoney(ride.fare.quoted)} · narx o‘zgarmaydi
-        {ride.paymentStatus === 'paid' ? ' · to‘langan' : ''}
-      </T>
+      <FareLine ride={ride} />
       {elapsed > 180 ? (
         <Banner
           tone="info"
@@ -458,7 +493,7 @@ function ScheduledInfo({ ride, rules }: { ride: Ride; rules: RideRules | null })
   return (
     <View style={styles.searchInfo}>
       <RouteBox ride={ride} />
-      <T variant="bodyStrong">{formatMoney(ride.fare.quoted)} · naqd · narx o‘zgarmaydi</T>
+      <FareLine ride={ride} />
       {ride.scheduledFor ? (
         <Banner
           tone="info"
@@ -528,5 +563,6 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: space(2.5) },
   sos: { minWidth: 96 },
   searchInfo: { gap: space(2) },
+  owed: { gap: 2 },
   routeBox: { gap: 2 },
 });

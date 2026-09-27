@@ -5,17 +5,13 @@ import { callPhone, openLink } from '../lib/links';
 import { Button, Icon, T } from './primitives';
 import { colors, space } from './theme';
 
-const PACKAGE = 'uz.sff.taxi';
-const PLAY_APP = `market://details?id=${PACKAGE}`;
-const PLAY_WEB = `https://play.google.com/store/apps/details?id=${PACKAGE}`;
-
 /**
  * Over everything when GET /config says this version is below the riders' minimum: the
  * API may have changed in a way this version cannot follow (orders, payments). Nothing
  * underneath can be used, the back button included; only the store and the office.
  */
 export function UpdateRequired() {
-  const { required, minimum } = useUpdateRequired();
+  const { required, minimum, store } = useUpdateRequired();
   const support = useSupport();
   const insets = useSafeAreaInsets();
   if (!required) return null;
@@ -41,12 +37,12 @@ export function UpdateRequired() {
           Sizda: {APP_VERSION ?? '?'} · kerak: {minimum ?? '?'}
         </T>
         <View style={styles.flex} />
-        {Platform.OS === 'android' ? (
+        {store ? (
           <Button
-            title="Google Play’da yangilash"
+            title={Platform.OS === 'ios' ? 'App Store’da yangilash' : 'Google Play’da yangilash'}
             size="lg"
-            icon="logo-google-playstore"
-            onPress={() => void openLink(PLAY_APP, PLAY_WEB)}
+            icon={Platform.OS === 'ios' ? 'logo-apple-appstore' : 'logo-google-playstore'}
+            onPress={() => void openLink(store.primary, store.fallback ?? undefined)}
           />
         ) : (
           <T variant="bodyStrong" align="center">

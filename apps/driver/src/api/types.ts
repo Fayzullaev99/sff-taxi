@@ -38,6 +38,8 @@ export interface DriverDocument {
   /** Read URL of the uploaded file (15 minutes), or the link an older app sent. */
   url: string | null;
   uploadId?: string | null;
+  /** The file's type (a legacy link: by its extension; null when unknown). */
+  contentType?: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf' | string | null;
   expiresOn: string | null;
   uploadedAt: string;
 }
@@ -121,8 +123,10 @@ export interface Offer {
     comment: string | null;
     paymentMethod: 'cash' | 'card';
     riderRating: number;
-    /** A ride ordered for later (not in the API's offer yet: shown when it comes). */
+    /** A ride ordered for later: when the rider wants the car (null = now). */
     scheduledFor?: string | null;
+    /** Fees the rider owes from earlier cancelled cash rides, taken in cash with this fare. */
+    owedFee?: number;
   };
 }
 
@@ -163,6 +167,10 @@ export interface DriverRide {
     waiting: number;
     total: number | null;
     cancellationFee: number;
+    /** This ride's own cancellation fee (cash rides): owed, collected (by a later ride), waived. */
+    cancellationFeeStatus?: 'owed' | 'collected' | 'waived' | null;
+    /** Earlier rides' owed fees this ride collects in cash (after completion: what was taken). */
+    owedFee?: number;
   };
   paymentMethod: 'cash' | 'card';
   paymentStatus: string;
@@ -179,6 +187,8 @@ export interface DriverRide {
   scheduledFor?: string | null;
   rider?: { id: string; name: string | null; phone: string; rating: number; noShows: number };
   earnings: RideEarnings | null;
+  /** Cash to take: (cash ride ? fare : 0) + paid waiting + owed fees. */
+  collectCash?: number;
 }
 
 export interface Page<T> {
@@ -188,7 +198,16 @@ export interface Page<T> {
 
 export interface LedgerEntry {
   id: string;
-  kind: 'topup' | 'commission' | 'tax' | 'pass' | 'adjustment' | 'card_fare' | 'payout';
+  kind:
+    | 'topup'
+    | 'commission'
+    | 'tax'
+    | 'pass'
+    | 'adjustment'
+    | 'card_fare'
+    | 'payout'
+    | 'cancel_fee'
+    | 'cancel_fee_collected';
   amount: number;
   rideId: string | null;
   note: string | null;

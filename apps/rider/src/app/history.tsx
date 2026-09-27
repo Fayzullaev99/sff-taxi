@@ -77,7 +77,8 @@ function RideRow({ ride }: { ride: RideSummary }) {
   const screen = rideScreen(ride);
   const amount =
     ride.status === 'completed'
-      ? (ride.fare.total ?? ride.fare.quoted)
+      ? // what the rider paid, fees of earlier cancelled rides collected with it included
+        (ride.fare.total ?? ride.fare.quoted) + (ride.fare.owedFee ?? 0)
       : ride.fare.cancellationFee > 0
         ? ride.fare.cancellationFee
         : ride.fare.quoted;

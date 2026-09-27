@@ -3,7 +3,8 @@ import { som } from './format';
 /**
  * Card top-ups (`POST /v1/driver/topups {amount}` → Payme/Click checkout links; the provider
  * confirms to the API, which credits the balance once per payment). The app opens the
- * checkout page and polls `GET /v1/driver/topups/:id` until the payment is final.
+ * checkout page and waits: the stream's `topup.updated` (and the `topup_paid` push) says
+ * when it is paid; polling `GET /v1/driver/topups/:id` is the fallback until then.
  */
 
 export type TopupStatus =
@@ -43,10 +44,40 @@ export function topupPhase(status: string): TopupPhase {
 
 /**
  * How often to ask whether the payment went through: every 3 s for the first two minutes
- * (the driver is paying right now), then every 10 s until the intent expires.
+ * (the driver is paying right now), then every 10 s until the intent expires. With the
+ * event stream open the API announces the payment (`topup.updated`), so asking is only
+ * the fallback for a missed event: every 15 s.
  */
-export function topupPollMs(startedAt: number, now: number): number {
+export function topupPollMs(startedAt: number, now: number, streamOpen = false): number {
+  if (streamOpen) return 15_000;
   return now - startedAt < 120_000 ? 3_000 : 10_000;
+}
+
+/**
+ * The watched top-up's refetch interval: none once it is final (paid — by the event or by
+ * the answer — expired or cancelled), else `topupPollMs`.
+ */
+export function topupRefetchMs(
+  status: string | undefined,
+  startedAt: number,
+  now: number,
+  streamOpen: boolean,
+): number | false {
+  if (status && topupPhase(status) !== 'waiting') return false;
+  return topupPollMs(startedAt, now, streamOpen);
+}
+
+/**
+ * The top-up after a `topup.updated` event (`status: 'paid'`): marked paid at once so the
+ * screen stops asking; the refetch that follows brings `paidAt` and the provider.
+ */
+export function withPaidEvent<T extends { id: string; status: string; amount: number }>(
+  topup: T | undefined,
+  event: { intentId: string; status: string; amount: number },
+): T | undefined {
+  if (!topup || topup.id !== event.intentId || event.status !== 'paid') return topup;
+  if (topupPhase(topup.status) === 'paid') return topup;
+  return { ...topup, status: 'paid', amount: event.amount || topup.amount };
 }
 
 export const TOPUP_STATUS_TEXT: Record<TopupStatus, string> = {

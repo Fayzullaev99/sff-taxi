@@ -23,6 +23,8 @@ import {
   OPTION_HINTS,
   OPTION_LABELS,
   optionPriceLabel,
+  OWED_FEE_LABEL,
+  quoteOwedFee,
   RIDE_OPTIONS,
   seatShareText,
 } from '../lib/fare';
@@ -76,7 +78,11 @@ export default function OrderScreen() {
   const fare = q?.fares[draft.rideClass];
   // rides for later are cash only (for now)
   const cardAvailable = !later && (q?.paymentMethods.includes('card') ?? false);
-  const providers = config?.cardProviders ?? tariff.data?.cardProviders ?? null;
+  // the quote says which providers take this payment; /config and /tariffs for older APIs
+  const providers = q?.cardProviders ?? config?.cardProviders ?? tariff.data?.cardProviders ?? null;
+  // fees owed from earlier cancelled cash rides: a cash ride collects them (a line apart)
+  const owed = quoteOwedFee(q?.owedFee, draft.paymentMethod);
+  const toPay = fare ? fare.total + (owed?.collectedNow ? owed.amount : 0) : null;
   useEffect(() => {
     if (q && draft.paymentMethod === 'card' && !cardAvailable) {
       updateDraft({ paymentMethod: 'cash' });
@@ -278,6 +284,30 @@ export default function OrderScreen() {
                 o‘zgarmaydi).
               </T>
             ) : null}
+            {owed ? (
+              <Card style={styles.owed}>
+                <View style={styles.owedRow}>
+                  <T variant="bodyStrong" style={styles.flex}>
+                    {OWED_FEE_LABEL}
+                  </T>
+                  <T variant="bodyStrong">
+                    {owed.collectedNow ? '+' : ''}
+                    {formatMoney(owed.amount)}
+                  </T>
+                </View>
+                <T variant="small" color={colors.textMuted}>
+                  {owed.note}
+                </T>
+                {owed.collectedNow && fare ? (
+                  <View style={styles.owedRow}>
+                    <T variant="smallStrong" style={styles.flex}>
+                      Jami naqd
+                    </T>
+                    <T variant="smallStrong">{formatMoney(toPay ?? fare.total)}</T>
+                  </View>
+                ) : null}
+              </Card>
+            ) : null}
             {stale ? (
               <T variant="small" color={colors.textMuted}>
                 Narx yangilanmoqda…
@@ -406,7 +436,7 @@ export default function OrderScreen() {
                 : 'Buyurtma berish'
           }
           size="lg"
-          trailing={fare ? formatMoney(fare.total) : undefined}
+          trailing={toPay !== null ? formatMoney(toPay) : undefined}
           loading={busy}
           disabled={!q || stale || quote.isError}
           onPress={() => q && !stale && void submit(q)}
@@ -578,6 +608,8 @@ const styles = StyleSheet.create({
   },
   priceCol: { alignItems: 'flex-end', maxWidth: '45%' },
   section: { marginTop: space(3) },
+  owed: { gap: space(1.5), backgroundColor: colors.warningSoft },
+  owedRow: { flexDirection: 'row', alignItems: 'center', gap: space(2) },
   options: {
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,

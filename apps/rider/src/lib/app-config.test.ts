@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   compareVersions,
+  riderStoreLink,
   supportPhone,
   telegramHandle,
   telegramLink,
@@ -38,5 +39,31 @@ describe('app config', () => {
     expect(supportPhone('+998901112233', '+998900000000')).toBe('+998901112233');
     expect(supportPhone(null, '+998900000000')).toBe('+998900000000');
     expect(supportPhone(null, '')).toBeNull();
+  });
+});
+
+describe('store links for the update screen', () => {
+  it('uses the API store page for the platform', () => {
+    const urls = {
+      android: 'https://play.google.com/store/apps/details?id=uz.sff.taxi&hl=uz',
+      ios: 'https://apps.apple.com/app/id123',
+    };
+    expect(riderStoreLink('android', urls)).toEqual({ primary: urls.android, fallback: null });
+    expect(riderStoreLink('ios', urls)).toEqual({ primary: urls.ios, fallback: null });
+  });
+
+  it('falls back to the Play Store by package id, and to nothing on iOS', () => {
+    const none = { android: null, ios: null };
+    expect(riderStoreLink('android', none)).toEqual({
+      primary: 'market://details?id=uz.sff.taxi',
+      fallback: 'https://play.google.com/store/apps/details?id=uz.sff.taxi',
+    });
+    expect(riderStoreLink('android', undefined)?.primary).toBe('market://details?id=uz.sff.taxi');
+    expect(riderStoreLink('ios', none)).toBeNull();
+    expect(riderStoreLink('ios', { android: null, ios: 'javascript:alert(1)' })).toBeNull();
+  });
+
+  it('never forces an update without a minimum', () => {
+    expect(updateRequired('1.0.0', null)).toBe(false);
   });
 });

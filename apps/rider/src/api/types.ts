@@ -151,6 +151,20 @@ export interface Quote {
   scheduledFor: string | null;
   /** The nearest free car per class by road; null for a ride for later. */
   availability: Record<RideClass, ClassAvailability> | null;
+  /** Which providers a card payment goes through (Payme, Click); older APIs: absent. */
+  cardProviders?: CardProvider[];
+  /**
+   * Cancellation fees the rider still owes from earlier cash rides: a separate line a cash
+   * ride collects on top of its fare (a card ride leaves it owed). Null: nothing owed.
+   */
+  owedFee?: OwedFeeLine | null;
+}
+
+export interface OwedFeeLine {
+  amount: number;
+  collectedWith: 'cash';
+  label: string;
+  rides: { rideId: string; number: number; amount: number; cancelledAt: string }[];
 }
 
 export interface ClassAvailability {
@@ -176,6 +190,8 @@ export type RidePaymentStatus =
 
 export type PaymentIntentStatus =
   'pending' | 'paid' | 'cancelled' | 'expired' | 'refund_pending' | 'refunded';
+
+export type CancellationFeeStatus = 'owed' | 'collected' | 'waived';
 
 export type RideActor = 'rider' | 'driver' | 'operator' | 'system';
 
@@ -276,6 +292,10 @@ export interface RideSummary {
     waiting: number;
     total: number | null;
     cancellationFee: number;
+    /** This ride's own cancellation fee (cash): owed until the next cash ride, then collected. */
+    cancellationFeeStatus?: CancellationFeeStatus | null;
+    /** Earlier rides' owed fees this cash ride collects, a separate line from the fare. */
+    owedFee?: number;
     breakdown: Fare;
   };
   paymentMethod: PaymentMethod;
@@ -303,6 +323,8 @@ export interface Ride extends RideSummary {
   rules: RideRulesView;
   rated: boolean;
   driverEta: DriverEta | null;
+  /** On the trip: the car's road ETA to the destination (same shape as driverEta). */
+  destinationEta?: DriverEta | null;
   trail: TrailFix[];
   events: RideEvent[];
 }
@@ -353,7 +375,10 @@ export type RealtimeEvent =
       at: string;
       /** Road ETA to the pickup while the driver is on the way (refreshed every ~15 s). */
       etaS: number | null;
+      /** Road ETA to the destination during the trip. */
+      destinationEtaS: number | null;
     }
+  | { type: 'ride.refund'; rideId: string; status: string; amount: number }
   | { type: 'intercity.updated'; tripId: string; bookingId: string | null; status: string }
   | { type: 'complaint.updated'; complaintId: string; rideId: string; status: string };
 
@@ -361,7 +386,13 @@ export type RealtimeEvent =
 
 export interface AppConfig {
   support: { phone: string | null; telegram: string | null; officeAddress: string | null };
-  minAppVersion: { rider: string; driver: string };
+  /** null: no forced update. */
+  minAppVersion: { rider: string | null; driver: string | null };
+  /** Store pages for the update screen; null: the app's own fallback. */
+  storeUrls?: {
+    rider: { android: string | null; ios: string | null };
+    driver: { android: string | null; ios: string | null };
+  };
   features: {
     cardPayments: boolean;
     uploads: boolean;
@@ -370,6 +401,8 @@ export interface AppConfig {
     scheduledRides: boolean;
   };
   cardProviders: CardProvider[];
+  /** The seat board's cancellation rules riders agree to when booking. */
+  intercity?: IntercityCancelRules;
   shareBaseUrl: string;
 }
 
@@ -398,6 +431,8 @@ export interface PlaceInput {
 }
 
 export interface RecentPlace {
+  /** Hides it (POST places/recent/hide); older APIs: absent. */
+  key?: string;
   address: string | null;
   landmark: string | null;
   lat: number;
@@ -447,6 +482,8 @@ export interface Complaint {
   resolutionNote: string | null;
   resolvedAt: string | null;
   createdAt: string;
+  /** Short-lived read URLs of the photos (url null when storage is off). */
+  photos?: { uploadId: string; url: string | null }[];
   messages: ComplaintMessage[];
 }
 
@@ -493,6 +530,8 @@ export interface IntercityTrip {
   };
   /** GET /intercity/trips/:id only: the rider's latest booking on it. */
   myBookingId?: string | null;
+  /** GET /intercity/trips/:id only: what cancelling a booking costs, free until freeUntil. */
+  cancelRules?: IntercityCancelRules & { freeUntil: string };
 }
 
 export interface IntercityBooking {
@@ -521,6 +560,16 @@ export interface IntercityBooking {
     plateFormatted: string;
   } | null;
   canCancel: boolean;
+  cancelRules?: IntercityCancelRules;
+  /** Free cancellation until then; later a share of the price is kept. */
+  cancelFreeUntil?: string;
+  /** What cancelling costs right now (0 = free, or it cannot be cancelled). */
+  cancelFeeNow?: number;
+}
+
+export interface IntercityCancelRules {
+  freeCancelMinutes: number;
+  lateCancelFeePercent: number;
 }
 
 export interface BookInput {
@@ -528,4 +577,37 @@ export interface BookInput {
   front: boolean;
   pickupNote: string | null;
   clientRequestId: string;
+}
+
+// Uploads (complaint photos) -------------------------------------------------------------
+
+export interface UploadsConfig {
+  /** False until the server has object storage: photos cannot be added then. */
+  enabled: boolean;
+  purposes: Record<string, { contentTypes: string[]; maxBytes: number }>;
+}
+
+export interface UploadView {
+  id: string;
+  purpose: string;
+  contentType: string;
+  sizeBytes: number;
+  status: 'pending' | 'ready';
+  url: string | null;
+  createdAt: string;
+}
+
+export interface CreatedUpload {
+  id: string;
+  purpose: string;
+  contentType: string;
+  sizeBytes: number;
+  status: 'pending';
+  /** PUT the bytes here with exactly these headers (they are signed). */
+  upload: {
+    method: 'PUT';
+    url: string;
+    headers: Record<string, string>;
+    expiresInSeconds: number;
+  };
 }

@@ -7,7 +7,7 @@ import { useSavedPlaces } from '../api/queries';
 import type { SavedPlace } from '../api/types';
 import { confirm, notify } from '../lib/dialogs';
 import { SAVED_LABELS, type SaveTarget, savedToPlace } from '../lib/places';
-import { removePlace, usePlaces } from '../trip/places-store';
+import { removePlace, unhideRecentPlaces, usePlaces } from '../trip/places-store';
 import {
   Button,
   Card,
@@ -34,6 +34,14 @@ export default function PlacesScreen() {
   const query = useSavedPlaces();
   const places = usePlaces();
   const [removing, setRemoving] = useState<string | null>(null);
+  const [unhiding, setUnhiding] = useState(false);
+
+  const unhide = async () => {
+    setUnhiding(true);
+    const ok = await unhideRecentPlaces();
+    setUnhiding(false);
+    if (ok) notify('Tayyor', 'Yashirilgan oxirgi manzillar qidiruvda yana ko‘rinadi.');
+  };
 
   const add = (save: SaveTarget) =>
     router.push({ pathname: '/search', params: { field: 'dropoff', save } });
@@ -120,6 +128,17 @@ export default function PlacesScreen() {
           ? `Ko‘pi bilan ${MAX_PLACES} ta manzil saqlash mumkin.`
           : 'Manzillar hisobingizda saqlanadi: boshqa telefondan kirsangiz ham shu yerda bo‘ladi.'}
       </T>
+      <Divider style={styles.divider} />
+      <T variant="small" color={colors.textMuted}>
+        Oxirgi manzillardan birini yashirish uchun qidiruvda uni bosib turing.
+      </T>
+      <Button
+        title="Yashirilgan manzillarni qaytarish"
+        icon="eye-outline"
+        variant="ghost"
+        loading={unhiding}
+        onPress={() => void unhide()}
+      />
     </ScrollView>
   );
 }

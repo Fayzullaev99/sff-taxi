@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { bookingIdFromData, pushLocale, resolveProjectId, rideIdFromData } from './data';
+import {
+  bookingIdFromData,
+  complaintIdFromData,
+  pushLocale,
+  pushTarget,
+  resolveProjectId,
+  rideIdFromData,
+} from './data';
 
 describe('push data', () => {
   const rideId = '0192f0a4-8b7e-7c3d-9a1b-2c3d4e5f6a7b';
@@ -30,5 +37,42 @@ describe('push data', () => {
     expect(resolveProjectId({ eas: { projectId: ' abc ' } }, undefined, undefined)).toBe('abc');
     expect(resolveProjectId(undefined, 'def', undefined)).toBe('def');
     expect(resolveProjectId(null, null, '')).toBeNull();
+  });
+});
+
+describe('where a tapped push leads', () => {
+  const rideId = '0192f0a4-8b7e-7c3d-9a1b-2c3d4e5f6a7b';
+  const complaintId = '0192f0a4-8b7e-7c3d-9a1b-2c3d4e5f6a7c';
+
+  it('opens the ticket for an operator answer or decision', () => {
+    expect(complaintIdFromData({ kind: 'complaint_answered', rideId, complaintId })).toBe(
+      complaintId,
+    );
+    expect(pushTarget({ kind: 'complaint_answered', rideId, complaintId })).toEqual({
+      screen: 'complaint',
+      id: complaintId,
+    });
+    expect(pushTarget({ kind: 'complaint_resolved', rideId, complaintId })).toEqual({
+      screen: 'complaint',
+      id: complaintId,
+    });
+  });
+
+  it('opens the ride for a refund and other ride pushes', () => {
+    expect(pushTarget({ kind: 'refund_pending', rideId })).toEqual({ screen: 'ride', id: rideId });
+    expect(pushTarget({ kind: 'refunded', rideId })).toEqual({ screen: 'ride', id: rideId });
+    expect(pushTarget({ kind: 'driver_assigned', rideId, complaintId: 'bad' })).toEqual({
+      screen: 'ride',
+      id: rideId,
+    });
+  });
+
+  it('opens a booking, or nothing', () => {
+    expect(pushTarget({ kind: 'intercity_booked', tripId: rideId, bookingId: rideId })).toEqual({
+      screen: 'booking',
+      id: rideId,
+    });
+    expect(pushTarget({ kind: 'x' })).toBeNull();
+    expect(pushTarget(null)).toBeNull();
   });
 });

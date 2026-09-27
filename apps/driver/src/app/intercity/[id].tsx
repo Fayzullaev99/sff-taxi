@@ -5,10 +5,15 @@ import { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { intercity } from '../../api/driver';
 import type { DriverTrip, TripBooking } from '../../api/types';
-import { keys, useTrip } from '../../data/queries';
+import { keys, useDriverConfig, useTrip } from '../../data/queries';
 import { errorMessage } from '../../lib/api-client';
 import { formatPhone, som } from '../../lib/format';
-import { BOOKING_STATUS_TEXT, TRIP_STATUS_TEXT, tripActions } from '../../lib/intercity';
+import {
+  BOOKING_STATUS_TEXT,
+  TRIP_STATUS_TEXT,
+  tripActions,
+  tripEditable,
+} from '../../lib/intercity';
 import { minutesUntil, tashkentClock, whenLabel } from '../../lib/when';
 import { call, navigateTo } from '../../ui/actions';
 import {
@@ -57,6 +62,7 @@ export default function TripScreen() {
   const router = useRouter();
   const qc = useQueryClient();
   const trip = useTrip(String(id));
+  const rules = useDriverConfig().intercity;
   const now = useMinuteTick();
   const [cancelling, setCancelling] = useState(false);
 
@@ -105,7 +111,8 @@ export default function TripScreen() {
     return <ErrorState message={errorMessage(trip.error)} onRetry={() => void trip.refetch()} />;
   }
   const t = trip.data;
-  const actions = tripActions(t, now);
+  const actions = tripActions(t, now, rules.boardingOpensMinutes);
+  const editable = tripEditable(t);
   const live = t.bookings.filter((b) => b.status !== 'cancelled');
   const cancelledBookings = t.bookings.filter((b) => b.status === 'cancelled');
   const leavesIn = minutesUntil(t.departureAt, now);
@@ -199,6 +206,14 @@ export default function TripScreen() {
         ) : null}
         <Row label="Uchrashuv joyi" value={t.meetingPoint ?? t.from.meetingPoint ?? '—'} />
         {t.comment ? <Muted>“{t.comment}”</Muted> : null}
+        {editable ? (
+          <Button
+            title="O‘zgartirish (vaqt, o‘rinlar, narx)"
+            icon="create"
+            variant="secondary"
+            onPress={() => router.push(`/intercity/new?edit=${t.id}`)}
+          />
+        ) : null}
         {t.status === 'scheduled' || t.status === 'boarding' ? (
           <Button
             title="Uchrashuv joyiga yo‘l"
@@ -254,6 +269,7 @@ export default function TripScreen() {
       {!live.length ? (
         <Muted>
           Hali hech kim joy band qilmagan. Bron qilinsa, shu yerda ism va telefon ko‘rinadi.
+          {editable ? ' Birinchi brongacha qatnovni o‘zgartirish mumkin.' : ''}
         </Muted>
       ) : null}
       {live.map((b) => (

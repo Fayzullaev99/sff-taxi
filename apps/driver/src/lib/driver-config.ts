@@ -1,8 +1,8 @@
 /**
  * The rules a driver works under, as the API publishes them: `GET /v1/driver/config`
- * (commission, caps, passes, minimum balance, waiting and no-show rules, decline and cancel
- * reasons, top-up limits, support) and the public `GET /v1/config` (support contacts,
- * minimum app versions, feature flags, card providers).
+ * (commission, caps, passes, minimum balance, waiting and no-show rules, the trip board's
+ * rules, decline and cancel reasons, top-up limits, support) and the public `GET /v1/config`
+ * (support contacts, minimum app versions, store links, feature flags, card providers).
  *
  * The mapping is tolerant: a missing or malformed field keeps the launch default, so an
  * older or newer API never breaks the money screen. Defaults are only shown until the
@@ -34,6 +34,24 @@ export interface RideRules {
   cancellationFee: number;
 }
 
+/** The intercity trip board's rules (`GET /v1/driver/config` → `intercity`). */
+export interface IntercityRules {
+  /** A departure is published (or moved) at least this far ahead. */
+  publishMinMinutesAhead: number;
+  /** … and at most this many days ahead. */
+  publishMaxDaysAhead: number;
+  /** One driver's departures must be this far apart. */
+  tripSpacingHours: number;
+  /** Boarding can be opened this long before departure. */
+  boardingOpensMinutes: number;
+  /** The seat price may differ from the reference by this much (the band itself comes with fares). */
+  priceBandPercent: number;
+  /** Riders cancel a booking free until this long before departure … */
+  freeCancelMinutes: number;
+  /** … later they owe this share of the seat price. */
+  lateCancelFeePercent: number;
+}
+
 export interface Reason {
   code: string;
   label: string;
@@ -48,16 +66,24 @@ export interface Support {
 export interface DriverConfig {
   billing: BillingRules;
   rides: RideRules;
+  intercity: IntercityRules;
   declineReasons: Reason[];
   cancelReasons: Reason[];
   topups: { min: number; max: number; providers: CardProvider[] };
   support: Support;
 }
 
+export interface StoreUrls {
+  android: string | null;
+  ios: string | null;
+}
+
 export interface PublicConfig {
   support: Support;
   /** The lowest driver app version the API still serves (null: not published). */
   minDriverVersion: string | null;
+  /** Where the update screen sends the driver (null: the app's own Play Store link). */
+  storeUrls: StoreUrls;
   features: {
     cardPayments: boolean;
     uploads: boolean;
@@ -90,6 +116,17 @@ export const DEFAULT_RIDE_RULES: RideRules = {
   cancellationFee: 3_000,
 };
 
+/** The API's settings defaults (`DEFAULT_INTERCITY`), until the config loads. */
+export const DEFAULT_INTERCITY_RULES: IntercityRules = {
+  publishMinMinutesAhead: 15,
+  publishMaxDaysAhead: 7,
+  tripSpacingHours: 2,
+  boardingOpensMinutes: 60,
+  priceBandPercent: 15,
+  freeCancelMinutes: 60,
+  lateCancelFeePercent: 30,
+};
+
 /** The API's DECLINE_REASONS (dispatch.module.ts), in its order. */
 export const DEFAULT_DECLINE_REASONS: Reason[] = [
   { code: 'too_far', label: 'Juda uzoq' },
@@ -113,6 +150,7 @@ export const DEFAULT_SUPPORT: Support = { phone: null, telegram: null, officeAdd
 export const DEFAULT_DRIVER_CONFIG: DriverConfig = {
   billing: DEFAULT_BILLING,
   rides: DEFAULT_RIDE_RULES,
+  intercity: DEFAULT_INTERCITY_RULES,
   declineReasons: DEFAULT_DECLINE_REASONS,
   cancelReasons: DEFAULT_CANCEL_REASONS,
   topups: { min: 5_000, max: 5_000_000, providers: [] },
@@ -122,6 +160,7 @@ export const DEFAULT_DRIVER_CONFIG: DriverConfig = {
 export const DEFAULT_PUBLIC_CONFIG: PublicConfig = {
   support: DEFAULT_SUPPORT,
   minDriverVersion: null,
+  storeUrls: { android: null, ios: null },
   features: { cardPayments: false, uploads: false, intercity: true, scheduledRides: true },
   cardProviders: [],
 };
@@ -134,6 +173,19 @@ const num = (v: unknown, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 const text = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
+
+/** A store link (https, market://, itms-apps://), or null. */
+function storeLink(v: unknown): string | null {
+  const t = text(v);
+  return t && /^(https?|market|itms-apps):\/\//i.test(t) ? t : null;
+}
+
+/** The update screen's link for this platform, or null (the app's own fallback). */
+export function storeUrlFor(urls: StoreUrls, platform: string): string | null {
+  if (platform === 'android') return urls.android;
+  if (platform === 'ios') return urls.ios;
+  return null;
+}
 
 function providers(v: unknown): CardProvider[] {
   if (!Array.isArray(v)) return [];
@@ -179,6 +231,7 @@ export function mapDriverConfig(
   const passes = obj(b.passes);
   const rides = obj(r.rides);
   const topups = obj(r.topups);
+  const ic = obj(r.intercity);
   const d = DEFAULT_DRIVER_CONFIG;
   const promo = b.promoUntil === null ? null : text(b.promoUntil);
   return {
@@ -207,6 +260,15 @@ export function mapDriverConfig(
       waitingPerMinute: num(rides.waitingPerMinute, d.rides.waitingPerMinute),
       cancellationFee: num(rides.cancellationFee, d.rides.cancellationFee),
     },
+    intercity: {
+      publishMinMinutesAhead: num(ic.publishMinMinutesAhead, d.intercity.publishMinMinutesAhead),
+      publishMaxDaysAhead: num(ic.publishMaxDaysAhead, d.intercity.publishMaxDaysAhead),
+      tripSpacingHours: num(ic.tripSpacingHours, d.intercity.tripSpacingHours),
+      boardingOpensMinutes: num(ic.boardingOpensMinutes, d.intercity.boardingOpensMinutes),
+      priceBandPercent: num(ic.priceBandPercent, d.intercity.priceBandPercent),
+      freeCancelMinutes: num(ic.freeCancelMinutes, d.intercity.freeCancelMinutes),
+      lateCancelFeePercent: num(ic.lateCancelFeePercent, d.intercity.lateCancelFeePercent),
+    },
     declineReasons: mapReasons(r.declineReasons, d.declineReasons),
     cancelReasons: mapReasons(r.cancelReasons, d.cancelReasons),
     topups: {
@@ -228,7 +290,12 @@ export function mapPublicConfig(
   const d = DEFAULT_PUBLIC_CONFIG.features;
   return {
     support: mapSupport(r.support, fallbackSupport),
+    // null (the API's default): no forced update
     minDriverVersion: text(obj(r.minAppVersion).driver),
+    storeUrls: {
+      android: storeLink(obj(obj(r.storeUrls).driver).android),
+      ios: storeLink(obj(obj(r.storeUrls).driver).ios),
+    },
     features: {
       cardPayments: bool(f.cardPayments, d.cardPayments),
       uploads: bool(f.uploads, d.uploads),

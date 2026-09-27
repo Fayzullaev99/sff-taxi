@@ -1,5 +1,13 @@
 import Constants from 'expo-constants';
-import { supportPhone, telegramHandle, telegramLink, updateRequired } from '../lib/app-config';
+import { Platform } from 'react-native';
+import {
+  riderStoreLink,
+  type StoreLink,
+  supportPhone,
+  telegramHandle,
+  telegramLink,
+  updateRequired,
+} from '../lib/app-config';
 import { OPERATOR_PHONE } from '../lib/links';
 import { useAppConfig } from './queries';
 
@@ -18,15 +26,34 @@ export function useSupport() {
   };
 }
 
-/** True when the API asks riders on this version to update first. */
-export function useUpdateRequired(): { required: boolean; minimum: string | null } {
+/**
+ * True when the API asks riders on this version to update first (a null minimum: never),
+ * with where to update from (the API's store page, else the app's own fallback).
+ */
+export function useUpdateRequired(): {
+  required: boolean;
+  minimum: string | null;
+  store: StoreLink | null;
+} {
   const config = useAppConfig().data;
   const minimum = config?.minAppVersion.rider ?? null;
-  return { required: updateRequired(APP_VERSION, minimum), minimum };
+  return {
+    required: updateRequired(APP_VERSION, minimum),
+    minimum,
+    store: riderStoreLink(Platform.OS, config?.storeUrls?.rider),
+  };
 }
 
 /** Whether a feature is switched on; true until the config has answered (the API decides). */
 export function useFeature(name: 'cardPayments' | 'intercity' | 'scheduledRides'): boolean {
   const config = useAppConfig().data;
   return config ? config.features[name] !== false : true;
+}
+
+/** The seat board's cancellation rules riders agree to (GET /config), null until it answers. */
+export function useIntercityRules(): {
+  freeCancelMinutes: number;
+  lateCancelFeePercent: number;
+} | null {
+  return useAppConfig().data?.intercity ?? null;
 }

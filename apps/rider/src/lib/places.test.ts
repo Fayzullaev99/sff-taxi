@@ -5,7 +5,9 @@ import {
   parseLegacyPlaces,
   type Place,
   placesToMigrate,
+  recentKeyOf,
   recentPlaces,
+  withoutRecent,
   savedToPlace,
 } from './places';
 
@@ -89,5 +91,42 @@ describe('places kept on the phone by older versions', () => {
     // home was saved from another phone: that one wins
     expect(placesToMigrate(legacy, [saved('home', 5)]).map((p) => p.kind)).toEqual(['work']);
     expect(placesToMigrate({ home: null, work: null }, [])).toEqual([]);
+  });
+});
+
+describe('hiding recent destinations', () => {
+  const recent: RecentPlace[] = [
+    {
+      key: '40.4960,68.7759',
+      address: 'Bozor',
+      landmark: null,
+      lat: 40.49601,
+      lng: 68.77589,
+      lastUsedAt: '2026-09-27T10:00:00Z',
+    },
+    {
+      address: 'Vokzal',
+      landmark: null,
+      lat: 40.5,
+      lng: 68.8,
+      lastUsedAt: '2026-09-26T10:00:00Z',
+    },
+  ];
+
+  it('uses the API key, else makes it the same way', () => {
+    expect(recentKeyOf(recent[0]!)).toBe('40.4960,68.7759');
+    expect(recentKeyOf(recent[1]!)).toBe('40.5000,68.8000');
+  });
+
+  it('carries the key to the search rows', () => {
+    expect(recentPlaces(recent, []).map((p) => p.recentKey)).toEqual([
+      '40.4960,68.7759',
+      '40.5000,68.8000',
+    ]);
+  });
+
+  it('drops a hidden destination from the cached list', () => {
+    expect(withoutRecent(recent, '40.5000,68.8000')?.map((p) => p.address)).toEqual(['Bozor']);
+    expect(withoutRecent(undefined, 'x')).toBeUndefined();
   });
 });

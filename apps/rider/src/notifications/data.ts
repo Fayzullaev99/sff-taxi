@@ -38,3 +38,33 @@ export function resolveProjectId(
   }
   return null;
 }
+
+/** The support ticket a tapped notification is about (`data: { kind, rideId, complaintId }`). */
+export function complaintIdFromData(data: unknown): string | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const d = data as Record<string, unknown>;
+  if (typeof d.complaintId !== 'string') return null;
+  return UUID.test(d.complaintId) ? d.complaintId : null;
+}
+
+/** Where a tapped push leads. */
+export type PushTarget =
+  | { screen: 'ride'; id: string }
+  | { screen: 'booking'; id: string }
+  | { screen: 'complaint'; id: string };
+
+/**
+ * The screen for a tapped push. An operator's answer or decision on a complaint
+ * (`complaint_answered`, `complaint_resolved`) opens the ticket, although it names the ride
+ * too; a refund (`refund_pending`, `refunded`) and every ride push open the ride; intercity
+ * pushes open the booking.
+ */
+export function pushTarget(data: unknown): PushTarget | null {
+  const complaintId = complaintIdFromData(data);
+  if (complaintId) return { screen: 'complaint', id: complaintId };
+  const rideId = rideIdFromData(data);
+  if (rideId) return { screen: 'ride', id: rideId };
+  const bookingId = bookingIdFromData(data);
+  if (bookingId) return { screen: 'booking', id: bookingId };
+  return null;
+}

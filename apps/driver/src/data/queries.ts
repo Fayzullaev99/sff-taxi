@@ -41,7 +41,10 @@ export const keys = {
   appeals: ['driver', 'appeals'] as const,
   topups: ['driver', 'topups'] as const,
   topup: (id: string) => ['driver', 'topups', id] as const,
+  /** Prefix of both trip lists (invalidating it refreshes both). */
   trips: ['driver', 'intercity', 'trips'] as const,
+  upcomingTrips: ['driver', 'intercity', 'trips', 'upcoming'] as const,
+  allTrips: ['driver', 'intercity', 'trips', 'all'] as const,
   trip: (id: string) => ['driver', 'intercity', 'trip', id] as const,
   points: ['intercity', 'points'] as const,
   fare: (from: string, to: string, rideClass: string) =>
@@ -224,12 +227,14 @@ export function useUploadsConfig(): UploadsConfig {
 }
 
 export function useAppeals(enabled = true) {
-  // answers are not pushed (API gap): checked every minute while the screen is open
+  // an answer comes as `appeal.updated` (and the `appeal_resolved` push); re-reading is the
+  // fallback: every minute without the stream, every 5 minutes with it
+  const open = useStreamOpen();
   return useQuery({
     queryKey: keys.appeals,
     queryFn: driver.appeals,
     enabled,
-    refetchInterval: 60_000,
+    refetchInterval: open ? 5 * 60_000 : 60_000,
   });
 }
 
@@ -237,20 +242,30 @@ export function useTopups() {
   return useQuery({ queryKey: keys.topups, queryFn: driver.topups });
 }
 
-export function useTrips() {
+/** The trips still to run (and the one on the road), soonest first: `scope=upcoming`. */
+export function useUpcomingTrips() {
+  return useQuery({
+    queryKey: keys.upcomingTrips,
+    queryFn: async () => (await intercity.trips('upcoming')).items,
+  });
+}
+
+/** Every trip, latest departure first, paged (the history below the upcoming ones). */
+export function useTripHistory() {
   return useInfiniteQuery({
-    queryKey: keys.trips,
-    queryFn: ({ pageParam }) => intercity.trips(pageParam),
+    queryKey: keys.allTrips,
+    queryFn: ({ pageParam }) => intercity.trips('all', pageParam),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
 }
 
-export function useTrip(id: string) {
+export function useTrip(id: string, enabled = true) {
   const open = useStreamOpen();
   return useQuery({
     queryKey: keys.trip(id),
     queryFn: () => intercity.trip(id),
+    enabled,
     refetchInterval: pollInterval(open, 15_000),
   });
 }

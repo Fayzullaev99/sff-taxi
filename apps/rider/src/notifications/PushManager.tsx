@@ -1,9 +1,11 @@
+import { useQueryClient } from '@tanstack/react-query';
 import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Linking } from 'react-native';
+import { keys } from '../api/queries';
 import { beforeSignOut, useIsSignedIn } from '../api/session';
-import { bookingIdFromData, rideIdFromData } from './data';
+import { pushTarget } from './data';
 import {
   configureNotifications,
   getPushPermission,
@@ -54,18 +56,46 @@ export function PushManager() {
     const key = response.notification.request.identifier;
     if (handled.current === key) return;
     handled.current = key;
-    const data = response.notification.request.content.data;
-    const rideId = rideIdFromData(data);
-    const bookingId = rideId ? null : bookingIdFromData(data);
+    const target = pushTarget(response.notification.request.content.data);
     void Notifications.clearLastNotificationResponseAsync().catch(() => undefined);
-    if (!rideId && !bookingId) return;
+    if (!target) return;
     // on a cold start the first screen redirects to the map first: open the ride on top
     // (not cancelled on re-render: clearing the response above re-renders at once)
     setTimeout(() => {
-      if (rideId) router.push({ pathname: '/ride/[id]', params: { id: rideId } });
-      else router.push({ pathname: '/intercity/booking/[id]', params: { id: bookingId! } });
+      if (target.screen === 'ride') {
+        router.push({ pathname: '/ride/[id]', params: { id: target.id } });
+      } else if (target.screen === 'complaint') {
+        router.push({ pathname: '/support/[id]', params: { id: target.id } });
+      } else {
+        router.push({ pathname: '/intercity/booking/[id]', params: { id: target.id } });
+      }
     }, 250);
   }, [response]);
+
+  // a push arriving while the app is open (a refund, an operator's answer): the screen
+  // showing that ride or ticket refetches without waiting for its poll
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!pushSupported) return;
+    const sub = Notifications.addNotificationReceivedListener((n) => {
+      const data = n.request.content.data;
+      const target = pushTarget(data);
+      if (!target) return;
+      if (target.screen === 'complaint') {
+        void queryClient.invalidateQueries({ queryKey: keys.complaints });
+        void queryClient.invalidateQueries({ queryKey: keys.complaint(target.id) });
+      } else if (target.screen === 'booking') {
+        void queryClient.invalidateQueries({ queryKey: keys.bookings });
+        void queryClient.invalidateQueries({ queryKey: keys.booking(target.id) });
+      }
+      const rideId = (data as { rideId?: unknown } | null)?.rideId;
+      if (typeof rideId === 'string') {
+        void queryClient.invalidateQueries({ queryKey: keys.ride(rideId) });
+        void queryClient.invalidateQueries({ queryKey: keys.currentRide });
+      }
+    });
+    return () => sub.remove();
+  }, [queryClient]);
 
   return null;
 }

@@ -82,3 +82,14 @@ export function DriverRuntime() {
 
   return null;
 }
+
+/**
+ * For a driver who applied but cannot work (pending, rejected, blocked): only the event
+ * stream and push taps — the decision (`driver.updated`) and an operator's answer to an
+ * appeal (`appeal.updated`, the `appeal_resolved` push) arrive at once. No GPS, no offers.
+ */
+export function ApplicantRuntime() {
+  useRealtime(true);
+  useNotificationRouting(true);
+  return null;
+}

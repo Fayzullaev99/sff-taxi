@@ -52,23 +52,39 @@ export type PushTarget =
   | { kind: 'offer'; offerId: string }
   | { kind: 'ride'; rideId: string }
   | { kind: 'trip'; tripId: string }
+  /** `topup_paid`: the top-up screen for that payment (the money tab without an id). */
+  | { kind: 'topup'; intentId: string | null }
+  /** `appeal_resolved`: the appeals screen. */
+  | { kind: 'appeal'; appealId: string | null }
   | { kind: 'home' };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const uuid = (v: unknown): string | null =>
+  typeof v === 'string' && UUID.test(v) ? v.toLowerCase() : null;
+
 /**
  * `{kind:'offer', offerId}` opens the offer; ride pushes (`rider_cancelled`, …) with a
- * `rideId` open the ride; account pushes (`driver_active`, `driver_blocked`, …) open home.
+ * `rideId` open the ride; a paid top-up opens its screen, an answered appeal the appeals;
+ * account pushes (`driver_active`, `driver_blocked`, …) open home.
  */
 export function pushTarget(data: unknown): PushTarget | null {
   if (!data || typeof data !== 'object') return null;
-  const d = data as { kind?: unknown; offerId?: unknown; rideId?: unknown; tripId?: unknown };
+  const d = data as {
+    kind?: unknown;
+    offerId?: unknown;
+    rideId?: unknown;
+    tripId?: unknown;
+    intentId?: unknown;
+    appealId?: unknown;
+  };
   if (typeof d.kind !== 'string') return null;
   if (d.kind === 'offer') {
-    return typeof d.offerId === 'string' && UUID.test(d.offerId)
-      ? { kind: 'offer', offerId: d.offerId.toLowerCase() }
-      : null;
+    const offerId = uuid(d.offerId);
+    return offerId ? { kind: 'offer', offerId } : null;
   }
+  if (d.kind === 'topup_paid') return { kind: 'topup', intentId: uuid(d.intentId) };
+  if (d.kind === 'appeal_resolved') return { kind: 'appeal', appealId: uuid(d.appealId) };
   if (typeof d.rideId === 'string' && UUID.test(d.rideId)) {
     return { kind: 'ride', rideId: d.rideId.toLowerCase() };
   }

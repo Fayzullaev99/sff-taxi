@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { describeError } from '../api/client';
 import { endpoints } from '../api/endpoints';
 import { keys, queryClient, useRecentPlaces, useSavedPlaces } from '../api/queries';
-import type { SavedPlace } from '../api/types';
+import type { RecentPlace, SavedPlace } from '../api/types';
 import { notify } from '../lib/dialogs';
 import {
   groupSaved,
@@ -12,6 +12,7 @@ import {
   placesToMigrate,
   recentPlaces,
   type SavedPlaces,
+  withoutRecent,
 } from '../lib/places';
 
 /**
@@ -65,6 +66,38 @@ export async function removePlace(id: string): Promise<void> {
 /** A new ride changes the recent destinations. */
 export function refreshRecentPlaces(): void {
   void queryClient.invalidateQueries({ queryKey: keys.recentPlaces });
+}
+
+/**
+ * Takes a destination off the recent list (the ride history keeps it; a new ride there
+ * brings it back). Off the list at once; back if the API refuses.
+ */
+export async function hideRecentPlace(key: string): Promise<boolean> {
+  const before = queryClient.getQueryData<RecentPlace[]>(keys.recentPlaces);
+  queryClient.setQueryData<RecentPlace[]>(keys.recentPlaces, (list) => withoutRecent(list, key));
+  try {
+    await endpoints.hideRecentPlace(key);
+    return true;
+  } catch (e) {
+    queryClient.setQueryData(keys.recentPlaces, before);
+    notify('Manzil yashirilmadi', describeError(e));
+    return false;
+  } finally {
+    void queryClient.invalidateQueries({ queryKey: keys.recentPlaces });
+  }
+}
+
+/** Brings every hidden recent destination back. */
+export async function unhideRecentPlaces(): Promise<boolean> {
+  try {
+    await endpoints.unhideRecentPlaces();
+    return true;
+  } catch (e) {
+    notify('Bajarilmadi', describeError(e));
+    return false;
+  } finally {
+    void queryClient.invalidateQueries({ queryKey: keys.recentPlaces });
+  }
 }
 
 let migrating: Promise<void> | null = null;

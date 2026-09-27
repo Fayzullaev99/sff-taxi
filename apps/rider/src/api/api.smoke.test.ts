@@ -14,11 +14,11 @@
  */
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { cancelTerms, fareLines, rideRules } from '../lib/fare';
+import { cancelTerms, fareLines, quoteOwedFee, rideRules } from '../lib/fare';
 import { tashkentDay } from '../lib/format';
-import { bookingPrice } from '../lib/intercity';
+import { bookingCancelTerms, bookingPrice, cancelRulesFrom } from '../lib/intercity';
 import { cardMoneyNote, checkoutLinks } from '../lib/payment';
-import { groupSaved } from '../lib/places';
+import { groupSaved, recentKeyOf } from '../lib/places';
 import { rideScreen } from '../lib/ride-state';
 import { createApiClient, type SessionTokens } from './client';
 import { parseRealtimeEvent } from './realtime-logic';
@@ -26,6 +26,7 @@ import type {
   AppConfig,
   Complaint,
   ComplaintListItem,
+  CreatedUpload,
   GeoConfig,
   GeoResolve,
   IntercityBooking,
@@ -40,6 +41,7 @@ import type {
   SavedPlace,
   SosResult,
   TariffInfo,
+  UploadsConfig,
 } from './types';
 
 const BASE = process.env.SMOKE_API_URL;
@@ -264,6 +266,9 @@ describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
       body: { pickup: GULISTON, dropoff: MID, options: [] },
     });
     expect(quote.kind).toBe('city');
+    // wave 3: card providers on the quote; nothing owed from earlier cancellations
+    expect(Array.isArray(quote.cardProviders)).toBe(true);
+    expect(quoteOwedFee(quote.owedFee, 'cash')).toBeNull();
     // the free car next to the rider is on the class buttons
     expect(quote.availability?.economy.cars).toBeGreaterThan(0);
     expect(quote.availability?.economy.etaS).toBeGreaterThanOrEqual(0);
@@ -373,6 +378,24 @@ describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
       });
       expect(sos.emergency.unified).toBe('112');
 
+      // wave 3: on the trip the car's position carries the road ETA to the destination
+      await driver.request('/v1/driver/location', {
+        method: 'POST',
+        // under 200 m from the last fix: a bigger jump in a second is refused as a GPS glitch
+        body: { lat: 40.4958, lng: 68.7775, heading: 120 },
+      });
+      const onTrip = await waitFor(
+        'driver.location with destinationEtaS',
+        () =>
+          stream.events.find((e) => e.type === 'driver.location' && e.destinationEtaS !== null) ??
+          null,
+      );
+      expect(
+        onTrip.type === 'driver.location' ? onTrip.destinationEtaS : -1,
+      ).toBeGreaterThanOrEqual(0);
+      const riding = await rider.request<Ride>(`/v1/rides/${rideId}`);
+      expect(riding.destinationEta?.etaS).toBeGreaterThanOrEqual(0);
+
       await driver.request(`/v1/driver/rides/${rideId}/complete`, { method: 'POST', body: {} });
       const done = await waitFor('completed', async () => {
         const r = await rider.request<Ride>(`/v1/rides/${rideId}`);
@@ -425,9 +448,42 @@ describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
       expect(replied.status).toBe('in_progress');
       expect(replied.messages.map((m) => m.authorRole)).toEqual(['admin', 'rider']);
 
+      // wave 3: a photo on the complaint (with object storage: upload, PUT, complete)
+      const uploads = await rider.request<UploadsConfig>('/v1/uploads/config');
+      if (uploads.enabled) {
+        const jpeg = new Uint8Array(64).fill(0);
+        jpeg.set([0xff, 0xd8, 0xff, 0xe0]);
+        const created = await rider.request<CreatedUpload>('/v1/uploads', {
+          method: 'POST',
+          body: { purpose: 'complaint_photo', contentType: 'image/jpeg', sizeBytes: jpeg.length },
+        });
+        const put = await fetch(created.upload.url, {
+          method: 'PUT',
+          headers: created.upload.headers,
+          body: jpeg,
+        });
+        expect(put.status).toBeLessThan(300);
+        await rider.request(`/v1/uploads/${created.id}/complete`, { method: 'POST', body: {} });
+        const withPhoto = await rider.request<Complaint>(
+          `/v1/complaints/${complaint.id}/messages`,
+          { method: 'POST', body: { text: 'Sumkaning rasmi', photoUploadIds: [created.id] } },
+        );
+        expect(withPhoto.photos?.map((p) => p.uploadId)).toEqual([created.id]);
+        expect(withPhoto.photos?.[0]?.url).toMatch(/^https?:\/\//);
+      }
+
       // recent destinations come from the ride history
       const recent = await rider.request<RecentPlace[]>('/v1/places/recent');
       expect(recent[0]).toMatchObject({ address: 'Vokzal' });
+      // wave 3: hidden by its key until the rider goes there again; all back at once
+      const key = recentKeyOf(recent[0]!);
+      expect(recent[0]!.key).toBe(key);
+      await rider.request('/v1/places/recent/hide', { method: 'POST', body: { key } });
+      const hidden = await rider.request<RecentPlace[]>('/v1/places/recent');
+      expect(hidden.map(recentKeyOf)).not.toContain(key);
+      await rider.request('/v1/places/recent/hidden', { method: 'DELETE' });
+      const shown = await rider.request<RecentPlace[]>('/v1/places/recent');
+      expect(shown.map(recentKeyOf)).toContain(key);
 
       const history = await rider.request<RideHistoryPage>('/v1/rides');
       expect(history.items[0]?.id).toBe(rideId);
@@ -478,7 +534,10 @@ describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
 
       // GET /config: public, the minimum version, what is switched on
       const config = await rider.request<AppConfig>('/v1/config', { auth: 'none' });
-      expect(config.minAppVersion.rider).toMatch(/^\d+\.\d+\.\d+$/);
+      // wave 3: no forced update unless set (null), store links, the seat board's rules
+      expect(config.minAppVersion.rider ?? '0.0.0').toMatch(/^\d+\.\d+\.\d+$/);
+      expect(config.storeUrls?.rider).toHaveProperty('android');
+      expect(cancelRulesFrom(config.intercity)).toEqual(config.intercity);
       expect(config.features.intercity).toBe(true);
       expect(config.features.scheduledRides).toBe(true);
 
@@ -561,12 +620,28 @@ describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
           return r.status === 'searching' ? r : null;
         });
         expect(paid.paymentStatus).toBe('paid');
-        const refunded = await rider.request<Ride>(`/v1/rides/${card.id}/cancel`, {
-          method: 'POST',
-          body: { reason: null },
-        });
-        expect(refunded.paymentStatus).toBe('refund_pending');
-        expect(cardMoneyNote(refunded)?.title).toBe('Pul kartangizga qaytariladi');
+        const refundStream = await openStream(rider);
+        try {
+          await waitFor('stream ready', () =>
+            refundStream.events.find((e) => e.type === 'ready') ? true : null,
+          );
+          const refunded = await rider.request<Ride>(`/v1/rides/${card.id}/cancel`, {
+            method: 'POST',
+            body: { reason: null },
+          });
+          expect(refunded.paymentStatus).toBe('refund_pending');
+          expect(cardMoneyNote(refunded)?.title).toBe('Pul kartangizga qaytariladi');
+          // wave 3: the refund reaches the open ride screen over the stream
+          const refundEvent = await waitFor(
+            'ride.refund',
+            () =>
+              refundStream.events.find((e) => e.type === 'ride.refund' && e.rideId === card.id) ??
+              null,
+          );
+          expect(refundEvent).toMatchObject({ status: 'refund_pending', amount: paid.fare.quoted });
+        } finally {
+          refundStream.close();
+        }
       }
 
       // intercity: the driver publishes a departure, the rider finds it and books the front
@@ -603,6 +678,20 @@ describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
       expect(booked.data.canCancel).toBe(true);
       const again = await rider.request<IntercityTrip>(`/v1/intercity/trips/${trip.id}`);
       expect(again.myBookingId).toBe(booked.data.id);
+      // wave 3: the rules and times the booking is under, from the API
+      expect(cancelRulesFrom(again.cancelRules)).toEqual(config.intercity);
+      expect(booked.data.cancelFeeNow).toBe(0);
+      const terms = bookingCancelTerms(
+        trip.departureAt,
+        booked.data.price,
+        new Date(),
+        cancelRulesFrom(booked.data.cancelRules),
+        { freeUntil: booked.data.cancelFreeUntil, feeNow: booked.data.cancelFeeNow },
+      );
+      expect(terms.fee).toBe(0);
+      expect(terms.freeUntil?.toISOString()).toBe(
+        new Date(booked.data.cancelFreeUntil!).toISOString(),
+      );
       const cancelledBooking = await rider.request<IntercityBooking>(
         `/v1/intercity/bookings/${booked.data.id}/cancel`,
         { method: 'POST', body: { reason: null } },

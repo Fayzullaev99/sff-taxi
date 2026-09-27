@@ -5,17 +5,13 @@
  * no-shows), arrive (each booking is charged tax and commission). Seats are paid in cash.
  */
 
+import { DEFAULT_INTERCITY_RULES, type IntercityRules } from './driver-config';
+
 /**
- * The board's rules that `GET /v1/driver/config` does not publish (API gap): the API's
- * defaults (settings `intercity`). The API enforces the real values either way.
+ * The board's launch rules, until `GET /v1/driver/config` (`intercity`) loads: screens take
+ * `useDriverConfig().intercity`. The API enforces the real values either way.
  */
-export const INTERCITY_RULES = {
-  bandPercent: 15,
-  publishMinMinutesAhead: 15,
-  publishMaxDaysAhead: 7,
-  boardingOpensMinutes: 60,
-  freeCancelMinutes: 60,
-} as const;
+export const INTERCITY_RULES: IntercityRules = DEFAULT_INTERCITY_RULES;
 
 /** "7:05", "07.05", "0705" → "07:05"; null when it is not a time of day. */
 export function parseTime(input: string): string | null {
@@ -153,4 +149,73 @@ export function seatsSold(bookings: { status: string; seats: number }[]): number
   return bookings
     .filter((b) => b.status === 'booked' || b.status === 'boarded' || b.status === 'completed')
     .reduce((s, b) => s + b.seats, 0);
+}
+
+export interface EditableTrip {
+  status: string;
+  seats: { total: number; free: number };
+  bookings: { status: string }[];
+}
+
+/**
+ * Whether the driver may still change the trip (`PATCH /driver/intercity/trips/:id`): only
+ * while it is announced and nobody holds a seat — riders who booked rely on what they saw.
+ */
+export function tripEditable(trip: EditableTrip): boolean {
+  if (trip.status !== 'scheduled') return false;
+  if (trip.seats.free < trip.seats.total) return false;
+  return !trip.bookings.some((b) => b.status === 'booked' || b.status === 'boarded');
+}
+
+/** A departure instant → its Tashkent day and time, as the publish form holds them. */
+export function departureParts(iso: string): { date: string; time: string } {
+  const local = new Date(Date.parse(iso) + 5 * 3_600_000).toISOString();
+  return { date: local.slice(0, 10), time: local.slice(11, 16) };
+}
+
+/** What the publish form holds (also when it edits a trip). */
+export interface TripForm {
+  departureAt: string;
+  seats: number;
+  frontSeat: boolean;
+  priceRear: number;
+  /** Empty: the town's meeting point. */
+  meetingPoint: string;
+  comment: string;
+}
+
+export interface TripEditBody {
+  departureAt?: string;
+  seats?: number;
+  frontSeat?: boolean;
+  priceRear?: number | null;
+  meetingPoint?: string | null;
+  comment?: string | null;
+}
+
+export interface TripSnapshot {
+  departureAt: string;
+  seats: { total: number; frontOffered: boolean };
+  price: { rear: number };
+  meetingPoint: string | null;
+  comment: string | null;
+}
+
+/**
+ * The fields that changed, for the PATCH (it takes only what changes); null when nothing
+ * did. An emptied meeting point or comment is sent as null (the town's point, no comment).
+ */
+export function tripEdits(trip: TripSnapshot, form: TripForm): TripEditBody | null {
+  const body: TripEditBody = {};
+  if (Date.parse(form.departureAt) !== Date.parse(trip.departureAt)) {
+    body.departureAt = form.departureAt;
+  }
+  if (form.seats !== trip.seats.total) body.seats = form.seats;
+  if (form.frontSeat !== trip.seats.frontOffered) body.frontSeat = form.frontSeat;
+  if (form.priceRear !== trip.price.rear) body.priceRear = form.priceRear;
+  const meeting = form.meetingPoint.trim() || null;
+  if (meeting !== (trip.meetingPoint ?? null)) body.meetingPoint = meeting;
+  const comment = form.comment.trim() || null;
+  if (comment !== (trip.comment ?? null)) body.comment = comment;
+  return Object.keys(body).length ? body : null;
 }

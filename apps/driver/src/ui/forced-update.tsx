@@ -9,7 +9,16 @@ import { colors, space } from './theme';
 
 const ANDROID_PACKAGE = 'uz.sff.taxi.driver';
 
-async function openStore(): Promise<void> {
+/** The API's store link (`storeUrls.driver`) when it publishes one, else the Play Store page. */
+async function openStore(storeUrl: string | null): Promise<void> {
+  if (storeUrl) {
+    try {
+      await Linking.openURL(storeUrl);
+      return;
+    } catch {
+      // not openable here: the built-in links below
+    }
+  }
   if (Platform.OS === 'android') {
     try {
       await Linking.openURL(`market://details?id=${ANDROID_PACKAGE}`);
@@ -27,7 +36,7 @@ async function openStore(): Promise<void> {
  * Shown instead of everything else while this build is older than the minimum the API
  * serves (`GET /v1/config` → `minAppVersion.driver`): old builds may misread offers or money.
  */
-export function ForcedUpdate(props: { current: string; minimum: string }) {
+export function ForcedUpdate(props: { current: string; minimum: string; storeUrl: string | null }) {
   const support = useSupport();
   return (
     <SafeAreaView style={styles.safe}>
@@ -47,7 +56,7 @@ export function ForcedUpdate(props: { current: string; minimum: string }) {
           title="Yangilash"
           icon="logo-google-playstore"
           big
-          onPress={() => void openStore()}
+          onPress={() => void openStore(props.storeUrl)}
         />
         {support.phone ? (
           <Button
