@@ -133,3 +133,14 @@ export function firstName(fullName: string | null | undefined): string | null {
   const first = fullName?.trim().split(/\s+/)[0];
   return first || null;
 }
+
+/**
+ * How to address a driver: drivers register their name the official way, "Familiya Ism
+ * Otasining ismi" (the driver app's application form), so the given name is the second
+ * word ("Qodirov Sherzodbek Abdumalikovich" → "Sherzodbek"), not the first like a rider's
+ * own name. A single word is used as it is.
+ */
+export function driverGivenName(fullName: string | null | undefined): string | null {
+  const words = fullName?.trim().split(/\s+/).filter(Boolean) ?? [];
+  return words[1] ?? words[0] ?? null;
+}

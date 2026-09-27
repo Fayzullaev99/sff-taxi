@@ -68,3 +68,23 @@ export function pushTarget(data: unknown): PushTarget | null {
   if (bookingId) return { screen: 'booking', id: bookingId };
   return null;
 }
+
+/** What `Notifications.getPermissionsAsync()` reports, reduced to what the app uses. */
+export interface PermissionSnapshot {
+  granted: boolean;
+  status: string;
+  canAskAgain: boolean;
+  /** iOS "provisional" authorization delivers quietly: good enough for status updates. */
+  provisional?: boolean;
+}
+
+/**
+ * Whether push is on, can still be asked for, or only the system settings can turn it on.
+ * On Android 13+ expo-notifications reports status "denied" with `canAskAgain: true` for a
+ * permission that was never asked (notifications are simply not enabled yet): that must
+ * still count as askable, or the prompt after the first order never appears.
+ */
+export function pushPermissionState(p: PermissionSnapshot): 'granted' | 'undetermined' | 'denied' {
+  if (p.granted || p.provisional) return 'granted';
+  return p.canAskAgain ? 'undetermined' : 'denied';
+}

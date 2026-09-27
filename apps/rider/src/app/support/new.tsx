@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, describeError } from '../../api/client';
 import { endpoints } from '../../api/endpoints';
@@ -19,6 +19,7 @@ import { callPhone } from '../../lib/links';
 import { PhotoAttach, useComplaintPhotos } from '../../ui/ComplaintPhotos';
 import { Banner, Button, Chip, T, TextField } from '../../ui/primitives';
 import { colors, space } from '../../ui/theme';
+import { KeyboardAvoider } from '../../ui/KeyboardAvoider';
 
 const isType = (v: string | undefined): v is ComplaintType =>
   (COMPLAINT_TYPES as readonly string[]).includes(v ?? '');
@@ -73,11 +74,7 @@ export default function NewComplaintScreen() {
 
   const length = text.trim().length;
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-    >
+    <KeyboardAvoider style={styles.root} keyboardVerticalOffset={90}>
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space(8) }]}
         keyboardShouldPersistTaps="handled"
@@ -147,7 +144,7 @@ export default function NewComplaintScreen() {
           ko‘rasiz.
         </T>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </KeyboardAvoider>
   );
 }
 

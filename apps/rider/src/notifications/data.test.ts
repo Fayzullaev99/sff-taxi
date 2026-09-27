@@ -3,6 +3,7 @@ import {
   bookingIdFromData,
   complaintIdFromData,
   pushLocale,
+  pushPermissionState,
   pushTarget,
   resolveProjectId,
   rideIdFromData,
@@ -74,5 +75,36 @@ describe('where a tapped push leads', () => {
     });
     expect(pushTarget({ kind: 'x' })).toBeNull();
     expect(pushTarget(null)).toBeNull();
+  });
+});
+
+describe('pushPermissionState', () => {
+  it('asks when Android reports "denied" for a permission never asked', () => {
+    expect(pushPermissionState({ granted: false, status: 'denied', canAskAgain: true })).toBe(
+      'undetermined',
+    );
+    expect(pushPermissionState({ granted: false, status: 'undetermined', canAskAgain: true })).toBe(
+      'undetermined',
+    );
+  });
+
+  it('sends to the settings once the system will not ask again', () => {
+    expect(pushPermissionState({ granted: false, status: 'denied', canAskAgain: false })).toBe(
+      'denied',
+    );
+  });
+
+  it('treats granted and iOS provisional as on', () => {
+    expect(pushPermissionState({ granted: true, status: 'granted', canAskAgain: true })).toBe(
+      'granted',
+    );
+    expect(
+      pushPermissionState({
+        granted: false,
+        status: 'undetermined',
+        canAskAgain: true,
+        provisional: true,
+      }),
+    ).toBe('granted');
   });
 });

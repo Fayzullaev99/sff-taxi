@@ -159,7 +159,7 @@ export default function Money() {
           ) : (
             <Muted>
               Abonement bilan shahar ichidagi safarlar komissiyasiz. Kunlik {som(billing.passDay)} —
-              kuniga {som(passBreakEven('day', billing))} dan ko‘p ishlasangiz foydali.
+              kuniga {som(passBreakEven('day', billing))}dan ko‘p ishlasangiz foydali.
             </Muted>
           )}
           {advice ? <Muted>{advice}</Muted> : null}

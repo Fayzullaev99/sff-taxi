@@ -2,15 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, describeError, isOffline } from '../api/client';
 import { endpoints } from '../api/endpoints';
@@ -41,6 +33,7 @@ import { markRideShown } from '../trip/shown-rides';
 import { Banner, Button, Card, Icon, Segmented, T, TextField } from '../ui/primitives';
 import { ErrorView, Skeleton } from '../ui/states';
 import { colors, radius, space } from '../ui/theme';
+import { KeyboardAvoider } from '../ui/KeyboardAvoider';
 
 const CLASSES: RideClass[] = ['economy', 'comfort'];
 
@@ -161,11 +154,7 @@ export default function OrderScreen() {
   const seatText = fare ? seatShareText(fare) : null;
 
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-    >
+    <KeyboardAvoider style={styles.root} keyboardVerticalOffset={90}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Card style={styles.route}>
           <RoutePoint
@@ -407,7 +396,7 @@ export default function OrderScreen() {
         />
         {draft.paymentMethod === 'card' && cardAvailable ? (
           <T variant="small" color={colors.textMuted}>
-            Buyurtmadan keyin {formatMoney(fare?.total ?? 0)} ni 10 daqiqa ichida to‘laysiz, shundan
+            Buyurtmadan keyin {formatMoney(fare?.total ?? 0)}ni 10 daqiqa ichida to‘laysiz, shundan
             so‘ng haydovchi qidiriladi. Bekor qilsangiz, pul to‘liq qaytariladi.
           </T>
         ) : null}
@@ -453,7 +442,7 @@ export default function OrderScreen() {
           updateDraft({ scheduledFor: iso, paymentMethod: 'cash' });
         }}
       />
-    </KeyboardAvoidingView>
+    </KeyboardAvoider>
   );
 }
 

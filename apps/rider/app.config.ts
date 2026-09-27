@@ -57,6 +57,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   extra: {
     ...config.extra,
+    // without a key the Android Google Maps SDK crashes on the first MapView: map-less fallbacks
+    androidMapsKey: Boolean(googleMapsApiKey),
     ...(easProjectId ? { eas: { projectId: easProjectId } } : {}),
   },
   plugins: [
@@ -66,6 +68,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ['react-native-maps', googleMapsApiKey ? { androidGoogleMapsApiKey: googleMapsApiKey } : {}],
     // Payme / Click checkout pages for card rides open in an in-app browser tab
     'expo-web-browser',
+    // release APKs pointed at an http:// API (emulator, LAN) need cleartext traffic
+    './plugins/with-cleartext-http-api',
     // photos for a complaint (a lost bag, a dirty seat): camera or gallery
     [
       'expo-image-picker',

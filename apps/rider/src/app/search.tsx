@@ -17,6 +17,7 @@ import type { GeoSuggestion } from '../api/types';
 import { useDebounced } from '../lib/hooks';
 import { parseSaveTarget, type Place, SAVED_LABELS, savedToPlace, saveTitle } from '../lib/places';
 import { describePoint, locateDevice } from '../location/geo';
+import { NATIVE_MAP } from '../location/MapFallback';
 import { choosePickup, updateDraft, useDraft } from '../trip/draft';
 import { hideRecentPlace, savePicked, usePlaces } from '../trip/places-store';
 import { confirm, notify } from '../lib/dialogs';
@@ -77,7 +78,7 @@ export default function SearchScreen() {
 
   const hereAsPickup = async () => {
     setLocating(true);
-    const r = await locateDevice();
+    const r = await locateDevice(true);
     if (!r.ok) {
       setLocating(false);
       notify('Joylashuv aniqlanmadi', 'GPS yoqilganini va ruxsat berilganini tekshiring.');
@@ -187,8 +188,10 @@ export default function SearchScreen() {
                 ) : null}
                 <Row
                   icon="map-outline"
-                  title="Xaritada belgilash"
-                  subtitle="Pinni kerakli joyga qo‘ying"
+                  title={NATIVE_MAP ? 'Xaritada belgilash' : 'Joyni belgilash'}
+                  subtitle={
+                    NATIVE_MAP ? 'Pinni kerakli joyga qo‘ying' : 'Joylashuvingiz yoki koordinatalar'
+                  }
                   onPress={onMap}
                 />
                 {noGeocoder ? (

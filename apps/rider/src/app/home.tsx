@@ -18,6 +18,7 @@ import { notify } from '../lib/dialogs';
 import { SAVED_LABELS, type SavedKind, savedAddress } from '../lib/places';
 import { isOpenStatus } from '../lib/ride-state';
 import { DEFAULT_CENTER, describePoint, locateDevice } from '../location/geo';
+import { HomeMapFallback, NATIVE_MAP } from '../location/MapFallback';
 import { Attribution, mapTypeFor, ServiceAreas, TileLayer } from '../location/map-layers';
 import { areaNotice } from '../location/service-area';
 import { updateDraft, useDraft } from '../trip/draft';
@@ -64,11 +65,17 @@ export default function HomeScreen() {
     }
   }, [openRideId]);
 
-  const moveTo = (lat: number, lng: number) =>
+  const moveTo = (lat: number, lng: number) => {
+    // without a map the point is taken as it is (no map to settle)
+    if (!NATIVE_MAP) {
+      void onSettled(lat, lng);
+      return;
+    }
     map.current?.animateToRegion(
       { latitude: lat, longitude: lng, latitudeDelta: DELTA, longitudeDelta: DELTA },
       400,
     );
+  };
 
   // a pickup chosen in the search: the map follows
   useEffect(() => {
@@ -87,6 +94,11 @@ export default function HomeScreen() {
 
   const initial = pickup ?? config?.defaultCenter ?? DEFAULT_CENTER;
 
+  // no map to report its first region: the start point is the pickup until located
+  useEffect(() => {
+    if (!NATIVE_MAP && !draft.pickup) void onSettled(initial.lat, initial.lng);
+  }, []);
+
   const onSettled = async (lat: number, lng: number) => {
     setMoving(false);
     const same = pickup && Math.abs(pickup.lat - lat) < 1e-5 && Math.abs(pickup.lng - lng) < 1e-5;
@@ -102,7 +114,7 @@ export default function HomeScreen() {
 
   const locate = async () => {
     setLocating(true);
-    const result = await locateDevice();
+    const result = await locateDevice(true);
     setLocating(false);
     if (!result.ok) {
       notify(
@@ -126,7 +138,7 @@ export default function HomeScreen() {
     router.push('/order');
   };
 
-  const notice = serviceable === false ? areaNotice(resolve.data) : null;
+  const notice = serviceable === false ? areaNotice(resolve.data, NATIVE_MAP) : null;
   const pickupText = moving
     ? 'Manzil aniqlanmoqda…'
     : (pickup?.address ?? (lookingUp ? 'Manzil aniqlanmoqda…' : 'Pin qo‘yilgan joy'));
@@ -134,46 +146,51 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.root}>
-      <MapView
-        ref={map}
-        style={StyleSheet.absoluteFill}
-        initialRegion={{
-          latitude: initial.lat,
-          longitude: initial.lng,
-          latitudeDelta: DELTA,
-          longitudeDelta: DELTA,
-        }}
-        mapType={mapTypeFor(config)}
-        showsUserLocation
-        showsMyLocationButton={false}
-        toolbarEnabled={false}
-        rotateEnabled={false}
-        pitchEnabled={false}
-        onMapReady={() => {
-          // not every platform reports the first region: take the start point as the pickup
-          if (!draft.pickup) void onSettled(initial.lat, initial.lng);
-        }}
-        onRegionChange={() => {
-          if (!moving) setMoving(true);
-        }}
-        onRegionChangeComplete={(region: Region) => {
-          void onSettled(region.latitude, region.longitude);
-        }}
-        accessibilityLabel="Xarita. Olib ketish joyini tanlash uchun xaritani suring."
-      >
-        <TileLayer config={config} />
-        <ServiceAreas config={config} />
-      </MapView>
+      {NATIVE_MAP ? null : <HomeMapFallback point={pickupPoint} top={insets.top} />}
+      {!NATIVE_MAP ? null : (
+        <MapView
+          ref={map}
+          style={StyleSheet.absoluteFill}
+          initialRegion={{
+            latitude: initial.lat,
+            longitude: initial.lng,
+            latitudeDelta: DELTA,
+            longitudeDelta: DELTA,
+          }}
+          mapType={mapTypeFor(config)}
+          showsUserLocation
+          showsMyLocationButton={false}
+          toolbarEnabled={false}
+          rotateEnabled={false}
+          pitchEnabled={false}
+          onMapReady={() => {
+            // not every platform reports the first region: take the start point as the pickup
+            if (!draft.pickup) void onSettled(initial.lat, initial.lng);
+          }}
+          onRegionChange={() => {
+            if (!moving) setMoving(true);
+          }}
+          onRegionChangeComplete={(region: Region) => {
+            void onSettled(region.latitude, region.longitude);
+          }}
+          accessibilityLabel="Xarita. Olib ketish joyini tanlash uchun xaritani suring."
+        >
+          <TileLayer config={config} />
+          <ServiceAreas config={config} />
+        </MapView>
+      )}
 
-      <View pointerEvents="none" style={styles.pinWrap}>
-        <View style={[styles.pin, moving ? styles.pinLifted : null]}>
-          <View style={styles.pinHead}>
-            <Icon name="person" size={18} color={colors.ink} />
+      {!NATIVE_MAP ? null : (
+        <View pointerEvents="none" style={styles.pinWrap}>
+          <View style={[styles.pin, moving ? styles.pinLifted : null]}>
+            <View style={styles.pinHead}>
+              <Icon name="person" size={18} color={colors.ink} />
+            </View>
+            <View style={styles.pinStick} />
           </View>
-          <View style={styles.pinStick} />
+          <View style={styles.pinShadow} />
         </View>
-        <View style={styles.pinShadow} />
-      </View>
+      )}
 
       <View style={[styles.top, { top: insets.top + space(2) }]}>
         <IconButton
@@ -301,7 +318,7 @@ export default function HomeScreen() {
           ) : null}
         </View>
       </View>
-      <Attribution config={config} />
+      {NATIVE_MAP ? <Attribution config={config} /> : null}
     </View>
   );
 }

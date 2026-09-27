@@ -6,6 +6,7 @@ import { notify } from '../lib/dialogs';
 import { Icon, IconButton } from '../ui/primitives';
 import { colors, shadow, space } from '../ui/theme';
 import { locateDevice } from './geo';
+import { MaplessPicker, NATIVE_MAP } from './MapFallback';
 import { Attribution, mapTypeFor, ServiceAreas, TileLayer } from './map-layers';
 
 export interface PointPickerProps {
@@ -22,7 +23,44 @@ export interface PointPickerProps {
 const DELTA = 0.005;
 
 /** Map with a fixed centre pin: the rider drags the map under the pin. */
-export function PointPicker({
+export function PointPicker(props: PointPickerProps) {
+  return NATIVE_MAP ? <NativePointPicker {...props} /> : <FallbackPointPicker {...props} />;
+}
+
+function reportLocateFailure(reason: 'denied' | 'unavailable') {
+  notify(
+    reason === 'denied' ? 'Joylashuvga ruxsat berilmagan' : 'Joylashuv aniqlanmadi',
+    reason === 'denied'
+      ? 'Sozlamalarda ilovaga joylashuvdan foydalanishga ruxsat bering yoki xaritada belgilang.'
+      : 'GPS yoqilganini tekshiring yoki manzilni xaritada belgilang.',
+  );
+}
+
+/** Without a native map (Android build without a Maps key): coordinates and my location. */
+function FallbackPointPicker({ initial, target, onChange, height = 280 }: PointPickerProps) {
+  const [locating, setLocating] = useState(false);
+  return (
+    <MaplessPicker
+      initial={initial}
+      target={target}
+      onChange={onChange}
+      locating={locating}
+      height={height}
+      onLocate={async () => {
+        setLocating(true);
+        const result = await locateDevice(true);
+        setLocating(false);
+        if (!result.ok) {
+          reportLocateFailure(result.reason);
+          return null;
+        }
+        return { lat: result.lat, lng: result.lng };
+      }}
+    />
+  );
+}
+
+function NativePointPicker({
   initial,
   target,
   onChange,
@@ -46,15 +84,10 @@ export function PointPicker({
 
   const locate = async () => {
     setLocating(true);
-    const result = await locateDevice();
+    const result = await locateDevice(true);
     setLocating(false);
     if (!result.ok) {
-      notify(
-        result.reason === 'denied' ? 'Joylashuvga ruxsat berilmagan' : 'Joylashuv aniqlanmadi',
-        result.reason === 'denied'
-          ? 'Sozlamalarda ilovaga joylashuvdan foydalanishga ruxsat bering yoki xaritada belgilang.'
-          : 'GPS yoqilganini tekshiring yoki manzilni xaritada belgilang.',
-      );
+      reportLocateFailure(result.reason);
       return;
     }
     moveTo(result.lat, result.lng);

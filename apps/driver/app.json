@@ -58,7 +58,8 @@
           "microphonePermission": false
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "./plugins/with-cleartext-http-api"
     ],
     "experiments": {
       "typedRoutes": false,

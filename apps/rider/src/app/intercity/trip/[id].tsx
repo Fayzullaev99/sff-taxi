@@ -2,15 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, describeError, isOffline } from '../../../api/client';
 import { endpoints } from '../../../api/endpoints';
@@ -31,6 +23,7 @@ import { Banner, Button, Card, KeyValue, Stepper, T, TextField } from '../../../
 import { formatRating } from '../../../ui/Rating';
 import { ErrorView, LoadingView } from '../../../ui/states';
 import { colors, space } from '../../../ui/theme';
+import { KeyboardAvoider } from '../../../ui/KeyboardAvoider';
 
 /**
  * One departure: when and where it leaves, the car and the driver (first name only until
@@ -106,11 +99,7 @@ export default function TripScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-    >
+    <KeyboardAvoider style={styles.root} keyboardVerticalOffset={90}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.head}>
           <T variant="h1" accessibilityRole="header">
@@ -247,7 +236,7 @@ export default function TripScreen() {
           />
         </View>
       ) : null}
-    </KeyboardAvoidingView>
+    </KeyboardAvoider>
   );
 }
 

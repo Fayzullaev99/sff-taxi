@@ -1,3 +1,5 @@
+import { tashkentClock, tashkentDate } from './when';
+
 /** 45000 -> "45 000 so‘m" (thousands separated by spaces, as prices are written in Uzbekistan). */
 export function som(amount: number): string {
   return `${amount < 0 ? '−' : ''}${digits(amount)} so‘m`;
@@ -34,18 +36,22 @@ function pad(n: number): string {
   return n.toString().padStart(2, '0');
 }
 
-/** "14:05" in the device's time zone. */
+/**
+ * "14:05" in Tashkent, whatever the phone's time zone (like the rest of the app: offers,
+ * intercity times, the rider app). With the device zone a phone set to UTC showed a
+ * top-up valid "till 13:09" at 17:39 Tashkent time.
+ */
 export function time(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const at = iso ? Date.parse(iso) : NaN;
+  return Number.isNaN(at) ? '' : tashkentClock(at);
 }
 
-/** "26.09 14:05" */
+/** "26.09 14:05" in Tashkent. */
 export function dateTime(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)} ${time(iso)}`;
+  const at = iso ? Date.parse(iso) : NaN;
+  if (Number.isNaN(at)) return '';
+  const [, m, d] = tashkentDate(at).split('-');
+  return `${d}.${m} ${tashkentClock(at)}`;
 }
 
 /** "2026-12-31" -> "31.12.2026" */

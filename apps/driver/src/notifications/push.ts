@@ -4,6 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { devices } from '../api/driver';
 import { BRAND } from '../config';
+import { type PushPermission, pushPermissionState } from '../lib/push-permission';
 
 /**
  * Push notifications. The API sends urgent offer pushes on the Android channel `offers`
@@ -142,15 +143,16 @@ export async function dismissNotification(id: string | null): Promise<void> {
   await Notifications.dismissNotificationAsync(id).catch(() => undefined);
 }
 
-export type PushPermission = 'granted' | 'undetermined' | 'denied' | 'blocked';
+export type { PushPermission };
 
-/** `blocked`: denied and the system will not ask again (only the settings page helps). */
+/** The OS permission as the app acts on it (see `pushPermissionState`). */
 export async function getPushPermission(): Promise<PushPermission> {
   try {
-    const p = await Notifications.getPermissionsAsync();
-    if (p.granted) return 'granted';
-    if (p.status === 'undetermined') return 'undetermined';
-    return p.canAskAgain ? 'denied' : 'blocked';
+    const [p, introSeen] = await Promise.all([
+      Notifications.getPermissionsAsync(),
+      pushIntroSeen(),
+    ]);
+    return pushPermissionState(p, introSeen);
   } catch {
     return 'denied';
   }

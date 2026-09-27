@@ -4,6 +4,7 @@ import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useGeoConfig } from '../api/queries';
 import type { TrackPoint } from '../api/realtime-logic';
 import type { LatLng } from '../api/types';
+import { NATIVE_MAP, RideMapFallback } from '../location/MapFallback';
 import { Attribution, mapTypeFor, TileLayer } from '../location/map-layers';
 import { useGlidingPoint } from '../lib/motion';
 import { Icon } from './primitives';
@@ -30,7 +31,20 @@ const toCoord = (p: LatLng) => ({ latitude: p.lat, longitude: p.lng });
  * GPS fixes the stream delivers. The camera follows the car until the rider moves the
  * map. Markers are static views (tracksViewChanges off): cheap on low-end Android.
  */
-export function RideMap({ pickup, dropoff, car, trail, heading, bottomInset }: RideMapProps) {
+export function RideMap(props: RideMapProps) {
+  if (NATIVE_MAP) return <NativeRideMap {...props} />;
+  const { car, heading, pickup, dropoff, bottomInset } = props;
+  return (
+    <RideMapFallback
+      car={car}
+      target={heading === 'dropoff' ? dropoff : pickup}
+      heading={heading}
+      bottomInset={bottomInset}
+    />
+  );
+}
+
+function NativeRideMap({ pickup, dropoff, car, trail, heading, bottomInset }: RideMapProps) {
   const map = useRef<MapView>(null);
   const config = useGeoConfig().data;
   const shown = useGlidingPoint(car);

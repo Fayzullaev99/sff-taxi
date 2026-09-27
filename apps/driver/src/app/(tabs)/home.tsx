@@ -256,7 +256,7 @@ export default function Home() {
         <Banner
           tone="warning"
           icon="wallet"
-          text={`Balans kam: ${som(d.balance)}. ${som(d.minBalance)} dan pastga tushsa, buyurtmalar kelmaydi.`}
+          text={`Balans kam: ${som(d.balance)}. ${som(d.minBalance)}dan pastga tushsa, buyurtmalar kelmaydi.`}
           action={
             <Button
               title="To‘ldirish"

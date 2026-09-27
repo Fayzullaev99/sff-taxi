@@ -1,17 +1,15 @@
 import { router } from 'expo-router';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SignInForm } from '../auth/SignInForm';
 import { Icon } from '../ui/primitives';
 import { colors, radius, space } from '../ui/theme';
+import { KeyboardAvoider } from '../ui/KeyboardAvoider';
 
 export default function SignInScreen() {
   const insets = useSafeAreaInsets();
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <KeyboardAvoider style={styles.root}>
       <ScrollView
         contentContainerStyle={[styles.content, { paddingTop: insets.top + space(8) }]}
         keyboardShouldPersistTaps="handled"
@@ -21,7 +19,7 @@ export default function SignInScreen() {
         </View>
         <SignInForm onDone={() => router.replace('/home')} />
       </ScrollView>
-    </KeyboardAvoidingView>
+    </KeyboardAvoider>
   );
 }
 

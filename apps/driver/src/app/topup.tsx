@@ -194,7 +194,7 @@ export default function TopupScreen() {
             keyboardType="number-pad"
             maxLength={9}
             error={problem}
-            hint={`${som(limits.min)} dan ${som(limits.max)} gacha`}
+            hint={`${som(limits.min)}dan ${som(limits.max)}gacha`}
           />
           {providers.map((p) => (
             <Button

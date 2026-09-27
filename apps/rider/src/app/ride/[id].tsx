@@ -35,6 +35,7 @@ import { searchStartsAt } from '../../lib/schedule';
 import { CancelSheet } from '../../ride/CancelSheet';
 import { PaymentPanel } from '../../ride/PaymentPanel';
 import { RideSummary } from '../../ride/RideSummary';
+import { KeyboardAvoider } from '../../ui/KeyboardAvoider';
 import { SosSheet } from '../../ride/SosSheet';
 import { markRideShown } from '../../trip/shown-rides';
 import { DriverCard } from '../../ui/DriverCard';
@@ -92,14 +93,15 @@ export default function RideScreenRoute() {
 
   if (screen!.final) {
     return (
-      <View style={styles.root}>
+      // the rating comment sits at the bottom of the summary
+      <KeyboardAvoider style={styles.root}>
         <TopBar ride={ride} />
         <RideSummary ride={ride} />
-      </View>
+      </KeyboardAvoider>
     );
   }
 
-  return <LiveRide ride={ride} screen={screen!} onCheck={() => void query.refetch()} />;
+  return <LiveRide ride={ride} screen={screen!} onCheck={() => query.refetch()} />;
 }
 
 function TopBar({ ride, overMap = false }: { ride: Ride; overMap?: boolean }) {
@@ -135,7 +137,7 @@ function LiveRide({
 }: {
   ride: Ride;
   screen: RideScreen;
-  onCheck: () => void;
+  onCheck: () => Promise<unknown>;
 }) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
