@@ -365,3 +365,11 @@ export function uploadStateText(state: UploadState): string {
 export function isBusy(state: UploadState): boolean {
   return !['idle', 'done', 'failed'].includes(state.status);
 }
+
+/**
+ * Whether an uploaded document is a PDF (shown as an icon, not an image): the API's
+ * `contentType` says so; an unknown type is tried as an image (a broken one shows "Fayl").
+ */
+export function isPdfDocument(doc: { contentType?: string | null } | null | undefined): boolean {
+  return (doc?.contentType ?? '').toLowerCase() === 'application/pdf';
+}

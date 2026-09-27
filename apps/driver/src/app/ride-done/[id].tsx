@@ -7,7 +7,7 @@ import { driver } from '../../api/driver';
 import { useRide } from '../../data/queries';
 import { errorMessage } from '../../lib/api-client';
 import { COMMISSION_NOTES, digits, som } from '../../lib/format';
-import { amountToCollect, cashToCollect } from '../../lib/ride-flow';
+import { amountToCollect, cashBreakdown, cashPartsText, owedFeeNote } from '../../lib/ride-flow';
 import { Banner, Button, Card, Choice, Loading, Muted, Row, Title } from '../../ui/components';
 import { haptics } from '../../ui/haptics';
 import { Screen } from '../../ui/screen';
@@ -37,8 +37,12 @@ export default function RideDone() {
   const r = ride.data;
   const cash = r.paymentMethod === 'cash';
   const total = amountToCollect(r.fare);
-  // a card ride was prepaid: only the paid waiting is taken in cash
-  const cashNow = cashToCollect(r.paymentMethod, r.fare);
+  // the API's collectCash: the fare (a card ride was prepaid), paid waiting and fees the
+  // rider owed from earlier cancelled rides
+  const money = cashBreakdown(r);
+  const cashNow = money.total;
+  const parts = cashPartsText(money);
+  const owedNote = owedFeeNote(money.owedFee);
   const e = r.earnings;
   const options = stars >= 4 ? GOOD_TAGS : stars > 0 ? BAD_TAGS : [];
 
@@ -72,11 +76,8 @@ export default function RideDone() {
           {digits(cashNow)}
         </Text>
         <Text style={styles.collectUnit}>so‘m</Text>
-        {cash && r.fare.waiting > 0 ? (
-          <Text style={styles.collectNote}>
-            {som(r.fare.quoted)} + kutish {som(r.fare.waiting)}
-          </Text>
-        ) : null}
+        {cash && parts ? <Text style={styles.collectNote}>{parts}</Text> : null}
+        {owedNote ? <Text style={styles.collectNote}>({owedNote})</Text> : null}
         {!cash ? (
           <Text style={styles.collectNote}>
             Safar narxi {som(r.fare.quoted)} kartada oldindan to‘langan — balansingizga yoziladi
@@ -95,6 +96,12 @@ export default function RideDone() {
           <Row label="Soliq 1% (davlatga, siz uchun to‘lanadi)" value={som(-e.tax)} />
           <Row label="Sizga qoladi" value={som(e.net)} strong tone="success" />
           <Muted>Komissiya va soliq balansingizdan yechildi; naqd pul to‘liq sizda qoladi.</Muted>
+          {money.owedFee > 0 ? (
+            <Muted>
+              Oldingi safar uchun olingan {som(money.owedFee)} sizniki emas: u balansingizdan
+              yechilib, o‘sha safar haydovchisiga yozildi.
+            </Muted>
+          ) : null}
         </Card>
       ) : null}
 

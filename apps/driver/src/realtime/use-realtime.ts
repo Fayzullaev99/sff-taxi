@@ -2,9 +2,10 @@ import { type QueryClient, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { Alert, AppState } from 'react-native';
-import type { DriverRide } from '../api/types';
+import type { DriverRide, Topup } from '../api/types';
 import { keys, setStreamOpen } from '../data/queries';
 import type { RealtimeEvent } from '../lib/sse';
+import { withPaidEvent } from '../lib/topup';
 import { haptics } from '../ui/haptics';
 import { RealtimeConnection } from './connection';
 
@@ -42,6 +43,23 @@ export function useOfferClosed(offerId: string): string | null {
   );
 }
 
+/**
+ * A card top-up was paid (the `topup.updated` event or the `topup_paid` push): a watched
+ * top-up is marked paid at once — its screen stops asking — and the money is refetched.
+ */
+export function onTopupPaid(
+  qc: QueryClient,
+  event: { intentId: string; status: string; amount: number },
+): void {
+  const key = keys.topup(event.intentId.toLowerCase());
+  qc.setQueryData<Topup>(key, (t) => withPaidEvent(t, event));
+  void qc.invalidateQueries({ queryKey: key });
+  void qc.invalidateQueries({ queryKey: keys.topups, exact: true });
+  void qc.invalidateQueries({ queryKey: keys.balance });
+  void qc.invalidateQueries({ queryKey: keys.ledger });
+  void qc.invalidateQueries({ queryKey: keys.me });
+}
+
 async function onRideUpdated(
   qc: QueryClient,
   router: Router,
@@ -63,7 +81,7 @@ async function onRideUpdated(
     Alert.alert(
       `Buyurtma #${mine.number} bekor qilindi`,
       mine.status === 'driver_arrived'
-        ? 'Yo‘lovchi bekor qildi. Bepul kutish tugagan bo‘lsa, bekor qilish haqi sizga yoziladi.'
+        ? 'Yo‘lovchi bekor qildi. Bepul kutish tugagan bo‘lsa, bekor qilish haqi sizga yoziladi (naqd safarda — yo‘lovchi keyingi safarida to‘laganda).'
         : 'Yo‘lovchi yoki operator buyurtmani bekor qildi. Liniyada qolasiz.',
       [{ text: 'Tushunarli', onPress: () => router.navigate('/') }],
     );
@@ -119,6 +137,14 @@ export function useRealtime(enabled: boolean): void {
           // a booking came or was cancelled, or the trip moved on
           void qc.invalidateQueries({ queryKey: keys.trips });
           void qc.invalidateQueries({ queryKey: keys.trip(event.tripId) });
+          break;
+        case 'topup.updated':
+          onTopupPaid(qc, event);
+          break;
+        case 'appeal.updated':
+          // an operator answered: the appeal and maybe the account status changed
+          void qc.invalidateQueries({ queryKey: keys.appeals });
+          void qc.invalidateQueries({ queryKey: keys.me });
           break;
       }
     };

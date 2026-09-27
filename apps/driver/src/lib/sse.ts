@@ -70,11 +70,22 @@ export function reconnectDelayMs(attempt: number, random: number = Math.random()
 /** Events the API sends a driver (apps/api realtime.publisher.ts); all are nudges to refetch. */
 export type RealtimeEvent =
   | { type: 'ready' }
-  | { type: 'offer.new'; offerId: string; rideId: string; expiresAt: string }
+  | {
+      type: 'offer.new';
+      offerId: string;
+      rideId: string;
+      expiresAt: string;
+      /** A ride ordered for later (null = now). */
+      scheduledFor: string | null;
+    }
   | { type: 'offer.closed'; offerId: string; rideId: string; status: string }
   | { type: 'ride.updated'; rideId: string; status: string }
   | { type: 'driver.updated'; status: string }
-  | { type: 'intercity.updated'; tripId: string; bookingId: string | null; status: string };
+  | { type: 'intercity.updated'; tripId: string; bookingId: string | null; status: string }
+  /** A card top-up was paid: the balance grew. */
+  | { type: 'topup.updated'; intentId: string; status: string; amount: number }
+  /** An operator answered an appeal. */
+  | { type: 'appeal.updated'; appealId: string; status: string };
 
 const str = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 
@@ -92,7 +103,13 @@ export function parseRealtimeEvent(data: string): RealtimeEvent | null {
       return { type: 'ready' };
     case 'offer.new':
       return str(v.offerId) && str(v.rideId) && str(v.expiresAt)
-        ? { type: 'offer.new', offerId: v.offerId, rideId: v.rideId, expiresAt: v.expiresAt }
+        ? {
+            type: 'offer.new',
+            offerId: v.offerId,
+            rideId: v.rideId,
+            expiresAt: v.expiresAt,
+            scheduledFor: str(v.scheduledFor) ? v.scheduledFor : null,
+          }
         : null;
     case 'offer.closed':
       return str(v.offerId) && str(v.rideId) && str(v.status)
@@ -112,6 +129,19 @@ export function parseRealtimeEvent(data: string): RealtimeEvent | null {
             bookingId: str(v.bookingId) ? v.bookingId : null,
             status: v.status,
           }
+        : null;
+    case 'topup.updated':
+      return str(v.intentId) && str(v.status)
+        ? {
+            type: 'topup.updated',
+            intentId: v.intentId,
+            status: v.status,
+            amount: typeof v.amount === 'number' && Number.isFinite(v.amount) ? v.amount : 0,
+          }
+        : null;
+    case 'appeal.updated':
+      return str(v.appealId) && str(v.status)
+        ? { type: 'appeal.updated', appealId: v.appealId, status: v.status }
         : null;
     default:
       return null;

@@ -1,4 +1,5 @@
 import { isApiError } from './api-client';
+import { som } from './format';
 
 /** The driver's ride steps (API: POST /v1/driver/rides/:id/arrive|start|complete). */
 export type RideAction = 'arrive' | 'start' | 'complete';
@@ -80,7 +81,7 @@ export function cancelChoices(status: string, noShowInS: number | null): CancelC
       label: 'Yo‘lovchi chiqmadi',
       disabledBecause: noShowBlock,
       effect:
-        'Safar yakunlanadi, bekor qilish haqi sizga yoziladi. Reytingingizga ta’sir qilmaydi.',
+        'Safar yakunlanadi, bekor qilish haqi sizga yoziladi (naqd safarda — yo‘lovchi keyingi safarida to‘laganda). Reytingingizga ta’sir qilmaydi.',
     },
     {
       code: 'rider_asked',
@@ -124,6 +125,67 @@ export function cashToCollect(
 ): number {
   const total = amountToCollect(fare);
   return paymentMethod === 'card' ? Math.max(0, total - fare.quoted) : total;
+}
+
+export interface CashRide {
+  paymentMethod: string;
+  fare: { quoted: number; waiting: number; total: number | null; owedFee?: number | null };
+  /** The API's figure: (cash ride ? fare : 0) + paid waiting + owed fees. */
+  collectCash?: number | null;
+}
+
+export interface CashBreakdown {
+  /** The whole cash to take from the rider. */
+  total: number;
+  /** The fare part (0 on a card ride: prepaid). */
+  fare: number;
+  waiting: number;
+  /** Cancellation fees the rider owed from earlier cash rides, taken with this fare. */
+  owedFee: number;
+}
+
+/**
+ * The cash the driver takes and what it is made of. The API's `collectCash` is the truth;
+ * while the waiting timer runs, `liveWaiting` (counted on the phone) replaces the stored
+ * waiting fee. An older API without `collectCash` falls back to fare + waiting + owed fee.
+ */
+export function cashBreakdown(ride: CashRide, liveWaiting?: number): CashBreakdown {
+  const owedFee = Math.max(0, ride.fare.owedFee ?? 0);
+  const waiting = liveWaiting ?? ride.fare.waiting;
+  const fare = ride.paymentMethod === 'card' ? 0 : ride.fare.quoted;
+  if (typeof ride.collectCash === 'number' && Number.isFinite(ride.collectCash)) {
+    const total = Math.max(0, ride.collectCash + (waiting - ride.fare.waiting));
+    return { total, fare, waiting, owedFee };
+  }
+  const base = cashToCollect(ride.paymentMethod, {
+    ...ride.fare,
+    waiting,
+    total: liveWaiting === undefined ? ride.fare.total : null,
+  });
+  return { total: base + owedFee, fare, waiting, owedFee };
+}
+
+/** "shundan 3 000 so‘m — …" under the big number, or null when nothing is owed. */
+export function owedFeeNote(owedFee: number): string | null {
+  return owedFee > 0
+    ? `shundan ${som(owedFee)} — yo‘lovchining oldingi bekor qilingan safari uchun`
+    : null;
+}
+
+/** "Narx 20 000 so‘m + kutish 1 000 so‘m + oldingi safar 3 000 so‘m", or null for one part. */
+export function cashPartsText(cash: CashBreakdown): string | null {
+  const parts: string[] = [];
+  if (cash.fare > 0) parts.push(`Narx ${som(cash.fare)}`);
+  if (cash.waiting > 0) parts.push(`kutish ${som(cash.waiting)}`);
+  if (cash.owedFee > 0) parts.push(`oldingi safar ${som(cash.owedFee)}`);
+  return parts.length > 1 ? parts.join(' + ') : null;
+}
+
+/** The offer's extra line for fees the rider owes (collected in cash with this fare). */
+export function offerOwedFeeLine(owedFee: number | null | undefined): string | null {
+  return owedFee && owedFee > 0
+    ? `+ ${som(owedFee)} oldingi bekor qilingan safar uchun (naqd)`
+    : null;
 }
 
 export type OfferFailure = 'taken' | 'expired' | 'gone' | 'offline' | 'network' | 'other';

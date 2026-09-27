@@ -8,7 +8,7 @@ import type { DriverDocument, DriverMe } from '../api/types';
 import { keys, useDriverMe, useUploadsConfig } from '../data/queries';
 import { DOCUMENTS, parseDate, showDate, tashkentToday } from '../lib/application';
 import { dateTime } from '../lib/format';
-import type { UploadPurpose } from '../lib/upload-flow';
+import { isPdfDocument, type UploadPurpose } from '../lib/upload-flow';
 import type { FileSource } from '../uploads/files';
 import { useUpload } from '../uploads/use-upload';
 import { Banner, Button, Card, Chip, Field, Loading, Muted, SectionTitle } from '../ui/components';
@@ -16,9 +16,6 @@ import { haptics } from '../ui/haptics';
 import { Screen } from '../ui/screen';
 import { colors, radius, space } from '../ui/theme';
 import { UploadButtons } from '../ui/upload';
-
-/** Whether a read URL points at a PDF (the object key keeps the extension). */
-const isPdf = (url: string | null | undefined) => !!url && /\.pdf(\?|$)/i.test(url);
 
 /**
  * The document photos operators check before approval, and the two photos riders see (the
@@ -98,10 +95,11 @@ export default function Documents() {
   );
 }
 
-function Thumb(props: { url: string | null | undefined; round?: boolean }) {
+/** A photo, or a file icon for a PDF (`pdf`: from the document's `contentType`). */
+function Thumb(props: { url: string | null | undefined; round?: boolean; pdf?: boolean }) {
   const [broken, setBroken] = useState(false);
   if (!props.url) return null;
-  if (isPdf(props.url) || broken) {
+  if (props.pdf || broken) {
     return (
       <View style={[styles.thumb, styles.thumbIcon]}>
         <Ionicons name="document-text" size={36} color={colors.muted} />
@@ -214,7 +212,7 @@ function DocumentCard(props: { doc: (typeof DOCUMENTS)[number]; current: DriverD
     <Card>
       <View style={styles.head}>
         {props.current?.url ? (
-          <Thumb url={props.current.url} />
+          <Thumb url={props.current.url} pdf={isPdfDocument(props.current)} />
         ) : (
           <Ionicons
             name={props.current ? 'checkmark-circle' : 'ellipse-outline'}

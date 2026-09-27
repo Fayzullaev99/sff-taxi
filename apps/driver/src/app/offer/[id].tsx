@@ -19,7 +19,12 @@ import {
   RIDE_OPTIONS,
   som,
 } from '../../lib/format';
-import { OFFER_FAILURE_TEXT, type OfferFailure, offerFailure } from '../../lib/ride-flow';
+import {
+  OFFER_FAILURE_TEXT,
+  type OfferFailure,
+  offerFailure,
+  offerOwedFeeLine,
+} from '../../lib/ride-flow';
 import { scheduledLabel } from '../../lib/when';
 import { announceOffer, dismissNotification, OFFER_VIBRATION } from '../../notifications/push';
 import { handledOffers } from '../../realtime/driver-runtime';
@@ -190,6 +195,8 @@ export default function OfferScreen() {
 
   const r = offer.ride;
   const scheduled = scheduledLabel(r.scheduledFor, now);
+  // fees the rider owes from earlier cancelled cash rides: taken in cash with this fare
+  const owedLine = offerOwedFeeLine(r.owedFee);
   const pickupText = r.pickup.address ?? r.pickup.landmark ?? 'Xaritadagi nuqta';
   return (
     <SafeAreaView style={styles.safe}>
@@ -207,6 +214,7 @@ export default function OfferScreen() {
               {digits(r.fare)}
             </Text>
             <Text style={styles.fareUnit}>so‘m · narx o‘zgarmaydi</Text>
+            {owedLine ? <Text style={styles.owed}>{owedLine}</Text> : null}
             <View style={styles.chips}>
               <Chip
                 label={PAYMENT_METHODS[r.paymentMethod] ?? r.paymentMethod}
@@ -339,6 +347,7 @@ const styles = StyleSheet.create({
   top: { flexDirection: 'row', alignItems: 'center', gap: space.lg },
   fare: { fontSize: 52, fontWeight: '900', color: colors.brand, fontVariant: ['tabular-nums'] },
   fareUnit: { fontSize: 15, color: colors.muted, fontWeight: '700' },
+  owed: { fontSize: 15, color: colors.success, fontWeight: '800' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, marginTop: space.xs },
   broadcast: {
     flexDirection: 'row',

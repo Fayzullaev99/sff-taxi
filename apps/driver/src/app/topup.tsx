@@ -7,7 +7,14 @@ import { Alert, StyleSheet, Text, View } from 'react-native';
 import { driver } from '../api/driver';
 import type { Topup } from '../api/types';
 import { BRAND, BRAND_INK } from '../config';
-import { keys, useBalance, useDriverConfig, useFeatures, useTopups } from '../data/queries';
+import {
+  keys,
+  useBalance,
+  useDriverConfig,
+  useFeatures,
+  useStreamOpen,
+  useTopups,
+} from '../data/queries';
 import { errorMessage } from '../lib/api-client';
 import type { CardProvider } from '../lib/driver-config';
 import { dateTime, som } from '../lib/format';
@@ -17,7 +24,7 @@ import {
   TOPUP_PRESETS,
   TOPUP_STATUS_TEXT,
   topupPhase,
-  topupPollMs,
+  topupRefetchMs,
 } from '../lib/topup';
 import { Banner, Button, Card, Choice, Field, Muted, Row, Title } from '../ui/components';
 import { haptics } from '../ui/haptics';
@@ -41,8 +48,9 @@ async function openCheckout(url: string): Promise<void> {
 /**
  * Card top-up: choose the amount, pay on Payme's or Click's page (opened in an in-app
  * browser), and the screen waits for the provider's confirmation (the API credits the
- * balance once per payment). Coming back from the payment page — or opening the app from
- * the return link (`/topup?id=…`) — keeps checking until it is paid or expired.
+ * balance once per payment). The stream's `topup.updated` (or the `topup_paid` push, whose
+ * tap opens `/topup?id=…`) says when it is paid; until then the screen keeps asking as a
+ * fallback, slowly while the stream is up.
  */
 export default function TopupScreen() {
   const router = useRouter();
@@ -61,15 +69,20 @@ export default function TopupScreen() {
   const [problem, setProblem] = useState<string | null>(null);
   const [intentId, setIntentId] = useState<string | null>(params.id ? String(params.id) : null);
   const startedAt = useRef(Date.now());
+  const streamOpen = useStreamOpen();
+  // opened again from a `topup_paid` push for another payment
+  const paramId = params.id ? String(params.id) : null;
+  useEffect(() => {
+    if (paramId) setIntentId(paramId);
+  }, [paramId]);
 
   const intent = useQuery({
     queryKey: keys.topup(intentId ?? ''),
     queryFn: () => driver.topupStatus(intentId!),
     enabled: intentId !== null,
+    // `topup.updated` (or the push) marks it paid and this stops; asking is the fallback
     refetchInterval: (q) =>
-      q.state.data && topupPhase(q.state.data.status) !== 'waiting'
-        ? false
-        : topupPollMs(startedAt.current, Date.now()),
+      topupRefetchMs(q.state.data?.status, startedAt.current, Date.now(), streamOpen),
     refetchIntervalInBackground: false,
   });
   const phase = intent.data ? topupPhase(intent.data.status) : null;

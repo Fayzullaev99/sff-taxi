@@ -129,6 +129,7 @@ describe('mapPublicConfig', () => {
     expect(c).toEqual({
       support: { phone: null, telegram: '@sfftaxi', officeAddress: null },
       minDriverVersion: '1.2.0',
+      storeUrls: { android: null, ios: null },
       features: { cardPayments: true, uploads: false, intercity: true, scheduledRides: true },
       cardProviders: ['click'],
     });

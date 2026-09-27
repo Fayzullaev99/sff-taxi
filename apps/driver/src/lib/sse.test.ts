@@ -36,7 +36,21 @@ describe('parseRealtimeEvent', () => {
       offerId: 'o1',
       rideId: 'r1',
       expiresAt: '2026-09-26T10:00:15Z',
+      scheduledFor: null,
     });
+    expect(
+      parseRealtimeEvent(
+        '{"type":"offer.new","offerId":"o1","rideId":"r1","driverId":"d1","expiresAt":"2026-09-26T10:00:15Z","scheduledFor":"2026-09-27T02:00:00.000Z"}',
+      ),
+    ).toMatchObject({ type: 'offer.new', scheduledFor: '2026-09-27T02:00:00.000Z' });
+    expect(
+      parseRealtimeEvent('{"type":"topup.updated","intentId":"i1","status":"paid","amount":50000}'),
+    ).toEqual({ type: 'topup.updated', intentId: 'i1', status: 'paid', amount: 50_000 });
+    expect(
+      parseRealtimeEvent(
+        '{"type":"appeal.updated","appealId":"a1","driverId":"d1","status":"resolved"}',
+      ),
+    ).toEqual({ type: 'appeal.updated', appealId: 'a1', status: 'resolved' });
     expect(
       parseRealtimeEvent('{"type":"offer.closed","offerId":"o1","rideId":"r1","status":"taken"}'),
     ).toEqual({ type: 'offer.closed', offerId: 'o1', rideId: 'r1', status: 'taken' });
@@ -62,6 +76,8 @@ describe('parseRealtimeEvent', () => {
   it('refuses malformed and unknown events', () => {
     expect(parseRealtimeEvent('{"type":"offer.new","offerId":"o1"}')).toBeNull();
     expect(parseRealtimeEvent('{"type":"ride.updated"}')).toBeNull();
+    expect(parseRealtimeEvent('{"type":"topup.updated","status":"paid"}')).toBeNull();
+    expect(parseRealtimeEvent('{"type":"appeal.updated","appealId":"a1"}')).toBeNull();
     expect(parseRealtimeEvent('{"type":"ping"}')).toBeNull();
     expect(parseRealtimeEvent('null')).toBeNull();
     expect(parseRealtimeEvent('not json')).toBeNull();

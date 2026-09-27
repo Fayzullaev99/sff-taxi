@@ -106,6 +106,8 @@ export const LEDGER_KINDS: Record<string, string> = {
   adjustment: 'Tuzatish',
   card_fare: 'Karta safari puli',
   payout: 'Kartangizga o‘tkazildi',
+  cancel_fee: 'Bekor qilish haqi',
+  cancel_fee_collected: 'Olingan bekor qilish haqi',
 };
 
 /** What each ledger entry means, one line (the ledger screen). */
@@ -117,6 +119,9 @@ export const LEDGER_HINTS: Record<string, string> = {
   adjustment: 'Operator tuzatishi',
   card_fare: 'Yo‘lovchi kartada oldindan to‘lagan narx — sizniki',
   payout: 'Karta safarlari puli sizga to‘lab berildi',
+  cancel_fee: 'Yo‘lovchi bekor qilgan safaringiz uchun haq (u keyingi naqd safarida to‘ladi)',
+  cancel_fee_collected:
+    'Yo‘lovchidan naqd olgan oldingi safar(lar) bekor qilish haqi — o‘sha safar haydovchisiga yozildi',
 };
 
 /** Why a ride's commission was lower than the percentage (`commissionNote`). */
@@ -126,4 +131,11 @@ export const COMMISSION_NOTES: Record<string, string> = {
   daily_cap: 'Kunlik chegara',
   weekly_cap: 'Haftalik chegara',
   trip_cap: 'Safar chegarasi',
+};
+
+/** A cancelled cash ride's fee (`fare.cancellationFeeStatus`): the next cash ride collects it. */
+export const CANCEL_FEE_STATUS: Record<string, string> = {
+  owed: 'yo‘lovchi keyingi safarida to‘laydi',
+  collected: 'olindi, balansingizda',
+  waived: 'operator kechirdi',
 };
