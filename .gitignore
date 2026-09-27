@@ -15,3 +15,4 @@ test-results/
 
 # production secrets and backups on a server checkout
 deploy/backups/
+!.env.prod.example
