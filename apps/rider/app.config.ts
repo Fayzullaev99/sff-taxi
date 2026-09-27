@@ -41,7 +41,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: BRAND,
     },
-    permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION', 'POST_NOTIFICATIONS'],
+    permissions: [
+      'ACCESS_COARSE_LOCATION',
+      'ACCESS_FINE_LOCATION',
+      'POST_NOTIFICATIONS',
+      // complaint photos; the gallery goes through the system photo picker (no storage)
+      'CAMERA',
+    ],
+    blockedPermissions: [
+      'android.permission.READ_EXTERNAL_STORAGE',
+      'android.permission.WRITE_EXTERNAL_STORAGE',
+    ],
     predictiveBackGestureEnabled: false,
     ...(googleServicesFile ? { googleServicesFile } : {}),
   },
@@ -56,6 +66,15 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ['react-native-maps', googleMapsApiKey ? { androidGoogleMapsApiKey: googleMapsApiKey } : {}],
     // Payme / Click checkout pages for card rides open in an in-app browser tab
     'expo-web-browser',
+    // photos for a complaint (a lost bag, a dirty seat): camera or gallery
+    [
+      'expo-image-picker',
+      {
+        photosPermission: 'Shikoyatga rasm qo‘shish uchun galereyadan tanlash.',
+        cameraPermission: 'Shikoyatga rasm qo‘shish uchun suratga olish.',
+        microphonePermission: false,
+      },
+    ],
     [
       'expo-notifications',
       {

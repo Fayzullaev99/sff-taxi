@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Fare } from '../api/types';
 import {
+  cancellationFeeNote,
   cancelTerms,
+  cashToPay,
+  quoteOwedFee,
   fareLines,
   optionPriceLabel,
   rideRules,
@@ -168,5 +171,80 @@ describe('cancel terms', () => {
     );
     expect(byServer.fee).toBe(4000);
     expect(s(byServer.message)).toContain('4 000 so‘m');
+  });
+});
+
+describe('owed cancellation fees', () => {
+  const owed = {
+    amount: 5000,
+    collectedWith: 'cash' as const,
+    label: 'Oldingi bekor qilingan safar uchun to‘lov',
+    rides: [{ rideId: 'r1', number: 41, amount: 5000, cancelledAt: '2026-09-26T10:00:00Z' }],
+  };
+
+  it('adds the owed fee to a cash ride as its own line', () => {
+    const line = quoteOwedFee(owed, 'cash');
+    expect(line?.amount).toBe(5000);
+    expect(line?.collectedNow).toBe(true);
+    expect(s(line!.note)).toContain('Oldingi bekor qilingan safar uchun (#41)');
+    expect(s(line!.note)).toContain('5 000 so‘m');
+  });
+
+  it('leaves it owed for a card ride and says so', () => {
+    const line = quoteOwedFee(owed, 'card');
+    expect(line?.collectedNow).toBe(false);
+    expect(line?.note).toContain('keyingi naqd safaringizda');
+  });
+
+  it('shows nothing when nothing is owed', () => {
+    expect(quoteOwedFee(null, 'cash')).toBeNull();
+    expect(quoteOwedFee(undefined, 'cash')).toBeNull();
+    expect(quoteOwedFee({ ...owed, amount: 0 }, 'cash')).toBeNull();
+  });
+
+  it('counts the cash to hand over: fare, paid waiting, owed fees', () => {
+    expect(
+      cashToPay({
+        paymentMethod: 'cash',
+        fare: { quoted: 20_000, waiting: 1000, total: null, owedFee: 5000 },
+      }),
+    ).toEqual({ total: 26_000, fare: 21_000, owedFee: 5000 });
+    expect(
+      cashToPay({
+        paymentMethod: 'cash',
+        fare: { quoted: 20_000, waiting: 1000, total: 21_000 },
+      }),
+    ).toEqual({ total: 21_000, fare: 21_000, owedFee: 0 });
+    // a card ride is prepaid: only the paid waiting is cash
+    expect(
+      cashToPay({
+        paymentMethod: 'card',
+        fare: { quoted: 20_000, waiting: 1500, total: null, owedFee: 0 },
+      }).total,
+    ).toBe(1500);
+  });
+
+  it('explains what happened to a cancelled ride own fee', () => {
+    expect(cancellationFeeNote({ cancellationFee: 5000, cancellationFeeStatus: 'owed' })).toContain(
+      'keyingi naqd safaringiz',
+    );
+    expect(
+      cancellationFeeNote({ cancellationFee: 5000, cancellationFeeStatus: 'waived' }),
+    ).toContain('kechirdi');
+    expect(
+      cancellationFeeNote({ cancellationFee: 5000, cancellationFeeStatus: 'collected' }),
+    ).toContain('olingan');
+    expect(cancellationFeeNote({ cancellationFee: 5000 })).toContain('bekor qilindi');
+  });
+
+  it('tells a cash rider a late cancellation fee comes with the next cash ride', () => {
+    const now = new Date('2026-09-27T10:00:00Z');
+    const t = cancelTerms(
+      { status: 'driver_arrived', arrivedAt: null, cancelFeeNow: 5000, paymentMethod: 'cash' },
+      null,
+      now,
+    );
+    expect(t.fee).toBe(5000);
+    expect(t.message).toContain('keyingi naqd safaringiz');
   });
 });

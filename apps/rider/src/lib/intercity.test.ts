@@ -3,6 +3,9 @@ import {
   bookingCancelledText,
   bookingCancelTerms,
   bookingPrice,
+  cancelRulesFrom,
+  cancelRuleText,
+  DEFAULT_CANCEL_RULES,
   frontSurcharge,
   searchDates,
 } from './intercity';
@@ -67,5 +70,76 @@ describe('intercity', () => {
         })!,
       ),
     ).toBe('Siz bronni bekor qildingiz. Bekor qilish to‘lovi: 21 000 so‘m.');
+  });
+});
+
+describe('intercity cancellation rules from the API', () => {
+  const departure = '2026-09-27T10:00:00Z';
+
+  it('takes the most specific readable rules, else the defaults', () => {
+    expect(cancelRulesFrom(null, undefined)).toEqual(DEFAULT_CANCEL_RULES);
+    expect(
+      cancelRulesFrom(
+        { freeCancelMinutes: 120, lateCancelFeePercent: 50 },
+        { freeCancelMinutes: 60, lateCancelFeePercent: 30 },
+      ),
+    ).toEqual({ freeCancelMinutes: 120, lateCancelFeePercent: 50 });
+    expect(
+      cancelRulesFrom(
+        { freeCancelMinutes: -1, lateCancelFeePercent: 50 },
+        { freeCancelMinutes: 90, lateCancelFeePercent: 20 },
+      ),
+    ).toEqual({ freeCancelMinutes: 90, lateCancelFeePercent: 20 });
+  });
+
+  it('uses the published rules for the free time and the share', () => {
+    const rules = { freeCancelMinutes: 120, lateCancelFeePercent: 50 };
+    const early = bookingCancelTerms(departure, 70_000, new Date('2026-09-27T07:59:00Z'), rules);
+    expect(early.fee).toBe(0);
+    expect(early.freeUntil?.toISOString()).toBe('2026-09-27T08:00:00.000Z');
+    expect(early.message).toContain('50%');
+    const late = bookingCancelTerms(departure, 70_000, new Date('2026-09-27T08:00:00Z'), rules);
+    expect(late.fee).toBe(35_000);
+    expect(s(late.message)).toContain('120 daqiqadan kam');
+  });
+
+  it('prefers the booking own free-until time and fee', () => {
+    const server = { freeUntil: '2026-09-27T08:30:00Z', feeNow: 0 };
+    const before = bookingCancelTerms(
+      departure,
+      70_000,
+      new Date('2026-09-27T08:29:00Z'),
+      DEFAULT_CANCEL_RULES,
+      server,
+    );
+    expect(before.fee).toBe(0);
+    // the free time ran out after the booking was fetched: the clock catches it
+    const after = bookingCancelTerms(
+      departure,
+      70_000,
+      new Date('2026-09-27T08:31:00Z'),
+      DEFAULT_CANCEL_RULES,
+      server,
+    );
+    expect(after.fee).toBe(21_000);
+    const byServer = bookingCancelTerms(
+      departure,
+      70_000,
+      new Date('2026-09-27T09:10:00Z'),
+      DEFAULT_CANCEL_RULES,
+      { freeUntil: null, feeNow: 20_000 },
+    );
+    expect(byServer.fee).toBe(20_000);
+  });
+
+  it('says free cancellation when no share is kept', () => {
+    const rules = { freeCancelMinutes: 60, lateCancelFeePercent: 0 };
+    expect(bookingCancelTerms(departure, 70_000, new Date('2026-09-27T09:30:00Z'), rules).fee).toBe(
+      0,
+    );
+    expect(cancelRuleText(rules)).toContain('bepul');
+    expect(cancelRuleText({ freeCancelMinutes: 90, lateCancelFeePercent: 25 })).toContain(
+      '90 daqiqa',
+    );
   });
 });

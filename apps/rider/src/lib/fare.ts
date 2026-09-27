@@ -156,11 +156,19 @@ export function cancelTerms(
     arrivedAt: string | null;
     cancelFeeNow: number;
     paymentStatus?: string;
+    paymentMethod?: string;
   },
   rules: { waiting: WaitingRule; cancellationFee: number } | null,
   now: Date,
 ): CancelTerms {
   const terms = baseCancelTerms(ride, rules, now);
+  if (terms.fee > 0 && ride.paymentMethod === 'cash') {
+    // the API keeps a cash ride's fee owed until the rider's next cash ride collects it
+    return {
+      ...terms,
+      message: `${terms.message} U keyingi naqd safaringiz narxiga alohida qo‘shiladi.`,
+    };
+  }
   // a prepaid card ride is refunded in full (a fee, if any, is owed to the driver apart)
   return ride.paymentStatus === 'paid'
     ? { ...terms, message: `${terms.message} Karta orqali to‘langan pul to‘liq qaytariladi.` }
@@ -206,4 +214,68 @@ function baseCancelTerms(
     message:
       'Bekor qilish bepul, lekin haydovchi allaqachon yo‘lda. Iltimos, zarur bo‘lsagina bekor qiling.',
   };
+}
+
+// Owed cancellation fees ---------------------------------------------------------------
+
+/** What the owed-fee line means, said the same way on every screen. */
+export const OWED_FEE_LABEL = 'Oldingi bekor qilingan safar uchun';
+
+/**
+ * The owed-fee line of a quote for the chosen payment: a cash ride collects the fees owed
+ * from earlier cancelled cash rides on top of its fare; a card ride leaves them owed (for
+ * the next cash ride). Null when nothing is owed.
+ */
+export function quoteOwedFee(
+  owed: { amount: number; rides?: { number: number }[] } | null | undefined,
+  paymentMethod: 'cash' | 'card',
+): { amount: number; collectedNow: boolean; note: string } | null {
+  if (!owed || owed.amount <= 0) return null;
+  const numbers = (owed.rides ?? []).map((r) => `#${r.number}`).join(', ');
+  const which = numbers ? ` (${numbers})` : '';
+  if (paymentMethod === 'cash') {
+    return {
+      amount: owed.amount,
+      collectedNow: true,
+      note: `${OWED_FEE_LABEL}${which} bekor qilish to‘lovi: ${formatMoney(owed.amount)}. U shu safar narxiga alohida qo‘shiladi va haydovchiga naqd beriladi.`,
+    };
+  }
+  return {
+    amount: owed.amount,
+    collectedNow: false,
+    note: `${OWED_FEE_LABEL}${which} ${formatMoney(owed.amount)} qarzingiz bor. Karta bilan to‘lasangiz, u keyingi naqd safaringizda olinadi.`,
+  };
+}
+
+/**
+ * The cash the rider hands over for a ride: the fare (a card ride: prepaid, only paid
+ * waiting) plus fees owed from earlier rides this ride collects.
+ */
+export function cashToPay(ride: {
+  paymentMethod: 'cash' | 'card';
+  fare: { quoted: number; waiting: number; total: number | null; owedFee?: number };
+}): { total: number; fare: number; owedFee: number } {
+  const owedFee = ride.fare.owedFee ?? 0;
+  const fare =
+    ride.paymentMethod === 'cash'
+      ? (ride.fare.total ?? ride.fare.quoted + ride.fare.waiting)
+      : ride.fare.waiting;
+  return { total: fare + owedFee, fare, owedFee };
+}
+
+/** What happened to this ride's own cancellation fee, for the summary. */
+export function cancellationFeeNote(fare: {
+  cancellationFee: number;
+  cancellationFeeStatus?: 'owed' | 'collected' | 'waived' | null;
+}): string {
+  switch (fare.cancellationFeeStatus) {
+    case 'owed':
+      return 'Haydovchi yetib kelib, bepul kutish vaqti tugaganidan keyin bekor qilindi. To‘lov keyingi naqd safaringiz narxiga alohida qo‘shiladi.';
+    case 'collected':
+      return 'Haydovchi yetib kelib, bepul kutish vaqti tugaganidan keyin bekor qilindi. To‘lov keyingi safaringizda olingan.';
+    case 'waived':
+      return 'Operator bu to‘lovni kechirdi: siz hech narsa to‘lamaysiz.';
+    default:
+      return 'Haydovchi yetib kelib, bepul kutish vaqti tugaganidan keyin bekor qilindi.';
+  }
 }

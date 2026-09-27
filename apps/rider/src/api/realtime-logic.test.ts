@@ -37,6 +37,7 @@ describe('reading stream events', () => {
       heading: 90,
       at: '2026-09-26T10:00:00Z',
       etaS: 240,
+      destinationEtaS: null,
     });
     expect(
       parseRealtimeEvent(
@@ -128,5 +129,25 @@ describe('the car track', () => {
     expect(carPosition([fix(5)], fetched)).toMatchObject({ lat: 1 });
     expect(carPosition([fix(12)], fetched)).toEqual(fix(12));
     expect(carPosition([fix(12)], null)).toEqual(fix(12));
+  });
+});
+
+describe('wave 3 stream events', () => {
+  it('reads the road ETA to the destination on the trip', () => {
+    const e = parseRealtimeEvent(
+      '{"type":"driver.location","rideId":"r1","lat":40.5,"lng":68.8,"heading":90,"at":"2026-09-27T10:00:00Z","etaS":null,"destinationEtaS":420}',
+    );
+    expect(e).toMatchObject({ type: 'driver.location', etaS: null, destinationEtaS: 420 });
+    const old = parseRealtimeEvent(
+      '{"type":"driver.location","rideId":"r1","lat":40.5,"lng":68.8}',
+    );
+    expect(old).toMatchObject({ destinationEtaS: null });
+  });
+
+  it('reads a refund event', () => {
+    expect(
+      parseRealtimeEvent('{"type":"ride.refund","rideId":"r1","status":"refunded","amount":25000}'),
+    ).toEqual({ type: 'ride.refund', rideId: 'r1', status: 'refunded', amount: 25000 });
+    expect(parseRealtimeEvent('{"type":"ride.refund","status":"refunded"}')).toBeNull();
   });
 });

@@ -31,6 +31,9 @@ import type {
   SosResult,
   TariffInfo,
   TokenPair,
+  CreatedUpload,
+  UploadsConfig,
+  UploadView,
 } from './types';
 
 const id = (value: string) => encodeURIComponent(value);
@@ -114,21 +117,34 @@ export const endpoints = {
     api.request<SavedPlace>('/v1/places', { method: 'POST', body: input }),
   deletePlace: (placeId: string) =>
     api.request<void>(`/v1/places/${id(placeId)}`, { method: 'DELETE' }),
+  /** Hides a recent destination (the ride history stays; a new ride there brings it back). */
+  hideRecentPlace: (key: string) =>
+    api.request<void>('/v1/places/recent/hide', { method: 'POST', body: { key } }),
+  /** Shows every hidden recent destination again. */
+  unhideRecentPlaces: () => api.request<void>('/v1/places/recent/hidden', { method: 'DELETE' }),
 
   // Complaints (support tickets), lost items included
-  complain: (rideId: string, type: ComplaintType, text: string) =>
+  // with photos: uploads (purpose complaint_photo) made ready first, up to 3 per complaint
+  complain: (rideId: string, type: ComplaintType, text: string, photoUploadIds: string[] = []) =>
     api.request<Complaint>(`/v1/rides/${id(rideId)}/complaints`, {
       method: 'POST',
-      body: { type, text },
+      body: photoUploadIds.length ? { type, text, photoUploadIds } : { type, text },
     }),
   complaints: (cursor?: string) =>
     api.request<Page<ComplaintListItem>>('/v1/complaints', { query: { cursor } }),
   complaint: (complaintId: string) => api.request<Complaint>(`/v1/complaints/${id(complaintId)}`),
-  replyComplaint: (complaintId: string, text: string) =>
+  replyComplaint: (complaintId: string, text: string, photoUploadIds: string[] = []) =>
     api.request<Complaint>(`/v1/complaints/${id(complaintId)}/messages`, {
       method: 'POST',
-      body: { text },
+      body: photoUploadIds.length ? { text, photoUploadIds } : { text },
     }),
+
+  // Uploads (private bucket): register, PUT the bytes to the presigned URL, complete
+  uploadsConfig: () => api.request<UploadsConfig>('/v1/uploads/config'),
+  createUpload: (input: { purpose: 'complaint_photo'; contentType: string; sizeBytes: number }) =>
+    api.request<CreatedUpload>('/v1/uploads', { method: 'POST', body: input }),
+  completeUpload: (uploadId: string) =>
+    api.request<UploadView>(`/v1/uploads/${id(uploadId)}/complete`, { method: 'POST', body: {} }),
 
   // Intercity trip board
   intercityPoints: () => api.request<IntercityPoint[]>('/v1/intercity/points'),

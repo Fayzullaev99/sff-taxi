@@ -121,12 +121,16 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         onMessage: (raw) => {
           const event = parseRealtimeEvent(raw);
           if (!event) return;
-          if (event.type === 'ride.updated') refreshRides(event.rideId);
+          // a refund queued or made: the ride's payment state changed
+          if (event.type === 'ride.updated' || event.type === 'ride.refund') {
+            refreshRides(event.rideId);
+          }
           if (event.type === 'driver.location') {
             pushFix(
               event.rideId,
               { lat: event.lat, lng: event.lng, heading: event.heading, at: event.at },
               event.etaS,
+              event.destinationEtaS,
             );
           }
           if (event.type === 'intercity.updated') refreshBookings(event.bookingId, event.tripId);

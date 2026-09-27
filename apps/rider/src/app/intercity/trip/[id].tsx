@@ -15,11 +15,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, describeError, isOffline } from '../../../api/client';
 import { endpoints } from '../../../api/endpoints';
 import { keys, useIntercityTrip } from '../../../api/queries';
+import { useIntercityRules } from '../../../api/support';
 import { CLASS_LABELS } from '../../../lib/fare';
 import { formatDateTime, formatDistance, formatMoney } from '../../../lib/format';
 import {
   bookingPrice,
-  CANCEL_RULE_TEXT,
+  cancelRulesFrom,
+  cancelRuleText,
   frontSurcharge,
   MAX_SEATS,
   TRIP_STATUS_LABELS,
@@ -40,6 +42,7 @@ export default function TripScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const query = useIntercityTrip(params.id);
+  const configRules = useIntercityRules();
   const trip = query.data;
   const attempts = useRef(new OrderAttempts(() => Crypto.randomUUID())).current;
   const [seats, setSeats] = useState(Math.max(1, Math.min(MAX_SEATS, Number(params.seats) || 1)));
@@ -217,7 +220,11 @@ export default function TripScreen() {
               multiline
             />
 
-            <Banner tone="info" icon="information-circle-outline" message={CANCEL_RULE_TEXT} />
+            <Banner
+              tone="info"
+              icon="information-circle-outline"
+              message={cancelRuleText(cancelRulesFrom(trip.cancelRules, configRules))}
+            />
             <T variant="small" color={colors.textMuted}>
               To‘lov naqd, haydovchiga. Narx qatnovda belgilangan va o‘zgarmaydi.
             </T>

@@ -10,6 +10,8 @@ import { distanceM } from './ride-state';
 export interface Place extends LatLng {
   title: string;
   subtitle: string | null;
+  /** A recent destination's key, to hide it from the list (POST places/recent/hide). */
+  recentKey?: string;
 }
 
 export type SavedKind = 'home' | 'work';
@@ -84,6 +86,7 @@ export function recentPlaces(
       lng: r.lng,
       title: r.address?.trim() || r.landmark?.trim() || coords(r),
       subtitle: r.address && r.landmark ? r.landmark : null,
+      recentKey: recentKeyOf(r),
     }));
 }
 
@@ -144,4 +147,20 @@ export function placesToMigrate(legacy: LegacyPlaces, server: readonly SavedPlac
     if (local && !server.some((p) => p.kind === kind)) out.push(placeInput(kind, local));
   }
   return out;
+}
+
+/**
+ * The API's key of a recent destination ("40.4960,68.7759": about 11 m): the one it sent,
+ * else made the same way from the coordinates (older APIs sent none).
+ */
+export function recentKeyOf(p: { key?: string; lat: number; lng: number }): string {
+  return p.key ?? `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`;
+}
+
+/** The recent list without a hidden destination (optimistic, before the API answers). */
+export function withoutRecent<T extends { key?: string; lat: number; lng: number }>(
+  list: readonly T[] | undefined,
+  key: string,
+): T[] | undefined {
+  return list?.filter((p) => recentKeyOf(p) !== key);
 }

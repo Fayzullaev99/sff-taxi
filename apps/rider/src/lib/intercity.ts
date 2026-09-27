@@ -1,14 +1,12 @@
 /**
  * The intercity trip board (pure, unit-tested): what a booking costs, what cancelling it
  * costs, the dates to search. Mirrors apps/api/src/lib/intercity.ts and the booking rules
- * (free until 60 minutes before departure, then 30% of the booking; settings the API does
- * not publish to riders, so these are its defaults).
+ * (free until a set time before departure, then a share of the booking: the rules come from
+ * GET /config and the trip / booking views; 60 minutes and 30% are the launch defaults).
  */
 import type { BookingStatus, TripStatus } from '../api/types';
 import { formatDay, formatMoney, formatTime, tashkentDay } from './format';
 
-export const FREE_CANCEL_MINUTES = 60;
-export const LATE_CANCEL_FEE_PERCENT = 30;
 export const MAX_SEATS = 4;
 
 export interface SeatPrices {
@@ -26,6 +24,44 @@ export function frontSurcharge(prices: SeatPrices): number {
   return Math.max(0, prices.front - prices.rear);
 }
 
+/** The seat board's cancellation rules (GET /config `intercity`, the trip's `cancelRules`). */
+export interface CancelRules {
+  freeCancelMinutes: number;
+  lateCancelFeePercent: number;
+}
+
+/** The launch defaults, until the API has answered (or for an older API without them). */
+export const DEFAULT_CANCEL_RULES: CancelRules = {
+  freeCancelMinutes: 60,
+  lateCancelFeePercent: 30,
+};
+
+const validRules = (r: Partial<CancelRules> | null | undefined): r is CancelRules =>
+  !!r &&
+  Number.isFinite(r.freeCancelMinutes) &&
+  (r.freeCancelMinutes as number) >= 0 &&
+  Number.isFinite(r.lateCancelFeePercent) &&
+  (r.lateCancelFeePercent as number) >= 0 &&
+  (r.lateCancelFeePercent as number) <= 100;
+
+/**
+ * The rules in force: the first readable of the sources, most specific first (the booking's
+ * or trip's own, then /config), else the launch defaults.
+ */
+export function cancelRulesFrom(
+  ...sources: (Partial<CancelRules> | null | undefined)[]
+): CancelRules {
+  for (const r of sources) {
+    if (validRules(r)) {
+      return {
+        freeCancelMinutes: r.freeCancelMinutes,
+        lateCancelFeePercent: r.lateCancelFeePercent,
+      };
+    }
+  }
+  return DEFAULT_CANCEL_RULES;
+}
+
 export interface BookingCancelTerms {
   fee: number;
   /** Until when cancelling is free (null once it is not). */
@@ -33,32 +69,50 @@ export interface BookingCancelTerms {
   message: string;
 }
 
-/** The fee the API records when the rider cancels now (rounded to 100 so'm). */
+/**
+ * What cancelling costs now, as the API records it (the share rounded to 100 so'm). The
+ * booking's own `cancelFreeUntil` / `cancelFeeNow` win when given; the clock catches the
+ * free time running out after the booking was fetched.
+ */
 export function bookingCancelTerms(
   departureAt: string | Date,
   price: number,
   now: Date,
+  rules: CancelRules = DEFAULT_CANCEL_RULES,
+  server: { freeUntil?: string | null; feeNow?: number | null } = {},
 ): BookingCancelTerms {
-  const freeUntil = new Date(new Date(departureAt).getTime() - FREE_CANCEL_MINUTES * 60_000);
+  const freeUntil = server.freeUntil
+    ? new Date(server.freeUntil)
+    : new Date(new Date(departureAt).getTime() - rules.freeCancelMinutes * 60_000);
+  const percent = rules.lateCancelFeePercent;
   if (now < freeUntil) {
     return {
       fee: 0,
       freeUntil,
-      message: `Soat ${formatTime(freeUntil)} gacha bekor qilish bepul. Keyin bron narxining ${LATE_CANCEL_FEE_PERCENT}% i to‘lanadi.`,
+      message:
+        percent > 0
+          ? `Soat ${formatTime(freeUntil)} gacha bekor qilish bepul. Keyin bron narxining ${percent}% i to‘lanadi.`
+          : 'Bekor qilish bepul.',
     };
   }
-  const fee = Math.round((price * LATE_CANCEL_FEE_PERCENT) / 100 / 100) * 100;
+  const computed = Math.round((price * percent) / 100 / 100) * 100;
+  const fee = server.feeNow && server.feeNow > 0 ? server.feeNow : computed;
+  if (fee <= 0) return { fee: 0, freeUntil: null, message: 'Bekor qilish bepul.' };
   return {
     fee,
     freeUntil: null,
-    message: `Jo‘nashga ${FREE_CANCEL_MINUTES} daqiqadan kam qoldi: bekor qilsangiz ${formatMoney(fee)} (${LATE_CANCEL_FEE_PERCENT}%) haydovchiga yoziladi.`,
+    message: `Jo‘nashga ${rules.freeCancelMinutes} daqiqadan kam qoldi: bekor qilsangiz ${formatMoney(fee)} (${percent}%) haydovchiga yoziladi.`,
   };
 }
 
-/** The general rule, for the booking screen. */
-export const CANCEL_RULE_TEXT =
-  `Jo‘nashdan ${FREE_CANCEL_MINUTES} daqiqa oldingacha bepul bekor qilish mumkin. ` +
-  `Undan keyin bron narxining ${LATE_CANCEL_FEE_PERCENT}% i haydovchiga yoziladi.`;
+/** The general rule, for the trip and booking screens. */
+export function cancelRuleText(rules: CancelRules = DEFAULT_CANCEL_RULES): string {
+  if (rules.lateCancelFeePercent <= 0) return 'Bronni istalgan vaqtda bepul bekor qilish mumkin.';
+  return (
+    `Jo‘nashdan ${rules.freeCancelMinutes} daqiqa oldingacha bepul bekor qilish mumkin. ` +
+    `Undan keyin bron narxining ${rules.lateCancelFeePercent}% i haydovchiga yoziladi.`
+  );
+}
 
 export interface DateOption {
   /** YYYY-MM-DD (Tashkent), as the API's `date`. */

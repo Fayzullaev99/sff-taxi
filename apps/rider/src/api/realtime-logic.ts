@@ -36,7 +36,18 @@ export function parseRealtimeEvent(raw: string): RealtimeEvent | null {
         heading: isNum(d.heading) ? d.heading : null,
         at: isStr(d.at) ? d.at : new Date().toISOString(),
         etaS: isNum(d.etaS) && d.etaS >= 0 ? d.etaS : null,
+        destinationEtaS:
+          isNum(d.destinationEtaS) && d.destinationEtaS >= 0 ? d.destinationEtaS : null,
       };
+    case 'ride.refund':
+      return isStr(d.rideId) && isStr(d.status)
+        ? {
+            type: 'ride.refund',
+            rideId: d.rideId,
+            status: d.status,
+            amount: isNum(d.amount) ? d.amount : 0,
+          }
+        : null;
     case 'intercity.updated':
       return isStr(d.tripId) && isStr(d.status)
         ? {

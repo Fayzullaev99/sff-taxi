@@ -16,6 +16,7 @@ import {
   COMPLAINT_TYPES,
 } from '../../lib/complaints';
 import { callPhone } from '../../lib/links';
+import { PhotoAttach, useComplaintPhotos } from '../../ui/ComplaintPhotos';
 import { Banner, Button, Chip, T, TextField } from '../../ui/primitives';
 import { colors, space } from '../../ui/theme';
 
@@ -36,13 +37,14 @@ export default function NewComplaintScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const rideId = params.rideId;
+  const photos = useComplaintPhotos();
 
   const submit = async () => {
     if (!rideId || !type) return;
     setBusy(true);
     setError(null);
     try {
-      const complaint = await endpoints.complain(rideId, type, text.trim());
+      const complaint = await endpoints.complain(rideId, type, text.trim(), photos.uploadIds);
       queryClient.setQueryData(keys.complaint(complaint.id), complaint);
       void queryClient.invalidateQueries({ queryKey: keys.complaints });
       router.replace({ pathname: '/support/[id]', params: { id: complaint.id } });
@@ -130,13 +132,14 @@ export default function NewComplaintScreen() {
           multiline
           hint={`${length}/${COMPLAINT_TEXT_MAX}`}
         />
+        <PhotoAttach state={photos} />
         {error ? <Banner tone="danger" message={error} /> : null}
         <Button
-          title="Yuborish"
+          title={photos.settled ? 'Yuborish' : 'Rasm yuborilmoqda…'}
           size="lg"
           icon="send"
           loading={busy}
-          disabled={!type || length < COMPLAINT_TEXT_MIN}
+          disabled={!type || length < COMPLAINT_TEXT_MIN || !photos.settled}
           onPress={() => void submit()}
         />
         <T variant="small" color={colors.textMuted}>

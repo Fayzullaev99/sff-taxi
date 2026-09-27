@@ -18,8 +18,8 @@ import { useDebounced } from '../lib/hooks';
 import { parseSaveTarget, type Place, SAVED_LABELS, savedToPlace, saveTitle } from '../lib/places';
 import { describePoint, locateDevice } from '../location/geo';
 import { choosePickup, updateDraft, useDraft } from '../trip/draft';
-import { savePicked, usePlaces } from '../trip/places-store';
-import { notify } from '../lib/dialogs';
+import { hideRecentPlace, savePicked, usePlaces } from '../trip/places-store';
+import { confirm, notify } from '../lib/dialogs';
 import { Icon, type IconName, IconButton, T } from '../ui/primitives';
 import { colors, radius, space } from '../ui/theme';
 
@@ -204,11 +204,13 @@ export default function SearchScreen() {
                 {!save
                   ? places.recent.map((p, i) => (
                       <Row
-                        key={`${p.lat},${p.lng},${i}`}
+                        key={p.recentKey ?? String(i)}
                         icon="time-outline"
                         title={p.title}
                         subtitle={p.subtitle}
                         onPress={() => void pick(p)}
+                        // long press, the eye button or the screen reader's action
+                        onHide={p.recentKey ? () => void askToHide(p) : undefined}
                       />
                     ))
                   : null}
@@ -248,23 +250,43 @@ export default function SearchScreen() {
   );
 }
 
+/** Asks, then takes a recent destination off the list (the ride history keeps it). */
+async function askToHide(place: Place) {
+  const ok = await confirm({
+    title: 'Manzilni yashirish',
+    message: `«${place.title}» oxirgi manzillardan olib tashlanadi. Safarlar tarixi o‘zgarmaydi; shu yerga yana borsangiz, ro‘yxatda qayta paydo bo‘ladi.`,
+    confirmText: 'Yashirish',
+    cancelText: 'Yo‘q',
+  });
+  if (ok && place.recentKey) await hideRecentPlace(place.recentKey);
+}
+
 function Row({
   icon,
   title,
   subtitle,
   onPress,
+  onHide,
   dim = false,
 }: {
   icon: IconName;
   title: string;
   subtitle?: string | null;
   onPress: () => void;
+  /** A recent destination: long press or the eye button takes it off the list. */
+  onHide?: () => void;
   dim?: boolean;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title}
+      accessibilityHint={onHide ? 'Yashirish uchun bosib turing' : undefined}
+      accessibilityActions={onHide ? [{ name: 'hide', label: 'Yashirish' }] : undefined}
+      onAccessibilityAction={(e) => {
+        if (e.nativeEvent.actionName === 'hide') onHide?.();
+      }}
+      onLongPress={onHide}
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed ? { backgroundColor: colors.surface } : null]}
     >
@@ -281,6 +303,9 @@ function Row({
           </T>
         ) : null}
       </View>
+      {onHide ? (
+        <IconButton name="eye-off-outline" label="Yashirish" size={44} onPress={onHide} />
+      ) : null}
     </Pressable>
   );
 }

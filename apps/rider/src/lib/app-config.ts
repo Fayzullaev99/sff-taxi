@@ -57,3 +57,38 @@ export function supportPhone(
 ): string | null {
   return fromApi?.trim() || fallback?.trim() || null;
 }
+
+/** This app's package: the Play Store page when the API names none. */
+export const ANDROID_PACKAGE = 'uz.sff.taxi';
+
+export interface StoreLink {
+  /** Opened first (the store app on Android). */
+  primary: string;
+  /** When the first cannot be opened (no Play Store app): the web page. */
+  fallback: string | null;
+}
+
+const isHttpUrl = (v: string | null | undefined): v is string =>
+  typeof v === 'string' && /^https?:\/\/\S+$/i.test(v.trim());
+
+/**
+ * Where "update" sends the rider: the store page from GET /config (`storeUrls.rider`) for
+ * this platform, else on Android the Play Store by package id; null on iOS without a link
+ * (the screen then only says to update from the App Store).
+ */
+export function riderStoreLink(
+  platform: string,
+  urls: { android: string | null; ios: string | null } | null | undefined,
+): StoreLink | null {
+  if (platform === 'android') {
+    const web = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}`;
+    if (isHttpUrl(urls?.android)) {
+      return { primary: urls.android.trim(), fallback: null };
+    }
+    return { primary: `market://details?id=${ANDROID_PACKAGE}`, fallback: web };
+  }
+  if (platform === 'ios' && isHttpUrl(urls?.ios)) {
+    return { primary: urls.ios.trim(), fallback: null };
+  }
+  return null;
+}
