@@ -73,7 +73,8 @@ export type RealtimeEvent =
   | { type: 'offer.new'; offerId: string; rideId: string; expiresAt: string }
   | { type: 'offer.closed'; offerId: string; rideId: string; status: string }
   | { type: 'ride.updated'; rideId: string; status: string }
-  | { type: 'driver.updated'; status: string };
+  | { type: 'driver.updated'; status: string }
+  | { type: 'intercity.updated'; tripId: string; bookingId: string | null; status: string };
 
 const str = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 
@@ -103,6 +104,15 @@ export function parseRealtimeEvent(data: string): RealtimeEvent | null {
         : null;
     case 'driver.updated':
       return str(v.status) ? { type: 'driver.updated', status: v.status } : null;
+    case 'intercity.updated':
+      return str(v.tripId) && str(v.status)
+        ? {
+            type: 'intercity.updated',
+            tripId: v.tripId,
+            bookingId: str(v.bookingId) ? v.bookingId : null,
+            status: v.status,
+          }
+        : null;
     default:
       return null;
   }

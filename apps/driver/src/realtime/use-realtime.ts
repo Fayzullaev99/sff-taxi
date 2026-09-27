@@ -113,6 +113,12 @@ export function useRealtime(enabled: boolean): void {
           break;
         case 'driver.updated':
           void qc.invalidateQueries({ queryKey: keys.me });
+          void qc.invalidateQueries({ queryKey: keys.appeals });
+          break;
+        case 'intercity.updated':
+          // a booking came or was cancelled, or the trip moved on
+          void qc.invalidateQueries({ queryKey: keys.trips });
+          void qc.invalidateQueries({ queryKey: keys.trip(event.tripId) });
           break;
       }
     };

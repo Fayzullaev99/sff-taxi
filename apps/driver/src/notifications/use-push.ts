@@ -109,6 +109,9 @@ export function useNotificationRouting(enabled: boolean): void {
     } else if (target.kind === 'ride') {
       void qc.invalidateQueries({ queryKey: keys.current });
       router.navigate('/ride');
+    } else if (target.kind === 'trip') {
+      void qc.invalidateQueries({ queryKey: keys.trip(target.tripId) });
+      router.navigate(`/intercity/${target.tripId}`);
     } else {
       void qc.invalidateQueries({ queryKey: keys.me });
       router.navigate('/');
@@ -122,6 +125,10 @@ export function useNotificationRouting(enabled: boolean): void {
       if (target?.kind === 'offer') void qc.invalidateQueries({ queryKey: keys.offers });
       if (target?.kind === 'ride') void qc.invalidateQueries({ queryKey: keys.current });
       if (target?.kind === 'home') void qc.invalidateQueries({ queryKey: keys.me });
+      if (target?.kind === 'trip') {
+        void qc.invalidateQueries({ queryKey: keys.trip(target.tripId) });
+        void qc.invalidateQueries({ queryKey: keys.trips });
+      }
     });
     return () => sub.remove();
   }, [enabled, qc]);

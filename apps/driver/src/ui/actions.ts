@@ -71,3 +71,10 @@ export function call(phone: string | null | undefined): void {
   }
   Linking.openURL(url).catch(() => Alert.alert('Qo‘ng‘iroq qilib bo‘lmadi', phone ?? ''));
 }
+
+/** Opens a Telegram @username or t.me link in Telegram (or the browser). */
+export function openTelegram(handle: string): void {
+  const h = handle.trim();
+  const url = /^https?:\/\//.test(h) ? h : `https://t.me/${h.replace(/^@/, '')}`;
+  Linking.openURL(url).catch(() => Alert.alert('Telegram ochilmadi', h));
+}

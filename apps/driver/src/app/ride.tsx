@@ -12,11 +12,13 @@ import { clock, digits, distance, PAYMENT_METHODS, RIDE_OPTIONS, som } from '../
 import {
   amountToCollect,
   cancelChoices,
+  cashToCollect,
   canCancel,
   type CancelReason,
   stepOf,
 } from '../lib/ride-flow';
 import { waitingState, type WaitingRules } from '../lib/waiting';
+import { scheduledLabel } from '../lib/when';
 import { markRideEndedHere } from '../realtime/use-realtime';
 import { call, navigateTo } from '../ui/actions';
 import { Banner, Button, Card, Chip, EmptyState, Loading, Muted, Title } from '../ui/components';
@@ -116,9 +118,14 @@ function ActiveRide(props: {
   const onStep = () => {
     if (!step) return;
     if (step.action === 'complete') {
+      const cashNow = cashToCollect(ride.paymentMethod, ride.fare);
       Alert.alert(
         'Safarni yakunlaysizmi?',
-        `Yo‘lovchidan ${som(amountToCollect(ride.fare))} oling.`,
+        ride.paymentMethod === 'card'
+          ? cashNow > 0
+            ? `Safar kartada oldindan to‘langan. Kutish uchun ${som(cashNow)} naqd oling.`
+            : 'Safar kartada oldindan to‘langan: naqd pul olmang.'
+          : `Yo‘lovchidan ${som(cashNow)} oling.`,
         [
           { text: 'Yo‘q', style: 'cancel' },
           { text: 'Yakunlash', onPress: () => act.mutate('complete') },
@@ -129,6 +136,7 @@ function ActiveRide(props: {
     act.mutate(step.action);
   };
 
+  const scheduled = scheduledLabel(ride.scheduledFor, Date.now());
   const target = step?.navigateTo === 'dropoff' ? ride.dropoff : ride.pickup;
   const collect = amountToCollect({
     ...ride.fare,
@@ -169,6 +177,7 @@ function ActiveRide(props: {
           <Muted>
             #{ride.number} · {PAYMENT_METHODS[ride.paymentMethod] ?? ride.paymentMethod}
           </Muted>
+          {scheduled ? <Chip label={scheduled} tone="info" icon="calendar" /> : null}
         </View>
         <SosButton ride={ride} />
       </View>
@@ -220,12 +229,16 @@ function ActiveRide(props: {
       {ride.status === 'in_progress' || ride.status === 'driver_arrived' ? (
         <Card>
           <Text style={styles.waitLabel}>
-            {ride.paymentMethod === 'cash' ? 'Yo‘lovchidan olinadi (naqd)' : 'Kartadan to‘lanadi'}
+            {ride.paymentMethod === 'cash'
+              ? 'Yo‘lovchidan olinadi (naqd)'
+              : 'Kartada oldindan to‘langan — balansingizga yoziladi'}
           </Text>
           <Text style={styles.collect} adjustsFontSizeToFit numberOfLines={1}>
             {digits(collect)} <Text style={styles.collectUnit}>so‘m</Text>
           </Text>
-          {collect !== ride.fare.quoted ? (
+          {ride.paymentMethod === 'card' && collect > ride.fare.quoted ? (
+            <Muted>Kutish {som(collect - ride.fare.quoted)} — yo‘lovchidan naqd oling</Muted>
+          ) : collect !== ride.fare.quoted ? (
             <Muted>
               Narx {som(ride.fare.quoted)} + kutish {som(collect - ride.fare.quoted)}
             </Muted>

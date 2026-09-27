@@ -52,8 +52,12 @@ export function offerCountdown(args: {
   kind: string;
   /** Estimated server time now (ms). */
   serverNow: number;
+  /** The offer lengths the API publishes (`GET /v1/driver/config`), seconds. */
+  lengths?: { direct: number; broadcast: number };
 }): Countdown {
-  const total = (OFFER_SECONDS[args.kind as OfferKind] ?? OFFER_SECONDS.direct) * 1000;
+  const lengths = args.lengths ?? OFFER_SECONDS;
+  const seconds0 = args.kind === 'broadcast' ? lengths.broadcast : lengths.direct;
+  const total = (seconds0 > 0 ? seconds0 : OFFER_SECONDS.direct) * 1000;
   const expires = Date.parse(args.expiresAt);
   const raw = Number.isNaN(expires) ? 0 : expires - args.serverNow;
   const left = Math.max(0, Math.min(total, raw));

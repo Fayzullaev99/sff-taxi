@@ -1,13 +1,16 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useRouter } from 'expo-router';
 import { memo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { OFFICE_ADDRESS, SUPPORT_PHONE } from '../config';
+import { useDriverConfig, useFeatures, useSupport } from '../data/queries';
 import { litSegments } from '../lib/countdown';
 import { som } from '../lib/format';
-import { TOP_UP_STEPS } from '../lib/money';
+import { OFFICE_TOP_UP_STEPS } from '../lib/money';
+import { suggestedTopup } from '../lib/topup';
 import { useGpsQuality } from '../location/use-tracking-mode';
-import { call } from './actions';
-import { Banner, Button, Card, Muted, Title, TONES } from './components';
+import { call, openTelegram } from './actions';
+import type { LicenceVerification } from '../api/types';
+import { Banner, Button, Card, Chip, Muted, Title, TONES } from './components';
 import { colors, radius, space } from './theme';
 
 const SEGMENTS = 36;
@@ -82,8 +85,17 @@ export function GpsIndicator() {
   );
 }
 
-/** How to top up, with the missing amount when the balance is below the minimum. */
+/**
+ * How to top up, with the missing amount when the balance is below the minimum: by card
+ * (Payme/Click) when the API has a provider, and in cash at the office.
+ */
 export function TopUpCard(props: { shortBy?: number }) {
+  const router = useRouter();
+  const support = useSupport();
+  const features = useFeatures();
+  const config = useDriverConfig();
+  const byCard = features.features.cardPayments || config.topups.providers.length > 0;
+  const amount = suggestedTopup(props.shortBy ?? 0, config.topups);
   return (
     <Card>
       <Title>Balansni to‘ldirish</Title>
@@ -94,7 +106,16 @@ export function TopUpCard(props: { shortBy?: number }) {
           text={`Liniyaga chiqish uchun kamida ${som(props.shortBy)} to‘ldiring`}
         />
       ) : null}
-      {TOP_UP_STEPS.map((s, i) => (
+      {byCard ? (
+        <Button
+          title="Karta bilan to‘ldirish"
+          icon="card"
+          big
+          onPress={() => router.push(`/topup?amount=${props.shortBy ? amount : ''}`)}
+        />
+      ) : null}
+      <Text style={styles.stepsTitle}>{byCard ? 'Yoki ofisda naqd:' : 'Ofisda naqd:'}</Text>
+      {OFFICE_TOP_UP_STEPS.map((s, i) => (
         <View key={s} style={styles.step}>
           <View style={styles.stepNo}>
             <Text style={styles.stepNoText}>{i + 1}</Text>
@@ -102,31 +123,79 @@ export function TopUpCard(props: { shortBy?: number }) {
           <Text style={styles.stepText}>{s}</Text>
         </View>
       ))}
-      <Muted>{OFFICE_ADDRESS}</Muted>
-      {SUPPORT_PHONE ? (
+      <Muted>{support.officeAddress}</Muted>
+      {support.phone ? (
         <Button
           title="Ofisga qo‘ng‘iroq qilish"
           icon="call"
           variant="secondary"
-          onPress={() => call(SUPPORT_PHONE)}
+          onPress={() => call(support.phone)}
         />
       ) : null}
     </Card>
   );
 }
 
+const LICENCE_LOOK: Record<
+  LicenceVerification,
+  { label: string; tone: 'success' | 'warning' | 'danger'; text: string | null }
+> = {
+  unverified: {
+    label: 'Tekshirilmoqda',
+    tone: 'warning',
+    text: 'Operator kartochkangizni Transport vazirligi reyestrida tekshiradi. Tasdiqlanmaguncha ariza tasdiqlanmaydi va liniyaga chiqib bo‘lmaydi.',
+  },
+  valid: { label: 'Reyestrda tasdiqlangan', tone: 'success', text: null },
+  invalid: {
+    label: 'Tasdiqlanmadi',
+    tone: 'danger',
+    text: 'Kartochka reyestrda topilmadi yoki amal qilmaydi. Raqamini tekshiring: arizani tuzatib qayta yuboring yoki ofisga murojaat qiling.',
+  },
+};
+
+/**
+ * The licence card's check with the Ministry of Transport's registry
+ * (`licenceCard.verification`): approval and going online need a verified card.
+ */
+export function LicenceCardStatus(props: {
+  verification: LicenceVerification | undefined;
+  showOk?: boolean;
+}) {
+  const look = props.verification ? LICENCE_LOOK[props.verification] : null;
+  if (!look || (props.verification === 'valid' && !props.showOk)) return null;
+  return (
+    <View style={{ gap: space.xs }}>
+      <Chip
+        label={`Litsenziya kartochkasi: ${look.label}`}
+        tone={look.tone}
+        icon={props.verification === 'valid' ? 'shield-checkmark' : 'shield-half'}
+      />
+      {look.text ? <Muted>{look.text}</Muted> : null}
+    </View>
+  );
+}
+
 /** Contact for appeals and questions: the "human appeal" promise (market analysis §1.5). */
 export function SupportCard(props: { title?: string; text: string }) {
+  const support = useSupport();
   return (
     <Card>
       <Title>{props.title ?? 'Operator bilan bog‘lanish'}</Title>
       <Muted>{props.text}</Muted>
-      <Muted>{OFFICE_ADDRESS}</Muted>
-      {SUPPORT_PHONE ? (
-        <Button title="Qo‘ng‘iroq qilish" icon="call" onPress={() => call(SUPPORT_PHONE)} />
+      <Muted>{support.officeAddress}</Muted>
+      {support.phone ? (
+        <Button title="Qo‘ng‘iroq qilish" icon="call" onPress={() => call(support.phone)} />
       ) : (
         <Muted>Telefon: ofisdan so‘rang</Muted>
       )}
+      {support.telegram ? (
+        <Button
+          title={`Telegram: ${support.telegram.replace(/^https?:\/\/t\.me\//, '@')}`}
+          icon="paper-plane"
+          variant="secondary"
+          onPress={() => openTelegram(support.telegram!)}
+        />
+      ) : null}
     </Card>
   );
 }
@@ -155,4 +224,5 @@ const styles = StyleSheet.create({
   },
   stepNoText: { color: colors.onBrand, fontWeight: '900' },
   stepText: { flex: 1, color: colors.text, fontSize: 16, lineHeight: 22 },
+  stepsTitle: { color: colors.muted, fontSize: 15, fontWeight: '800' },
 });

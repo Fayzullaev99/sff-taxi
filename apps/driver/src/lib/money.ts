@@ -1,22 +1,11 @@
+import { type BillingRules, DEFAULT_BILLING } from './driver-config';
 import { som } from './format';
 
 /**
- * The driver's money rules (market analysis §6.3 "Driver fee model", API billing settings).
- * The API does not publish its billing settings to drivers yet (API gap), so these are the
- * launch defaults; every charge itself is computed by the API and shown from the ledger.
+ * The driver's money rules (market analysis §6.3 "Driver fee model"). The numbers come from
+ * `GET /v1/driver/config` (lib/driver-config); every charge itself is computed by the API
+ * and shown from the ledger.
  */
-export const BILLING = {
-  /** 0% platform commission on rides completed up to this Tashkent date. */
-  promoUntil: '2026-12-31',
-  commissionPercent: 5,
-  dailyCap: 10_000,
-  weeklyCap: 55_000,
-  intercityPercent: 5,
-  intercityTripCap: 10_000,
-  taxPercent: 1,
-  passDay: 9_000,
-  passWeek: 50_000,
-} as const;
 
 export interface PromoStatus {
   active: boolean;
@@ -25,13 +14,14 @@ export interface PromoStatus {
   text: string;
 }
 
-/** `today` and `until` are Tashkent dates (YYYY-MM-DD). */
-export function promoStatus(today: string, until: string | null = BILLING.promoUntil): PromoStatus {
+/** `today` and `billing.promoUntil` are Tashkent dates (YYYY-MM-DD). */
+export function promoStatus(today: string, billing: BillingRules = DEFAULT_BILLING): PromoStatus {
+  const until = billing.promoUntil;
   if (!until || today > until) {
     return {
       active: false,
       daysLeft: 0,
-      text: `Komissiya ${BILLING.commissionPercent}%, kuniga ko‘pi bilan ${som(BILLING.dailyCap)}, haftasiga ${som(BILLING.weeklyCap)}`,
+      text: `Komissiya ${billing.commissionPercent}%, kuniga ko‘pi bilan ${som(billing.dailyCap)}, haftasiga ${som(billing.weeklyCap)}`,
     };
   }
   const days =
@@ -41,7 +31,7 @@ export function promoStatus(today: string, until: string | null = BILLING.promoU
   return {
     active: true,
     daysLeft: days,
-    text: `${d}.${m} gacha 0% komissiya — faqat qonuniy 1% soliq ushlanadi`,
+    text: `${d}.${m} gacha 0% komissiya — faqat qonuniy ${billing.taxPercent}% soliq ushlanadi`,
   };
 }
 
@@ -72,9 +62,13 @@ export function balanceStatus(balance: number, minBalance: number): BalanceStatu
  * City fares per day from which a pass is cheaper than the commission. With a daily cap,
  * a day pass only pays off if it is below the cap.
  */
-export function passBreakEven(kind: 'day' | 'week'): number {
-  const price = kind === 'day' ? BILLING.passDay : BILLING.passWeek;
-  return Math.ceil((price * 100) / BILLING.commissionPercent);
+export function passBreakEven(
+  kind: 'day' | 'week',
+  billing: BillingRules = DEFAULT_BILLING,
+): number {
+  const price = kind === 'day' ? billing.passDay : billing.passWeek;
+  if (billing.commissionPercent <= 0) return Infinity;
+  return Math.ceil((price * 100) / billing.commissionPercent);
 }
 
 /** Whether buying a pass makes sense now; the reason when it does not. */
@@ -92,9 +86,8 @@ export function passLabel(pass: { kind: string; endsAt: string }): string {
   return `${pass.kind === 'week' ? 'Haftalik' : 'Kunlik'} abonement · ${when} gacha`;
 }
 
-/** How to put money on the balance while card top-ups are not wired (Payme/Click: API backlog). */
-export const TOP_UP_STEPS = [
-  'SFF Taxi ofisiga keling (Guliston) va operatorga telefon raqamingizni ayting.',
+/** How to put cash on the balance at the office. */
+export const OFFICE_TOP_UP_STEPS = [
+  'SFF Taxi ofisiga keling va operatorga telefon raqamingizni ayting.',
   'Naqd pul topshiring — balans darhol to‘ldiriladi, ilovada ko‘rinadi.',
-  'Payme / Click orqali to‘ldirish tez orada qo‘shiladi.',
 ];

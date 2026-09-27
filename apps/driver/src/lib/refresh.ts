@@ -49,7 +49,10 @@ export function offerToShow<T extends PendingOffer>(
 
 /** Push/notification tap targets (`data` set by the API's notifications handler). */
 export type PushTarget =
-  { kind: 'offer'; offerId: string } | { kind: 'ride'; rideId: string } | { kind: 'home' };
+  | { kind: 'offer'; offerId: string }
+  | { kind: 'ride'; rideId: string }
+  | { kind: 'trip'; tripId: string }
+  | { kind: 'home' };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -59,7 +62,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 export function pushTarget(data: unknown): PushTarget | null {
   if (!data || typeof data !== 'object') return null;
-  const d = data as { kind?: unknown; offerId?: unknown; rideId?: unknown };
+  const d = data as { kind?: unknown; offerId?: unknown; rideId?: unknown; tripId?: unknown };
   if (typeof d.kind !== 'string') return null;
   if (d.kind === 'offer') {
     return typeof d.offerId === 'string' && UUID.test(d.offerId)
@@ -68,6 +71,10 @@ export function pushTarget(data: unknown): PushTarget | null {
   }
   if (typeof d.rideId === 'string' && UUID.test(d.rideId)) {
     return { kind: 'ride', rideId: d.rideId.toLowerCase() };
+  }
+  // intercity_booked, intercity_booking_cancelled: the trip's passenger list
+  if (typeof d.tripId === 'string' && UUID.test(d.tripId)) {
+    return { kind: 'trip', tripId: d.tripId.toLowerCase() };
   }
   if (d.kind.startsWith('driver_')) return { kind: 'home' };
   return null;

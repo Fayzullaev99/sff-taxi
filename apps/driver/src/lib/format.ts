@@ -89,6 +89,7 @@ export const RIDE_OPTIONS: Record<string, string> = {
 };
 
 export const RIDE_STATUSES: Record<string, string> = {
+  scheduled: 'Oldindan buyurtma',
   searching: 'Haydovchi qidirilmoqda',
   driver_assigned: 'Yo‘lovchiga borilmoqda',
   driver_arrived: 'Yo‘lovchi kutilmoqda',
@@ -103,6 +104,19 @@ export const LEDGER_KINDS: Record<string, string> = {
   tax: 'Soliq (1%)',
   pass: 'Abonement',
   adjustment: 'Tuzatish',
+  card_fare: 'Karta safari puli',
+  payout: 'Kartangizga o‘tkazildi',
+};
+
+/** What each ledger entry means, one line (the ledger screen). */
+export const LEDGER_HINTS: Record<string, string> = {
+  topup: 'Balans to‘ldirildi (ofisda naqd yoki Payme/Click)',
+  commission: 'Platforma komissiyasi',
+  tax: 'Aylanma soliq: SFF siz uchun davlatga to‘laydi',
+  pass: 'Abonement sotib olindi',
+  adjustment: 'Operator tuzatishi',
+  card_fare: 'Yo‘lovchi kartada oldindan to‘lagan narx — sizniki',
+  payout: 'Karta safarlari puli sizga to‘lab berildi',
 };
 
 /** Why a ride's commission was lower than the percentage (`commissionNote`). */

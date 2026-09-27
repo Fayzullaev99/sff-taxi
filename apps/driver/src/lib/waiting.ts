@@ -12,9 +12,9 @@ export interface WaitingRules {
 }
 
 /**
- * Launch defaults (tariff: 2 free minutes, 500 so‘m/min; dispatch: no-show after 5 min).
- * The tariff part is refreshed from `GET /v1/tariffs`; the no-show minutes are not
- * published to drivers yet (API gap), the API enforces them either way.
+ * Launch defaults (tariff: 2 free minutes, 500 so‘m/min; dispatch: no-show after 5 min) until
+ * `GET /v1/driver/config` answers; the ride's own city tariff (`GET /v1/tariffs`) refines the
+ * waiting part. The API enforces the real values either way.
  */
 export const DEFAULT_WAITING: WaitingRules = {
   freeMinutes: 2,
@@ -64,4 +64,17 @@ export function rulesFromTariff(
   const free = typeof w?.free_minutes === 'number' ? w.free_minutes : base.freeMinutes;
   const per = typeof w?.per_minute === 'number' ? w.per_minute : base.perMinute;
   return { ...base, freeMinutes: free, perMinute: per };
+}
+
+/** The rules `GET /v1/driver/config` publishes (global tariff and dispatch settings). */
+export function rulesFromConfig(rides: {
+  freeWaitingMinutes: number;
+  waitingPerMinute: number;
+  noShowAfterMinutes: number;
+}): WaitingRules {
+  return {
+    freeMinutes: rides.freeWaitingMinutes,
+    perMinute: rides.waitingPerMinute,
+    noShowAfterMinutes: rides.noShowAfterMinutes,
+  };
 }

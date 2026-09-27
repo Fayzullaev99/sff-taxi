@@ -6,11 +6,22 @@ import {
   type QueryKey,
 } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
-import { auth, driver } from '../api/driver';
+import { appConfig, auth, driver, intercity, uploads } from '../api/driver';
 import type { DriverMe } from '../api/types';
+import { OFFICE_ADDRESS, SUPPORT_PHONE } from '../config';
 import { isApiError } from '../lib/api-client';
+import {
+  DEFAULT_DRIVER_CONFIG,
+  DEFAULT_PUBLIC_CONFIG,
+  type DriverConfig,
+  mapDriverConfig,
+  mapPublicConfig,
+  type PublicConfig,
+  type Support,
+} from '../lib/driver-config';
 import { offersPollMs, POLL, pollInterval } from '../lib/refresh';
-import { DEFAULT_WAITING, rulesFromTariff, type WaitingRules } from '../lib/waiting';
+import { DEFAULT_UPLOADS_CONFIG, mapUploadsConfig, type UploadsConfig } from '../lib/upload-flow';
+import { rulesFromConfig, rulesFromTariff, type WaitingRules } from '../lib/waiting';
 
 export const keys = {
   account: ['account'] as const,
@@ -24,7 +35,21 @@ export const keys = {
   earnings: (period: 'day' | 'week') => ['driver', 'earnings', period] as const,
   passes: ['driver', 'passes'] as const,
   tariff: ['tariff'] as const,
+  driverConfig: ['driver', 'config'] as const,
+  appConfig: ['config'] as const,
+  uploadsConfig: ['uploads', 'config'] as const,
+  appeals: ['driver', 'appeals'] as const,
+  topups: ['driver', 'topups'] as const,
+  topup: (id: string) => ['driver', 'topups', id] as const,
+  trips: ['driver', 'intercity', 'trips'] as const,
+  trip: (id: string) => ['driver', 'intercity', 'trip', id] as const,
+  points: ['intercity', 'points'] as const,
+  fare: (from: string, to: string, rideClass: string) =>
+    ['driver', 'intercity', 'fare', from, to, rideClass] as const,
 };
+
+/** Build-time contacts (EXPO_PUBLIC_*): used where the API publishes none. */
+const BUILD_SUPPORT: Support = { phone: SUPPORT_PHONE, telegram: null, officeAddress: null };
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -141,17 +166,125 @@ export function usePasses() {
 }
 
 /**
- * Waiting rules where the ride starts (the public tariff); the launch defaults until it
- * loads or when offline. Rarely changes, so kept for an hour.
+ * The rules a driver works under (`GET /v1/driver/config`): the launch defaults until it
+ * loads. Kept 10 minutes; refetched when the app comes back to the foreground.
+ */
+export function useDriverConfig(enabled = true): DriverConfig {
+  const q = useQuery({
+    queryKey: keys.driverConfig,
+    queryFn: driver.config,
+    enabled,
+    staleTime: 10 * 60_000,
+    select: (raw) => mapDriverConfig(raw, BUILD_SUPPORT),
+  });
+  return q.data ?? DEFAULT_DRIVER_CONFIG;
+}
+
+/** `GET /v1/config` (public): minimum app version, feature flags, support contacts. */
+export function usePublicConfig() {
+  return useQuery({
+    queryKey: keys.appConfig,
+    queryFn: appConfig.get,
+    staleTime: 10 * 60_000,
+    select: (raw): PublicConfig => mapPublicConfig(raw, BUILD_SUPPORT),
+  });
+}
+
+/** The public config, or the defaults while it loads (never blocks a screen). */
+export function useFeatures(): PublicConfig {
+  return usePublicConfig().data ?? DEFAULT_PUBLIC_CONFIG;
+}
+
+/** Office phone, Telegram and address: the API's, else the build's, else the defaults. */
+export function useSupport(): Support & { officeAddress: string } {
+  const pub = usePublicConfig().data?.support;
+  const drv = useQuery({
+    queryKey: keys.driverConfig,
+    queryFn: driver.config,
+    enabled: false,
+    select: (raw) => mapDriverConfig(raw, BUILD_SUPPORT).support,
+  }).data;
+  const s = drv ?? pub ?? BUILD_SUPPORT;
+  return {
+    phone: s.phone ?? pub?.phone ?? SUPPORT_PHONE,
+    telegram: s.telegram ?? pub?.telegram ?? null,
+    officeAddress: s.officeAddress ?? pub?.officeAddress ?? OFFICE_ADDRESS,
+  };
+}
+
+/** What uploads accept (types, sizes per purpose) and whether they work at all. */
+export function useUploadsConfig(): UploadsConfig {
+  const q = useQuery({
+    queryKey: keys.uploadsConfig,
+    queryFn: uploads.config,
+    staleTime: 60 * 60_000,
+    select: mapUploadsConfig,
+  });
+  return q.data ?? DEFAULT_UPLOADS_CONFIG;
+}
+
+export function useAppeals(enabled = true) {
+  // answers are not pushed (API gap): checked every minute while the screen is open
+  return useQuery({
+    queryKey: keys.appeals,
+    queryFn: driver.appeals,
+    enabled,
+    refetchInterval: 60_000,
+  });
+}
+
+export function useTopups() {
+  return useQuery({ queryKey: keys.topups, queryFn: driver.topups });
+}
+
+export function useTrips() {
+  return useInfiniteQuery({
+    queryKey: keys.trips,
+    queryFn: ({ pageParam }) => intercity.trips(pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
+
+export function useTrip(id: string) {
+  const open = useStreamOpen();
+  return useQuery({
+    queryKey: keys.trip(id),
+    queryFn: () => intercity.trip(id),
+    refetchInterval: pollInterval(open, 15_000),
+  });
+}
+
+export function useIntercityPoints() {
+  return useQuery({ queryKey: keys.points, queryFn: intercity.points, staleTime: 60 * 60_000 });
+}
+
+export function useIntercityFare(
+  from: string | null,
+  to: string | null,
+  rideClass: 'economy' | 'comfort',
+) {
+  return useQuery({
+    queryKey: keys.fare(from ?? '', to ?? '', rideClass),
+    queryFn: () => intercity.fare(from!, to!, rideClass),
+    enabled: Boolean(from && to && from !== to),
+    staleTime: 10 * 60_000,
+  });
+}
+
+/**
+ * Waiting rules where the ride starts: the published rules (`GET /v1/driver/config`),
+ * refined by the city's own tariff (`GET /v1/tariffs`). Rarely changes, so kept for an hour.
  */
 export function useWaitingRules(at: { lat: number; lng: number } | null): WaitingRules {
+  const base = rulesFromConfig(useDriverConfig().rides);
   const q = useQuery({
     queryKey: [...keys.tariff, at ? `${at.lat.toFixed(2)},${at.lng.toFixed(2)}` : null],
     queryFn: () => driver.tariff(at!.lat, at!.lng),
     enabled: at !== null,
     staleTime: 60 * 60_000,
   });
-  return q.data?.tariff ? rulesFromTariff(q.data.tariff) : DEFAULT_WAITING;
+  return q.data?.tariff ? rulesFromTariff(q.data.tariff, base) : base;
 }
 
 /** Refetch everything that depends on the driver's rides and money. */

@@ -3,7 +3,7 @@
     "name": "SFF Taxi Haydovchi",
     "slug": "sff-taxi-driver",
     "scheme": "sff-taxi-driver",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -49,7 +49,16 @@
           "isAndroidForegroundServiceEnabled": true,
           "isIosBackgroundLocationEnabled": true
         }
-      ]
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Hujjatlar va avtomobil rasmini galereyadan tanlash uchun.",
+          "cameraPermission": "Hujjatlar, avtomobil va o‘zingizni suratga olish uchun kamera kerak.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": false,

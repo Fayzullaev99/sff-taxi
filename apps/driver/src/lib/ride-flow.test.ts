@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from './api-client';
-import { amountToCollect, cancelChoices, canCancel, offerFailure, stepOf } from './ride-flow';
+import {
+  amountToCollect,
+  cancelChoices,
+  canCancel,
+  cashToCollect,
+  offerFailure,
+  stepOf,
+} from './ride-flow';
 
 describe('stepOf', () => {
   it('walks pickup → waiting → trip', () => {
@@ -57,5 +64,13 @@ describe('offerFailure', () => {
     expect(offerFailure(new ApiError(404, 'Taklif topilmadi'))).toBe('gone');
     expect(offerFailure(new ApiError(0, 'x'))).toBe('network');
     expect(offerFailure(new Error('x'))).toBe('other');
+  });
+});
+
+describe('cashToCollect', () => {
+  it('takes the whole fare in cash, only the waiting on a prepaid card ride', () => {
+    expect(cashToCollect('cash', { quoted: 12_000, waiting: 1_000, total: 13_000 })).toBe(13_000);
+    expect(cashToCollect('card', { quoted: 12_000, waiting: 1_000, total: 13_000 })).toBe(1_000);
+    expect(cashToCollect('card', { quoted: 12_000, waiting: 0, total: null })).toBe(0);
   });
 });

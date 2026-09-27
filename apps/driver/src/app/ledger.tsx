@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { LedgerEntry } from '../api/types';
 import { useLedger } from '../data/queries';
 import { errorMessage } from '../lib/api-client';
-import { dateTime, LEDGER_KINDS, som } from '../lib/format';
+import { dateTime, LEDGER_HINTS, LEDGER_KINDS, som } from '../lib/format';
 import { Button, EmptyState, ErrorState, Loading } from '../ui/components';
 import { OfflineBanner } from '../ui/screen';
 import { colors, space } from '../ui/theme';
@@ -16,7 +16,11 @@ function Entry({ item }: { item: LedgerEntry }) {
         <Text style={styles.kind}>{LEDGER_KINDS[item.kind] ?? item.kind}</Text>
         <Text style={styles.meta}>
           {dateTime(item.createdAt)}
-          {item.note ? ` · ${item.note}` : ''}
+          {item.note
+            ? ` · ${item.note}`
+            : LEDGER_HINTS[item.kind]
+              ? ` · ${LEDGER_HINTS[item.kind]}`
+              : ''}
         </Text>
       </View>
       <Text style={[styles.amount, item.amount > 0 && { color: colors.success }]}>
