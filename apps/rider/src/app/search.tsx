@@ -15,10 +15,10 @@ import { endpoints } from '../api/endpoints';
 import { useGeoConfig } from '../api/queries';
 import type { GeoSuggestion } from '../api/types';
 import { useDebounced } from '../lib/hooks';
-import { type Place, SAVED_LABELS, type SavedKind } from '../lib/places';
+import { parseSaveTarget, type Place, SAVED_LABELS, savedToPlace, saveTitle } from '../lib/places';
 import { describePoint, locateDevice } from '../location/geo';
 import { choosePickup, updateDraft, useDraft } from '../trip/draft';
-import { savePlace, usePlaces } from '../trip/places-store';
+import { savePicked, usePlaces } from '../trip/places-store';
 import { notify } from '../lib/dialogs';
 import { Icon, type IconName, IconButton, T } from '../ui/primitives';
 import { colors, radius, space } from '../ui/theme';
@@ -33,13 +33,13 @@ type Field = 'pickup' | 'dropoff';
 export default function SearchScreen() {
   const params = useLocalSearchParams<{ field?: string; save?: string }>();
   const field: Field = params.field === 'pickup' ? 'pickup' : 'dropoff';
-  const save: SavedKind | null =
-    params.save === 'home' || params.save === 'work' ? params.save : null;
+  const save = parseSaveTarget(params.save);
   const config = useGeoConfig().data;
   const draft = useDraft();
   const places = usePlaces();
   const [text, setText] = useState('');
   const [locating, setLocating] = useState(false);
+  const [saving, setSaving] = useState(false);
   const q = useDebounced(text.trim(), 400);
   const near = draft.pickup
     ? { lat: +draft.pickup.lat.toFixed(2), lng: +draft.pickup.lng.toFixed(2) }
@@ -52,11 +52,14 @@ export default function SearchScreen() {
     retry: false,
   });
 
-  const pick = (place: Place) => {
+  const pick = async (place: Place) => {
     Keyboard.dismiss();
     if (save) {
-      savePlace(save, place);
-      router.back();
+      if (saving) return;
+      setSaving(true);
+      const ok = await savePicked(save, place);
+      setSaving(false);
+      if (ok) router.back();
       return;
     }
     const point = { lat: place.lat, lng: place.lng, address: place.title };
@@ -70,7 +73,7 @@ export default function SearchScreen() {
   };
 
   const pickSuggestion = (s: GeoSuggestion) =>
-    pick({ lat: s.lat, lng: s.lng, title: s.title, subtitle: s.subtitle });
+    void pick({ lat: s.lat, lng: s.lng, title: s.title, subtitle: s.subtitle });
 
   const hereAsPickup = async () => {
     setLocating(true);
@@ -82,7 +85,12 @@ export default function SearchScreen() {
     }
     const info = await describePoint(r.lat, r.lng);
     setLocating(false);
-    pick({ lat: r.lat, lng: r.lng, title: info.address ?? 'Mening joylashuvim', subtitle: null });
+    void pick({
+      lat: r.lat,
+      lng: r.lng,
+      title: info.address ?? 'Mening joylashuvim',
+      subtitle: null,
+    });
   };
 
   const onMap = () =>
@@ -91,11 +99,7 @@ export default function SearchScreen() {
       params: { field, ...(save ? { save } : {}) },
     });
 
-  const title = save
-    ? `${SAVED_LABELS[save]} manzili`
-    : field === 'pickup'
-      ? 'Qayerdan?'
-      : 'Qayerga?';
+  const title = save ? saveTitle(save) : field === 'pickup' ? 'Qayerdan?' : 'Qayerga?';
   const searching = q.length >= 2;
   const results = searching ? (search.data ?? []) : [];
   const noGeocoder = config?.geocoder === 'none';
@@ -156,12 +160,31 @@ export default function SearchScreen() {
                           key={kind}
                           icon={kind === 'home' ? 'home' : 'briefcase'}
                           title={SAVED_LABELS[kind]}
-                          subtitle={places[kind]!.title}
-                          onPress={() => pick(places[kind]!)}
+                          subtitle={savedToPlace(places[kind]!).title}
+                          onPress={() => void pick(savedToPlace(places[kind]!))}
                         />
                       ) : null,
                     )
                   : null}
+                {!save
+                  ? places.others.map((p) => {
+                      const place = savedToPlace(p);
+                      return (
+                        <Row
+                          key={p.id}
+                          icon="star"
+                          title={place.subtitle ?? place.title}
+                          subtitle={place.subtitle ? place.title : null}
+                          onPress={() => void pick(place)}
+                        />
+                      );
+                    })
+                  : null}
+                {saving ? (
+                  <T variant="small" color={colors.textMuted} style={styles.note}>
+                    Saqlanmoqda…
+                  </T>
+                ) : null}
                 <Row
                   icon="map-outline"
                   title="Xaritada belgilash"
@@ -185,7 +208,7 @@ export default function SearchScreen() {
                         icon="time-outline"
                         title={p.title}
                         subtitle={p.subtitle}
-                        onPress={() => pick(p)}
+                        onPress={() => void pick(p)}
                       />
                     ))
                   : null}

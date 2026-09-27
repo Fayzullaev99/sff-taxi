@@ -7,12 +7,13 @@ import { AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { clearAccountData, queryClient } from '../api/queries';
 import { RealtimeProvider } from '../api/realtime';
-import { hydrateSession, onSignedOut, useSessionStatus } from '../api/session';
+import { hydrateSession, onSignedOut, useIsSignedIn, useSessionStatus } from '../api/session';
 import { PushManager } from '../notifications/PushManager';
 import { resetDraft } from '../trip/draft';
-import { clearPlaces, loadPlaces } from '../trip/places-store';
+import { clearLegacyPlaces, migrateLegacyPlaces } from '../trip/places-store';
 import { OfflineBanner } from '../ui/OfflineBanner';
 import { colors } from '../ui/theme';
+import { UpdateRequired } from '../ui/UpdateRequired';
 
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
@@ -20,10 +21,10 @@ export default function RootLayout() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    void Promise.all([hydrateSession(), loadPlaces()]).finally(() => setReady(true));
+    void hydrateSession().finally(() => setReady(true));
     const stopListening = onSignedOut(() => {
       clearAccountData();
-      clearPlaces();
+      clearLegacyPlaces();
       resetDraft();
     });
     // refetch stale queries when the app comes back to the foreground
@@ -44,7 +45,9 @@ export default function RootLayout() {
           <Gate ready={ready}>
             <Screens />
             <SessionGuard />
+            <PlacesMigration />
             <PushManager />
+            <UpdateRequired />
           </Gate>
           <OfflineBanner />
         </RealtimeProvider>
@@ -53,7 +56,7 @@ export default function RootLayout() {
   );
 }
 
-/** Keeps the splash screen up until the saved session and places are read. */
+/** Keeps the splash screen up until the saved session is read. */
 function Gate({ ready, children }: { ready: boolean; children: ReactNode }) {
   useEffect(() => {
     if (ready) void SplashScreen.hideAsync().catch(() => undefined);
@@ -71,6 +74,15 @@ function SessionGuard() {
   useEffect(() => {
     if (status === 'signedOut' && !onSignIn && !atStart) router.replace('/sign-in');
   }, [status, onSignIn, atStart]);
+  return null;
+}
+
+/** Home and work kept on the phone by older versions move to the account, once. */
+function PlacesMigration() {
+  const signedIn = useIsSignedIn();
+  useEffect(() => {
+    if (signedIn) void migrateLegacyPlaces();
+  }, [signedIn]);
   return null;
 }
 
@@ -96,7 +108,20 @@ function Screens() {
         options={{ headerShown: false, gestureEnabled: false, title: 'Safar' }}
       />
       <Stack.Screen name="history" options={{ title: 'Safarlar tarixi' }} />
+      <Stack.Screen name="scheduled" options={{ title: 'Oldindan buyurtmalar' }} />
       <Stack.Screen name="profile" options={{ title: 'Profil va sozlamalar' }} />
+      <Stack.Screen name="places" options={{ title: 'Saqlangan manzillar' }} />
+      <Stack.Screen name="support/index" options={{ title: 'Murojaatlarim' }} />
+      <Stack.Screen name="support/new" options={{ title: 'Murojaat' }} />
+      <Stack.Screen name="support/[id]" options={{ title: 'Murojaat' }} />
+      <Stack.Screen name="intercity/index" options={{ title: 'Shaharlararo' }} />
+      <Stack.Screen name="intercity/trip/[id]" options={{ title: 'Qatnov' }} />
+      <Stack.Screen name="intercity/bookings" options={{ title: 'Bronlarim' }} />
+      <Stack.Screen name="intercity/booking/[id]" options={{ title: 'Bron' }} />
+      <Stack.Screen
+        name="payments/[id]"
+        options={{ headerShown: false, animation: 'none', title: 'To‘lov' }}
+      />
     </Stack>
   );
 }

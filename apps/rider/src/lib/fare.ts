@@ -3,8 +3,43 @@
  * options, the intercity seat share, paid waiting and what cancelling costs right now.
  * The API computes every price (apps/api/src/lib/tariff.ts); this only explains them.
  */
-import type { Fare, RideClass, RideOption, RideStatus, WaitingRule } from '../api/types';
+import type {
+  Fare,
+  RideClass,
+  RideOption,
+  RideRulesView,
+  RideStatus,
+  WaitingRule,
+} from '../api/types';
 import { formatDistance, formatMoney } from './format';
+
+/** A ride's waiting and cancellation rules, as the countdowns and the cancel sheet use them. */
+export interface RideRules {
+  waiting: WaitingRule;
+  cancellationFee: number;
+}
+
+/**
+ * The ride's own rules (the tariff it was ordered under, whatever changed since), from the
+ * rider view; null for an older API without them.
+ */
+export function rideRules(ride: { rules?: RideRulesView | null }): RideRules | null {
+  const r = ride.rules;
+  if (!r) return null;
+  return {
+    waiting: { free_minutes: r.freeWaitingMinutes, per_minute: r.waitingPerMinute },
+    cancellationFee: r.cancellationFee,
+  };
+}
+
+/** The waiting rule in one sentence, for the order and ride screens. */
+export function waitingRuleText(rules: RideRules): string {
+  return (
+    `Haydovchi yetib kelgach ${rules.waiting.free_minutes} daqiqa kutish bepul, keyin har daqiqa ` +
+    `${formatMoney(rules.waiting.per_minute)}. Shu vaqt tugagach bekor qilish ` +
+    `${formatMoney(rules.cancellationFee)}.`
+  );
+}
 
 export const CLASS_LABELS: Record<RideClass, string> = {
   economy: 'Ekonom',
@@ -116,6 +151,23 @@ export interface CancelTerms {
  * (true when fetched); the clock catches the moment free waiting runs out in between.
  */
 export function cancelTerms(
+  ride: {
+    status: RideStatus;
+    arrivedAt: string | null;
+    cancelFeeNow: number;
+    paymentStatus?: string;
+  },
+  rules: { waiting: WaitingRule; cancellationFee: number } | null,
+  now: Date,
+): CancelTerms {
+  const terms = baseCancelTerms(ride, rules, now);
+  // a prepaid card ride is refunded in full (a fee, if any, is owed to the driver apart)
+  return ride.paymentStatus === 'paid'
+    ? { ...terms, message: `${terms.message} Karta orqali to‘langan pul to‘liq qaytariladi.` }
+    : terms;
+}
+
+function baseCancelTerms(
   ride: { status: RideStatus; arrivedAt: string | null; cancelFeeNow: number },
   rules: { waiting: WaitingRule; cancellationFee: number } | null,
   now: Date,
@@ -139,6 +191,12 @@ export function cancelTerms(
       fee: 0,
       message: `Hozir bekor qilish bepul. ${minutes} daqiqadan so‘ng bekor qilish ${formatMoney(rules.cancellationFee)} bo‘ladi.`,
     };
+  }
+  if (ride.status === 'scheduled') {
+    return { fee: 0, message: 'Oldindan buyurtmani bekor qilish bepul.' };
+  }
+  if (ride.status === 'awaiting_payment') {
+    return { fee: 0, message: 'To‘lov hali qilinmagan. Bekor qilish bepul.' };
   }
   if (ride.status === 'searching') {
     return { fee: 0, message: 'Haydovchi hali topilmadi. Bekor qilish bepul.' };

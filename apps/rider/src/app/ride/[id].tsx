@@ -1,26 +1,34 @@
 import { useQueryClient } from '@tanstack/react-query';
 import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { describeError } from '../../api/client';
 import { endpoints } from '../../api/endpoints';
-import { clearTrack, useCarTrack } from '../../api/live-track';
+import { clearTrack, useCarTrack, useLiveEta } from '../../api/live-track';
 import { keys, useRide } from '../../api/queries';
 import { useLiveRides } from '../../api/realtime';
-import { carPosition, type TrackPoint } from '../../api/realtime-logic';
+import { carPosition, mergeTrail, type TrackPoint } from '../../api/realtime-logic';
 import type { Ride, SosResult } from '../../api/types';
 import { confirm, notify } from '../../lib/dialogs';
-import { waitingState } from '../../lib/fare';
-import { formatClock, formatMinutes, formatMoney, placeLine } from '../../lib/format';
+import { type RideRules, rideRules, waitingRuleText, waitingState } from '../../lib/fare';
+import {
+  formatClock,
+  formatDateTime,
+  formatMinutes,
+  formatMoney,
+  formatTime,
+  placeLine,
+} from '../../lib/format';
 import { useNow } from '../../lib/hooks';
 import { shareText } from '../../lib/links';
-import { etaMinutes, type RideScreen, rideScreen } from '../../lib/ride-state';
+import { etaMinutes, newerEta, pickupEta, type RideScreen, rideScreen } from '../../lib/ride-state';
+import { searchStartsAt } from '../../lib/schedule';
 import { CancelSheet } from '../../ride/CancelSheet';
+import { PaymentPanel } from '../../ride/PaymentPanel';
 import { RideSummary } from '../../ride/RideSummary';
 import { SosSheet } from '../../ride/SosSheet';
-import { type RideRules, useRideRules } from '../../trip/ride-rules';
 import { markRideShown } from '../../trip/shown-rides';
 import { DriverCard } from '../../ui/DriverCard';
 import { Banner, Button, Icon, IconButton, T } from '../../ui/primitives';
@@ -30,9 +38,11 @@ import { ErrorView, LoadingView } from '../../ui/states';
 import { colors, radius, shadow, space } from '../../ui/theme';
 
 /**
- * One ride from search to the end: searching (cancel free) -> the car on its way (driver,
- * car and plate, live position, ETA) -> waiting at the pickup (free minutes, then paid)
- * -> on the trip (share link, SOS) -> the summary with the fare and the rating.
+ * One ride from order to the end: a card ride's payment (Payme/Click, 10 minutes) or a
+ * ride for later waiting for its time -> searching (cancel free) -> the car on its way
+ * (driver, car and plate, live position and road ETA) -> waiting at the pickup (free
+ * minutes, then paid, by the ride's own rules) -> on the trip (share link, SOS) -> the
+ * summary with the fare, the receipt, the rating and complaints.
  * Live: SSE nudges refetch the ride and move the car; a slow poll covers stream outages.
  */
 export default function RideScreenRoute() {
@@ -55,6 +65,7 @@ export default function RideScreenRoute() {
     if (final && id) {
       clearTrack(id);
       void queryClient.invalidateQueries({ queryKey: keys.currentRide });
+      void queryClient.invalidateQueries({ queryKey: keys.scheduled });
     }
   }, [final, id, queryClient]);
 
@@ -79,7 +90,7 @@ export default function RideScreenRoute() {
     );
   }
 
-  return <LiveRide ride={ride} screen={screen!} />;
+  return <LiveRide ride={ride} screen={screen!} onCheck={() => void query.refetch()} />;
 }
 
 function TopBar({ ride, overMap = false }: { ride: Ride; overMap?: boolean }) {
@@ -108,13 +119,23 @@ function TopBar({ ride, overMap = false }: { ride: Ride; overMap?: boolean }) {
   );
 }
 
-function LiveRide({ ride, screen }: { ride: Ride; screen: RideScreen }) {
+function LiveRide({
+  ride,
+  screen,
+  onCheck,
+}: {
+  ride: Ride;
+  screen: RideScreen;
+  onCheck: () => void;
+}) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const queryClient = useQueryClient();
-  const track = useCarTrack(ride.id);
+  const live = useCarTrack(ride.id);
+  // the API's trail since the assignment, continued by the fixes streamed since
+  const track = useMemo(() => mergeTrail(ride.trail, live), [ride.trail, live]);
   const car = screen.showDriver ? carPosition(track, ride.driver?.location ?? null) : null;
-  const rules = useRideRules(ride);
+  const rules = rideRules(ride);
   const [panelHeight, setPanelHeight] = useState(height * 0.45);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
@@ -135,6 +156,7 @@ function LiveRide({ ride, screen }: { ride: Ride; screen: RideScreen }) {
       queryClient.setQueryData(keys.ride(ride.id), updated);
       void queryClient.invalidateQueries({ queryKey: keys.currentRide });
       void queryClient.invalidateQueries({ queryKey: keys.history });
+      void queryClient.invalidateQueries({ queryKey: keys.scheduled });
       setCancelOpen(false);
     } catch (e) {
       setCancelError(describeError(e));
@@ -183,11 +205,26 @@ function LiveRide({ ride, screen }: { ride: Ride; screen: RideScreen }) {
     }
   };
 
+  const noMap =
+    screen.phase === 'searching' ||
+    screen.phase === 'awaiting_payment' ||
+    screen.phase === 'scheduled';
+
   return (
     <View style={styles.root}>
-      {screen.phase === 'searching' ? (
+      {noMap ? (
         <View style={[styles.searchBg, { paddingBottom: panelHeight }]}>
-          <SearchPulse />
+          {screen.phase === 'searching' ? (
+            <SearchPulse />
+          ) : (
+            <View style={styles.bigIcon}>
+              <Icon
+                name={screen.phase === 'scheduled' ? 'calendar' : 'card'}
+                size={44}
+                color={colors.ink}
+              />
+            </View>
+          )}
         </View>
       ) : (
         <RideMap
@@ -210,6 +247,12 @@ function LiveRide({ ride, screen }: { ride: Ride; screen: RideScreen }) {
           bounces={false}
         >
           <PhaseHeader ride={ride} screen={screen} car={car} rules={rules} />
+
+          {screen.phase === 'awaiting_payment' ? (
+            <PaymentPanel ride={ride} onCheck={onCheck} />
+          ) : null}
+
+          {screen.phase === 'scheduled' ? <ScheduledInfo ride={ride} rules={rules} /> : null}
 
           {screen.showDriver ? <DriverCard driver={ride.driver} vehicle={ride.vehicle} /> : null}
 
@@ -248,9 +291,19 @@ function LiveRide({ ride, screen }: { ride: Ride; screen: RideScreen }) {
             </View>
           ) : null}
 
+          {rules && (screen.phase === 'assigned' || screen.phase === 'arrived') ? (
+            <T variant="small" color={colors.textMuted}>
+              {waitingRuleText(rules)}
+            </T>
+          ) : null}
+
           {screen.canCancel ? (
             <Button
-              title="Buyurtmani bekor qilish"
+              title={
+                screen.phase === 'scheduled'
+                  ? 'Oldindan buyurtmani bekor qilish'
+                  : 'Buyurtmani bekor qilish'
+              }
               variant="ghost"
               onPress={() => {
                 setCancelError(null);
@@ -292,13 +345,20 @@ function PhaseHeader({
   car: TrackPoint | null;
   rules: RideRules | null;
 }) {
+  const now = useNow(15_000);
+  const liveEta = useLiveEta(ride.id);
   let line: string | null = null;
   if (screen.phase === 'assigned') {
-    const eta = etaMinutes(car, ride.pickup);
-    line = eta ? `Taxminan ${formatMinutes(eta)}da yetib keladi` : 'Haydovchi yo‘lga chiqdi';
+    // the API's road ETA (fetched or streamed, whichever is newer); the estimate only without
+    const eta = pickupEta(newerEta(ride.driverEta, liveEta), car, ride.pickup, now);
+    line = eta
+      ? `Taxminan ${formatMinutes(eta.minutes)}da yetib keladi`
+      : 'Haydovchi yo‘lga chiqdi';
   } else if (screen.phase === 'on_trip') {
     const eta = etaMinutes(car, ride.dropoff);
     line = `${placeLine(ride.dropoff)}${eta ? ` · ~${formatMinutes(eta)}` : ''}`;
+  } else if (screen.phase === 'scheduled' && ride.scheduledFor) {
+    line = `${formatDateTime(ride.scheduledFor)} ga`;
   }
   return (
     <View style={styles.header}>
@@ -313,8 +373,8 @@ function PhaseHeader({
       {screen.phase === 'arrived' ? <WaitingClock ride={ride} rules={rules} /> : null}
       {screen.phase === 'on_trip' || screen.phase === 'assigned' ? (
         <T variant="smallStrong">
-          {formatMoney(ride.fare.quoted)} · {ride.paymentMethod === 'cash' ? 'naqd' : 'karta'} ·
-          narx o‘zgarmaydi
+          {formatMoney(ride.fare.quoted)} ·{' '}
+          {ride.paymentMethod === 'cash' ? 'naqd' : 'karta orqali to‘langan'} · narx o‘zgarmaydi
         </T>
       ) : null}
     </View>
@@ -356,6 +416,20 @@ function WaitingClock({ ride, rules }: { ride: Ride; rules: RideRules | null }) 
   );
 }
 
+function RouteBox({ ride }: { ride: Ride }) {
+  return (
+    <View accessible style={styles.routeBox}>
+      <T variant="small" color={colors.textMuted} numberOfLines={1}>
+        {placeLine(ride.pickup)}
+      </T>
+      <Icon name="arrow-down" size={14} color={colors.textMuted} />
+      <T variant="small" color={colors.textMuted} numberOfLines={1}>
+        {placeLine(ride.dropoff)}
+      </T>
+    </View>
+  );
+}
+
 function SearchingInfo({ ride }: { ride: Ride }) {
   const now = useNow(1000);
   const elapsed = (now.getTime() - new Date(ride.requestedAt).getTime()) / 1000;
@@ -364,21 +438,38 @@ function SearchingInfo({ ride }: { ride: Ride }) {
       <T variant="body" color={colors.textMuted}>
         Yaqin atrofdagi haydovchilarga taklif yuborilmoqda · {formatClock(elapsed)}
       </T>
-      <View accessible style={styles.routeBox}>
-        <T variant="small" color={colors.textMuted} numberOfLines={1}>
-          {placeLine(ride.pickup)}
-        </T>
-        <Icon name="arrow-down" size={14} color={colors.textMuted} />
-        <T variant="small" color={colors.textMuted} numberOfLines={1}>
-          {placeLine(ride.dropoff)}
-        </T>
-      </View>
-      <T variant="bodyStrong">{formatMoney(ride.fare.quoted)} · narx o‘zgarmaydi</T>
+      <RouteBox ride={ride} />
+      <T variant="bodyStrong">
+        {formatMoney(ride.fare.quoted)} · narx o‘zgarmaydi
+        {ride.paymentStatus === 'paid' ? ' · to‘langan' : ''}
+      </T>
       {elapsed > 180 ? (
         <Banner
           tone="info"
           message="Qidiruv odatdagidan uzoq davom etmoqda. Operatorlar ham buyurtmangizni ko‘rib turibdi."
         />
+      ) : null}
+    </View>
+  );
+}
+
+/** A ride for later: when, where, the fixed price; the search starts 15 minutes before. */
+function ScheduledInfo({ ride, rules }: { ride: Ride; rules: RideRules | null }) {
+  return (
+    <View style={styles.searchInfo}>
+      <RouteBox ride={ride} />
+      <T variant="bodyStrong">{formatMoney(ride.fare.quoted)} · naqd · narx o‘zgarmaydi</T>
+      {ride.scheduledFor ? (
+        <Banner
+          tone="info"
+          icon="notifications-outline"
+          message={`Haydovchi qidiruvi soat ${formatTime(searchStartsAt(ride.scheduledFor))} da boshlanadi. Mashina topilganda xabar beramiz.`}
+        />
+      ) : null}
+      {rules ? (
+        <T variant="small" color={colors.textMuted}>
+          {waitingRuleText(rules)} Oldindan buyurtmani bekor qilish bepul.
+        </T>
       ) : null}
     </View>
   );
@@ -392,6 +483,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.brandSoft,
+  },
+  bigIcon: {
+    width: 104,
+    height: 104,
+    borderRadius: 52,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   topBar: {
     flexDirection: 'row',

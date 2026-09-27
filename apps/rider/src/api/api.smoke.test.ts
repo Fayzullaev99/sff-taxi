@@ -8,21 +8,36 @@
  *   SMOKE_DRIVER=+998911110002:333333 npx vitest run src/api/api.smoke.test.ts
  *
  * The API needs those phones in OTP_FIXED_CODES and the admin in ADMIN_PHONES; use a
- * throwaway database (the test creates a driver and rides).
+ * throwaway database (the test creates a driver, rides, a complaint and intercity trips).
+ * With Payme configured on the API (PAYME_MERCHANT_ID/PAYME_KEY) and SMOKE_PAYME_KEY set to
+ * that key, a card ride is also paid (as Payme would) and refunded.
  */
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { cancelTerms, fareLines } from '../lib/fare';
+import { cancelTerms, fareLines, rideRules } from '../lib/fare';
+import { tashkentDay } from '../lib/format';
+import { bookingPrice } from '../lib/intercity';
+import { cardMoneyNote, checkoutLinks } from '../lib/payment';
+import { groupSaved } from '../lib/places';
 import { rideScreen } from '../lib/ride-state';
 import { createApiClient, type SessionTokens } from './client';
 import { parseRealtimeEvent } from './realtime-logic';
 import type {
+  AppConfig,
+  Complaint,
+  ComplaintListItem,
   GeoConfig,
   GeoResolve,
+  IntercityBooking,
+  IntercityTrip,
+  Page,
   Quote,
   RealtimeEvent,
+  RecentPlace,
   Ride,
   RideHistoryPage,
+  RideSummary,
+  SavedPlace,
   SosResult,
   TariffInfo,
 } from './types';
@@ -154,7 +169,37 @@ async function onboardDriver(driver: Client, admin: Client) {
       body: { url: `https://files.example.uz/${applied.id}/${kind}.jpg` },
     });
   }
+  // the licence card checked in the Ministry's registry (manual), then approval
+  await admin.request(`/v1/admin/drivers/${applied.id}/licence`, {
+    method: 'POST',
+    body: { result: 'valid', note: 'Reyestrda tekshirildi' },
+  });
   await admin.request(`/v1/admin/drivers/${applied.id}/approve`, { method: 'POST', body: {} });
+}
+
+/** Payme's side of a payment (JSON-RPC with the cashbox key), as the API's tests do it. */
+async function payWithPayme(intentId: string, amount: number) {
+  const call = async (method: string, params: Record<string, unknown>) => {
+    const res = await fetch(`${BASE}/v1/payments/payme`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Basic ${Buffer.from(`Paycom:${process.env.SMOKE_PAYME_KEY}`).toString('base64')}`,
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    });
+    return (await res.json()) as { result?: { state?: number }; error?: unknown };
+  };
+  const id = `pm-${randomUUID()}`;
+  const created = await call('CreateTransaction', {
+    id,
+    time: Date.now(),
+    amount: amount * 100,
+    account: { order_id: intentId },
+  });
+  expect(created.result?.state).toBe(1);
+  const performed = await call('PerformTransaction', { id });
+  expect(performed.result?.state).toBe(2);
 }
 
 describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
@@ -219,6 +264,9 @@ describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
       body: { pickup: GULISTON, dropoff: MID, options: [] },
     });
     expect(quote.kind).toBe('city');
+    // the free car next to the rider is on the class buttons
+    expect(quote.availability?.economy.cars).toBeGreaterThan(0);
+    expect(quote.availability?.economy.etaS).toBeGreaterThanOrEqual(0);
     expect(quote.fares.comfort.total).toBeGreaterThan(quote.fares.economy.total);
     expect(withSeat.fares.economy.total).toBeGreaterThan(quote.fares.economy.total);
     const intercity = await rider.request<Quote>('/v1/rides/quote', {
@@ -269,6 +317,14 @@ describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
       );
       const assigned = await rider.request<Ride>(`/v1/rides/${rideId}`);
       expect(rideScreen(assigned).phase).toBe('assigned');
+      // wave 2: the car's road ETA and trail, the ride's own rules, not rated yet
+      expect(assigned.driverEta?.etaS).toBeGreaterThanOrEqual(0);
+      expect(Array.isArray(assigned.trail)).toBe(true);
+      expect(rideRules(assigned)).toEqual({
+        waiting: quote.waiting,
+        cancellationFee: quote.cancellationFee,
+      });
+      expect(assigned.rated).toBe(false);
       expect(assigned.driver?.name).toBe('Aziz Karimov');
       expect(assigned.driver?.phone).toBe(creds(process.env.SMOKE_DRIVER).phone);
       expect(assigned.vehicle?.plateFormatted).toMatch(/^20 /);
@@ -284,6 +340,8 @@ describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
         () => stream.events.find((e) => e.type === 'driver.location') ?? null,
       );
       expect(fix).toMatchObject({ rideId, lat: 40.4962 });
+      // on the way to the pickup the position carries the road ETA
+      expect(fix.type === 'driver.location' ? fix.etaS : null).toBeGreaterThanOrEqual(0);
 
       // share link while the ride is open
       const link = await rider.request<{ url: string; token: string }>(
@@ -339,6 +397,37 @@ describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
         })
         .catch((e: unknown) => e);
       expect(twice).toMatchObject({ status: 409 });
+      const rated = await rider.request<Ride>(`/v1/rides/${rideId}`);
+      expect(rated.rated).toBe(true);
+      // the fiscal receipt is prepared by the worker (no OFD provider: no link yet)
+      const withReceipt = await waitFor('receipt', async () => {
+        const r = await rider.request<Ride>(`/v1/rides/${rideId}`);
+        return r.receipt ? r : null;
+      });
+      expect(['pending', 'sent', 'skipped']).toContain(withReceipt.receipt!.status);
+
+      // a lost item on the completed ride: the thread with the operators
+      const complaint = await rider.request<Complaint>(`/v1/rides/${rideId}/complaints`, {
+        method: 'POST',
+        body: { type: 'lost_item', text: 'Orqa o‘rindiqda qora sumka qoldi' },
+      });
+      expect(complaint).toMatchObject({ type: 'lost_item', status: 'open', rideId });
+      const mine = await rider.request<Page<ComplaintListItem>>('/v1/complaints');
+      expect(mine.items[0]?.id).toBe(complaint.id);
+      await admin.request(`/v1/admin/complaints/${complaint.id}/messages`, {
+        method: 'POST',
+        body: { text: 'Haydovchi bilan bog‘landik, sumka ofisda' },
+      });
+      const replied = await rider.request<Complaint>(`/v1/complaints/${complaint.id}/messages`, {
+        method: 'POST',
+        body: { text: 'Rahmat, ertaga olaman' },
+      });
+      expect(replied.status).toBe('in_progress');
+      expect(replied.messages.map((m) => m.authorRole)).toEqual(['admin', 'rider']);
+
+      // recent destinations come from the ride history
+      const recent = await rider.request<RecentPlace[]>('/v1/places/recent');
+      expect(recent[0]).toMatchObject({ address: 'Vokzal' });
 
       const history = await rider.request<RideHistoryPage>('/v1/rides');
       expect(history.items[0]?.id).toBe(rideId);
@@ -372,6 +461,160 @@ describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
       stream.close();
     }
   });
+
+  it(
+    'config, saved places, rides for later, card payment and intercity booking',
+    { timeout: 120_000 },
+    async () => {
+      const rider = await session(process.env.SMOKE_RIDER, 'rider');
+      const driver = await session(process.env.SMOKE_DRIVER, 'driver');
+      const admin = await session(process.env.SMOKE_ADMIN, 'admin');
+      const driverMe = await driver.request<{ driver: { status: string } | null }>('/v1/me');
+      if (driverMe.driver?.status !== 'active') await onboardDriver(driver, admin);
+      const leftover = await rider.request<{ ride: Ride | null }>('/v1/rides/current');
+      if (leftover.ride?.canCancel) {
+        await rider.request(`/v1/rides/${leftover.ride.id}/cancel`, { method: 'POST', body: {} });
+      }
+
+      // GET /config: public, the minimum version, what is switched on
+      const config = await rider.request<AppConfig>('/v1/config', { auth: 'none' });
+      expect(config.minAppVersion.rider).toMatch(/^\d+\.\d+\.\d+$/);
+      expect(config.features.intercity).toBe(true);
+      expect(config.features.scheduledRides).toBe(true);
+
+      // saved places: home replaces home, others add up, delete
+      const before = await rider.request<SavedPlace[]>('/v1/places');
+      for (const p of before) await rider.request(`/v1/places/${p.id}`, { method: 'DELETE' });
+      await rider.request<SavedPlace>('/v1/places', {
+        method: 'POST',
+        body: { kind: 'home', address: 'Birinchi uy', lat: 40.5, lng: 68.78 },
+      });
+      const home = await rider.request<SavedPlace>('/v1/places', {
+        method: 'POST',
+        body: { kind: 'home', address: 'Yangi uy', lat: 40.501, lng: 68.781 },
+      });
+      const other = await rider.request<SavedPlace>('/v1/places', {
+        method: 'POST',
+        body: { kind: 'other', label: 'Onam', address: 'Bozor yonida', lat: 40.49, lng: 68.77 },
+      });
+      const grouped = groupSaved(await rider.request<SavedPlace[]>('/v1/places'));
+      expect(grouped.home?.id).toBe(home.id);
+      expect(grouped.home?.address).toBe('Yangi uy');
+      expect(grouped.others.map((p) => p.id)).toEqual([other.id]);
+      await rider.request(`/v1/places/${other.id}`, { method: 'DELETE' });
+
+      // a ride for later: priced for its time, cash, listed, cancelled free
+      const at = new Date(Date.now() + 2 * 3600_000);
+      at.setUTCMinutes(0, 0, 0);
+      const later = await rider.request<Quote>('/v1/rides/quote', {
+        method: 'POST',
+        body: { pickup: GULISTON, dropoff: MID, options: [], scheduledFor: at.toISOString() },
+      });
+      expect(later.availability).toBeNull();
+      expect(new Date(later.scheduledFor!).getTime()).toBe(at.getTime());
+      const scheduled = await rider.request<Ride>('/v1/rides', {
+        method: 'POST',
+        body: {
+          quoteId: later.quoteId,
+          class: 'economy',
+          paymentMethod: 'cash',
+          pickup: { address: 'Yangi uy', landmark: null },
+          dropoff: { address: 'Vokzal', landmark: null },
+          comment: null,
+          clientRequestId: randomUUID(),
+        },
+      });
+      expect(rideScreen(scheduled).phase).toBe('scheduled');
+      const list = await rider.request<RideSummary[]>('/v1/rides/scheduled');
+      expect(list.map((r) => r.id)).toContain(scheduled.id);
+      const dropped = await rider.request<Ride>(`/v1/rides/${scheduled.id}/cancel`, {
+        method: 'POST',
+        body: { reason: null },
+      });
+      expect(rideScreen(dropped).phase).toBe('cancelled');
+
+      // a card ride (when the API has a provider): awaiting payment, paid, cancelled, refunded
+      if (config.cardProviders.includes('payme') && process.env.SMOKE_PAYME_KEY) {
+        await driver.request('/v1/driver/shift', { method: 'POST', body: { online: false } });
+        const q = await rider.request<Quote>('/v1/rides/quote', {
+          method: 'POST',
+          body: { pickup: GULISTON, dropoff: MID, options: [] },
+        });
+        expect(q.paymentMethods).toContain('card');
+        const card = await rider.request<Ride>('/v1/rides', {
+          method: 'POST',
+          body: {
+            quoteId: q.quoteId,
+            class: 'economy',
+            paymentMethod: 'card',
+            pickup: { address: null, landmark: null },
+            dropoff: { address: null, landmark: null },
+            comment: null,
+            clientRequestId: randomUUID(),
+          },
+        });
+        expect(rideScreen(card).phase).toBe('awaiting_payment');
+        expect(checkoutLinks(card.payment).map((l) => l.provider)).toContain('payme');
+        await payWithPayme(card.payment!.id, card.payment!.amount);
+        const paid = await waitFor('paid', async () => {
+          const r = await rider.request<Ride>(`/v1/rides/${card.id}`);
+          return r.status === 'searching' ? r : null;
+        });
+        expect(paid.paymentStatus).toBe('paid');
+        const refunded = await rider.request<Ride>(`/v1/rides/${card.id}/cancel`, {
+          method: 'POST',
+          body: { reason: null },
+        });
+        expect(refunded.paymentStatus).toBe('refund_pending');
+        expect(cardMoneyNote(refunded)?.title).toBe('Pul kartangizga qaytariladi');
+      }
+
+      // intercity: the driver publishes a departure, the rider finds it and books the front
+      const departure = new Date(Date.now() + 3 * 3600_000);
+      const published = await driver.request<{ id: string }>('/v1/driver/intercity/trips', {
+        method: 'POST',
+        body: {
+          from: 'guliston',
+          to: 'toshkent',
+          departureAt: departure.toISOString(),
+          seats: 3,
+          frontSeat: true,
+        },
+      });
+      const found = await rider.request<IntercityTrip[]>('/v1/intercity/trips', {
+        query: { from: 'guliston', to: 'toshkent', date: tashkentDay(departure), seats: 2 },
+      });
+      const trip = found.find((t) => t.id === published.id)!;
+      expect(trip.seats).toMatchObject({ total: 3, free: 3, frontFree: true });
+      expect(trip.price.front).toBeGreaterThanOrEqual(trip.price.rear);
+      const bookBody = { seats: 2, front: true, pickupNote: null, clientRequestId: randomUUID() };
+      const booked = await rider.requestWithStatus<IntercityBooking>(
+        `/v1/intercity/trips/${trip.id}/bookings`,
+        { method: 'POST', body: bookBody },
+      );
+      expect(booked.status).toBe(201);
+      const repeat = await rider.requestWithStatus<IntercityBooking>(
+        `/v1/intercity/trips/${trip.id}/bookings`,
+        { method: 'POST', body: bookBody },
+      );
+      expect(repeat).toMatchObject({ status: 200, data: { id: booked.data.id } });
+      expect(booked.data.price).toBe(bookingPrice(2, true, trip.price));
+      expect(booked.data.contact?.driverPhone).toBe(creds(process.env.SMOKE_DRIVER).phone);
+      expect(booked.data.canCancel).toBe(true);
+      const again = await rider.request<IntercityTrip>(`/v1/intercity/trips/${trip.id}`);
+      expect(again.myBookingId).toBe(booked.data.id);
+      const cancelledBooking = await rider.request<IntercityBooking>(
+        `/v1/intercity/bookings/${booked.data.id}/cancel`,
+        { method: 'POST', body: { reason: null } },
+      );
+      // more than 60 minutes before departure: free
+      expect(cancelledBooking).toMatchObject({ status: 'cancelled', cancellationFee: 0 });
+      await driver.request(`/v1/driver/intercity/trips/${trip.id}/cancel`, {
+        method: 'POST',
+        body: { reason: 'Smoke test tugadi' },
+      });
+    },
+  );
 
   // SMOKE_SLOW=1: waits for the shortest search timeout the API allows (60 s)
   it.skipIf(!process.env.SMOKE_SLOW)(

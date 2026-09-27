@@ -1,8 +1,10 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { ApiError, describeError } from '../api/client';
 import { endpoints } from '../api/endpoints';
-import { markRated, useIsRated } from '../trip/rated-store';
+import { keys } from '../api/queries';
+import type { Ride } from '../api/types';
 import { Banner, Button, Chip, T, TextField } from '../ui/primitives';
 import { StarInput } from '../ui/Rating';
 import { space } from '../ui/theme';
@@ -23,8 +25,21 @@ const BAD_TAGS = [
   'Ortiqcha pul so‘radi',
 ];
 
-export function RatingForm({ rideId, driverName }: { rideId: string; driverName: string | null }) {
-  const rated = useIsRated(rideId);
+/** The rider rates the driver once (the API's `rated` says whether it was done). */
+export function RatingForm({
+  rideId,
+  driverName,
+  rated,
+}: {
+  rideId: string;
+  driverName: string | null;
+  rated: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const markRated = (id: string) =>
+    queryClient.setQueryData<Ride>(keys.ride(id), (ride) =>
+      ride ? { ...ride, rated: true } : ride,
+    );
   const [stars, setStars] = useState<number | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [comment, setComment] = useState('');

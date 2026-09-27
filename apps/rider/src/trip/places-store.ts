@@ -1,65 +1,102 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useSyncExternalStore } from 'react';
+import { describeError } from '../api/client';
+import { endpoints } from '../api/endpoints';
+import { keys, queryClient, useRecentPlaces, useSavedPlaces } from '../api/queries';
+import type { SavedPlace } from '../api/types';
+import { notify } from '../lib/dialogs';
 import {
-  addRecent,
-  EMPTY_PLACES,
-  parsePlaces,
+  groupSaved,
+  parseLegacyPlaces,
   type Place,
-  type PlacesState,
-  type SavedKind,
+  placeInput,
+  placesToMigrate,
+  recentPlaces,
+  type SavedPlaces,
 } from '../lib/places';
 
 /**
- * Home, work and recent destinations, kept on this phone (the API has no rider
- * addresses yet). Cleared on sign-out: another person may sign in on the same phone.
+ * Saved places and recent destinations, from the API (synced across the rider's phones).
+ * Older versions kept home, work and recent destinations on the phone: home and work are
+ * moved to the account once (migrateLegacyPlaces), then the phone's copy is deleted.
  */
-const KEY = 'sff-taxi.places';
+const LEGACY_KEY = 'sff-taxi.places';
+/** Older versions remembered rated rides on the phone; the API says `rated` now. */
+const LEGACY_RATED_KEY = 'sff-taxi.rated';
 
-let state: PlacesState = EMPTY_PLACES;
-let loaded: Promise<void> | null = null;
-const listeners = new Set<() => void>();
-
-function set(next: PlacesState) {
-  state = next;
-  for (const l of listeners) l();
-  void AsyncStorage.setItem(KEY, JSON.stringify(next)).catch(() => undefined);
+export function usePlaces(): SavedPlaces & { list: SavedPlace[]; recent: Place[] } {
+  const saved = useSavedPlaces();
+  const recent = useRecentPlaces();
+  const list = saved.data ?? [];
+  return { ...groupSaved(list), list, recent: recentPlaces(recent.data, list) };
 }
 
-export function loadPlaces(): Promise<void> {
-  loaded ??= AsyncStorage.getItem(KEY)
-    .then((raw) => {
-      state = parsePlaces(raw);
-      for (const l of listeners) l();
-    })
-    .catch(() => undefined);
-  return loaded;
+/** Saves a place; home and work replace the previous one (the API does that). */
+export async function savePlace(
+  kind: 'home' | 'work' | 'other',
+  place: Place,
+): Promise<SavedPlace> {
+  const saved = await endpoints.createPlace(placeInput(kind, place));
+  queryClient.setQueryData<SavedPlace[]>(keys.places, (list) =>
+    list
+      ? [...list.filter((p) => p.id !== saved.id && (kind === 'other' || p.kind !== kind)), saved]
+      : [saved],
+  );
+  void queryClient.invalidateQueries({ queryKey: keys.places });
+  return saved;
 }
 
-export function savePlace(kind: SavedKind, place: Place): void {
-  set({ ...state, [kind]: place });
+/** Saves a pick from the search or the map; says why when the API refuses (20 at most). */
+export async function savePicked(kind: 'home' | 'work' | 'other', place: Place): Promise<boolean> {
+  try {
+    await savePlace(kind, place);
+    return true;
+  } catch (e) {
+    notify('Manzil saqlanmadi', describeError(e));
+    return false;
+  }
 }
 
-export function removePlace(kind: SavedKind): void {
-  set({ ...state, [kind]: null });
+export async function removePlace(id: string): Promise<void> {
+  await endpoints.deletePlace(id);
+  queryClient.setQueryData<SavedPlace[]>(keys.places, (list) => list?.filter((p) => p.id !== id));
+  void queryClient.invalidateQueries({ queryKey: keys.places });
 }
 
-export function rememberDestination(place: Place): void {
-  set({ ...state, recent: addRecent(state.recent, place) });
+/** A new ride changes the recent destinations. */
+export function refreshRecentPlaces(): void {
+  void queryClient.invalidateQueries({ queryKey: keys.recentPlaces });
 }
 
-export function clearPlaces(): void {
-  set(EMPTY_PLACES);
+let migrating: Promise<void> | null = null;
+
+/**
+ * Moves the phone's home and work (older versions) to the signed-in account, once: where
+ * the account already has one (saved from another phone), that one wins. The phone's copy
+ * is deleted only after the API took them, so an offline start tries again next time.
+ */
+export function migrateLegacyPlaces(): Promise<void> {
+  migrating ??= (async () => {
+    const raw = await AsyncStorage.getItem(LEGACY_KEY).catch(() => null);
+    void AsyncStorage.removeItem(LEGACY_RATED_KEY).catch(() => undefined);
+    if (raw === null) return;
+    const server = await queryClient.fetchQuery({
+      queryKey: keys.places,
+      queryFn: endpoints.places,
+    });
+    for (const input of placesToMigrate(parseLegacyPlaces(raw), server)) {
+      await endpoints.createPlace(input);
+    }
+    await AsyncStorage.removeItem(LEGACY_KEY);
+    await queryClient.invalidateQueries({ queryKey: keys.places });
+  })()
+    .catch(() => undefined)
+    .finally(() => {
+      migrating = null;
+    });
+  return migrating;
 }
 
-const get = () => state;
-
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-export function usePlaces(): PlacesState {
-  return useSyncExternalStore(subscribe, get, get);
+/** Sign-out: nothing of this account may stay on the phone (the API keeps the places). */
+export function clearLegacyPlaces(): void {
+  void AsyncStorage.removeItem(LEGACY_KEY).catch(() => undefined);
 }

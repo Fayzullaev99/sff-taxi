@@ -82,7 +82,15 @@ function RideRow({ ride }: { ride: RideSummary }) {
         ? ride.fare.cancellationFee
         : ride.fare.quoted;
   const statusText =
-    ride.status === 'completed' ? 'Yakunlangan' : screen.final ? screen.title : 'Faol';
+    ride.status === 'completed'
+      ? 'Yakunlangan'
+      : screen.final
+        ? screen.title
+        : ride.status === 'scheduled' && ride.scheduledFor
+          ? `Oldindan · ${formatDateTime(ride.scheduledFor)}`
+          : ride.status === 'awaiting_payment'
+            ? 'To‘lov kutilmoqda'
+            : 'Faol';
   return (
     <Pressable
       accessibilityRole="button"

@@ -1,10 +1,13 @@
 import { router } from 'expo-router';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSupport } from '../api/support';
 import type { Ride } from '../api/types';
+import { canComplain } from '../lib/complaints';
 import { CLASS_LABELS, fareLines } from '../lib/fare';
 import { firstName, formatDateTime, formatMoney, placeLine } from '../lib/format';
-import { callPhone, OPERATOR_PHONE } from '../lib/links';
+import { callPhone, openLink } from '../lib/links';
+import { cardMoneyNote } from '../lib/payment';
 import { cancelledText, rideScreen } from '../lib/ride-state';
 import { updateDraft } from '../trip/draft';
 import { Banner, Button, Card, Divider, KeyValue, T } from '../ui/primitives';
@@ -15,20 +18,25 @@ import { RatingForm } from './RatingForm';
 const RATING_WINDOW_MS = 7 * 86_400_000;
 
 /**
- * A finished ride: the fare and what it is made of, the rating for a completed ride, or
- * why it was cancelled with a way to order again (and the office's number when no
- * driver was found).
+ * A finished ride: the fare and what it is made of, the fiscal receipt, the rating for a
+ * completed ride, or why it was cancelled (with the refund of a prepaid card ride) and a
+ * way to order again; a complaint or a lost item for a week after the ride.
  */
 export function RideSummary({ ride }: { ride: Ride }) {
   const insets = useSafeAreaInsets();
+  const support = useSupport();
   const screen = rideScreen(ride);
   const completed = ride.status === 'completed';
   const total = ride.fare.total ?? ride.fare.quoted + ride.fare.waiting;
+  const now = new Date();
   const canRate =
     completed &&
     ride.completedAt !== null &&
-    Date.now() - new Date(ride.completedAt).getTime() < RATING_WINDOW_MS &&
+    now.getTime() - new Date(ride.completedAt).getTime() < RATING_WINDOW_MS &&
     ride.driver !== null;
+  const money = cardMoneyNote(ride);
+  // complaints are about a driver or a trip: only rides a driver took
+  const complain = ride.driver !== null && canComplain(ride, now);
 
   const orderAgain = () => {
     updateDraft({
@@ -38,10 +46,17 @@ export function RideSummary({ ride }: { ride: Ride }) {
       comment: ride.comment ?? '',
       options: ride.options,
       rideClass: ride.class,
+      scheduledFor: null,
       moveMap: { lat: ride.pickup.lat, lng: ride.pickup.lng, key: Date.now() },
     });
     router.replace('/order');
   };
+
+  const openComplaint = (type?: 'lost_item') =>
+    router.push({
+      pathname: '/support/new',
+      params: { rideId: ride.id, number: String(ride.number), ...(type ? { type } : {}) },
+    });
 
   return (
     <ScrollView
@@ -58,7 +73,7 @@ export function RideSummary({ ride }: { ride: Ride }) {
 
       {!completed ? (
         <Banner
-          tone={screen.phase === 'no_driver' ? 'warning' : 'info'}
+          tone={screen.phase === 'cancelled' ? 'info' : 'warning'}
           message={cancelledText(ride)}
         />
       ) : null}
@@ -69,10 +84,16 @@ export function RideSummary({ ride }: { ride: Ride }) {
           message="Haydovchi yetib kelib, bepul kutish vaqti tugaganidan keyin bekor qilindi."
         />
       ) : null}
+      {money && screen.phase !== 'payment_failed' ? (
+        <Banner tone={money.tone} title={money.title} message={money.message} />
+      ) : null}
 
       <Card style={styles.card}>
         <KeyValue label="Qayerdan" value={placeLine(ride.pickup)} />
         <KeyValue label="Qayerga" value={placeLine(ride.dropoff)} />
+        {ride.scheduledFor ? (
+          <KeyValue label="Oldindan, vaqti" value={formatDateTime(ride.scheduledFor)} />
+        ) : null}
         {ride.vehicle ? (
           <KeyValue
             label="Mashina"
@@ -90,32 +111,67 @@ export function RideSummary({ ride }: { ride: Ride }) {
           <Divider style={styles.divider} />
           <KeyValue label="Jami" value={formatMoney(total)} strong />
           <T variant="small" color={colors.textMuted}>
-            {ride.paymentMethod === 'cash' ? 'Naqd to‘lov haydovchiga.' : 'Karta orqali.'} Narx
-            buyurtmadagidek, faqat pullik kutish qo‘shiladi.
+            {ride.paymentMethod === 'cash'
+              ? 'Naqd to‘lov haydovchiga.'
+              : ride.fare.waiting > 0
+                ? 'Safar narxi karta orqali oldindan to‘langan; pullik kutish naqd to‘lanadi.'
+                : 'Karta orqali oldindan to‘langan.'}{' '}
+            Narx buyurtmadagidek, faqat pullik kutish qo‘shiladi.
           </T>
+          <Receipt ride={ride} />
         </Card>
       ) : null}
 
       {canRate ? (
         <Card style={styles.card}>
-          <RatingForm rideId={ride.id} driverName={firstName(ride.driver?.name)} />
+          <RatingForm
+            rideId={ride.id}
+            driverName={firstName(ride.driver?.name)}
+            rated={ride.rated}
+          />
           <T variant="small" color={colors.textMuted} align="center">
             Choy puli ilovada hozircha yo‘q — xohlasangiz haydovchiga naqd bering.
           </T>
         </Card>
       ) : null}
 
+      {complain ? (
+        <Card style={styles.card}>
+          <T variant="h3" accessibilityRole="header">
+            Muammo bo‘ldimi?
+          </T>
+          <View style={styles.row}>
+            <Button
+              title="Narsam qoldi"
+              icon="bag-handle-outline"
+              variant="secondary"
+              onPress={() => openComplaint('lost_item')}
+              style={styles.flex}
+            />
+            <Button
+              title="Shikoyat"
+              icon="chatbubble-ellipses-outline"
+              variant="secondary"
+              onPress={() => openComplaint()}
+              style={styles.flex}
+            />
+          </View>
+        </Card>
+      ) : null}
+
       <View style={styles.buttons}>
-        {screen.phase === 'no_driver' || screen.phase === 'cancelled' ? (
+        {screen.phase === 'no_driver' ||
+        screen.phase === 'cancelled' ||
+        screen.phase === 'payment_failed' ? (
           <Button title="Qayta buyurtma berish" size="lg" icon="refresh" onPress={orderAgain} />
         ) : null}
-        {screen.phase === 'no_driver' && OPERATOR_PHONE ? (
+        {screen.phase === 'no_driver' && support.phone ? (
           <Button
             title="Operatorga qo‘ng‘iroq qilish"
             variant="dark"
             size="lg"
             icon="call"
-            onPress={() => void callPhone(OPERATOR_PHONE!)}
+            onPress={() => void callPhone(support.phone!)}
           />
         ) : null}
         {completed ? (
@@ -132,10 +188,36 @@ export function RideSummary({ ride }: { ride: Ride }) {
   );
 }
 
+/** The electronic fiscal receipt (Resolution 200): a link once the tax service issued it. */
+function Receipt({ ride }: { ride: Ride }) {
+  const r = ride.receipt;
+  if (r?.url) {
+    return (
+      <Button
+        title="Elektron chek"
+        icon="receipt-outline"
+        variant="outline"
+        onPress={() => void openLink(r.url!)}
+        accessibilityLabel="Elektron fiskal chekni ochish"
+      />
+    );
+  }
+  if (r?.status === 'pending') {
+    return (
+      <T variant="small" color={colors.textMuted}>
+        Elektron chek tayyorlanmoqda — keyinroq shu yerda paydo bo‘ladi.
+      </T>
+    );
+  }
+  return null;
+}
+
 const styles = StyleSheet.create({
   content: { padding: space(4), gap: space(3) },
   head: { gap: space(1), marginBottom: space(1) },
   card: { gap: space(1) },
   divider: { marginVertical: space(2) },
   buttons: { gap: space(2.5), marginTop: space(2) },
+  row: { flexDirection: 'row', gap: space(2.5), marginTop: space(1) },
+  flex: { flex: 1 },
 });

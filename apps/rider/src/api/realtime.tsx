@@ -63,6 +63,22 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       void queryClient.invalidateQueries({ queryKey: keys.currentRide });
       void queryClient.invalidateQueries({ queryKey: rideId ? keys.ride(rideId) : ['ride'] });
       void queryClient.invalidateQueries({ queryKey: keys.history });
+      void queryClient.invalidateQueries({ queryKey: keys.scheduled });
+    };
+    const refreshBookings = (bookingId?: string | null, tripId?: string) => {
+      void queryClient.invalidateQueries({ queryKey: keys.bookings });
+      void queryClient.invalidateQueries({
+        queryKey: bookingId ? keys.booking(bookingId) : ['booking'],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: tripId ? keys.intercityTrip(tripId) : ['intercity-trip'],
+      });
+    };
+    const refreshComplaints = (complaintId?: string) => {
+      void queryClient.invalidateQueries({ queryKey: keys.complaints });
+      void queryClient.invalidateQueries({
+        queryKey: complaintId ? keys.complaint(complaintId) : ['complaint'],
+      });
     };
 
     const drop = () => {
@@ -98,6 +114,8 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
           setConnected(true);
           // events sent while disconnected are lost: catch up once
           refreshRides();
+          refreshBookings();
+          refreshComplaints();
           recycleTimer = setTimeout(() => reconnect(true), RECYCLE_AFTER_MS);
         },
         onMessage: (raw) => {
@@ -105,13 +123,14 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
           if (!event) return;
           if (event.type === 'ride.updated') refreshRides(event.rideId);
           if (event.type === 'driver.location') {
-            pushFix(event.rideId, {
-              lat: event.lat,
-              lng: event.lng,
-              heading: event.heading,
-              at: event.at,
-            });
+            pushFix(
+              event.rideId,
+              { lat: event.lat, lng: event.lng, heading: event.heading, at: event.at },
+              event.etaS,
+            );
           }
+          if (event.type === 'intercity.updated') refreshBookings(event.bookingId, event.tripId);
+          if (event.type === 'complaint.updated') refreshComplaints(event.complaintId);
         },
         onDown: () => {
           closeStream = null;

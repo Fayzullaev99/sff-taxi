@@ -3,11 +3,19 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import MapView, { type Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useCurrentRide, useGeoConfig, useMe, useResolve, useTariffAt } from '../api/queries';
+import {
+  useCurrentRide,
+  useGeoConfig,
+  useMe,
+  useResolve,
+  useScheduledRides,
+  useTariffAt,
+} from '../api/queries';
+import { useFeature } from '../api/support';
 import type { LatLng } from '../api/types';
-import { firstName } from '../lib/format';
+import { firstName, formatDateTime } from '../lib/format';
 import { notify } from '../lib/dialogs';
-import { SAVED_LABELS, type SavedKind } from '../lib/places';
+import { SAVED_LABELS, type SavedKind, savedAddress } from '../lib/places';
 import { isOpenStatus } from '../lib/ride-state';
 import { DEFAULT_CENTER, describePoint, locateDevice } from '../location/geo';
 import { Attribution, mapTypeFor, ServiceAreas, TileLayer } from '../location/map-layers';
@@ -32,6 +40,8 @@ export default function HomeScreen() {
   const places = usePlaces();
   const me = useMe().data;
   const current = useCurrentRide();
+  const scheduled = useScheduledRides().data ?? [];
+  const intercityOn = useFeature('intercity');
   const [moving, setMoving] = useState(false);
   const [locating, setLocating] = useState(false);
   const [lookingUp, setLookingUp] = useState(false);
@@ -112,7 +122,7 @@ export default function HomeScreen() {
       router.push({ pathname: '/search', params: { field: 'dropoff', save: kind } });
       return;
     }
-    updateDraft({ dropoff: { lat: place.lat, lng: place.lng, address: place.title } });
+    updateDraft({ dropoff: { lat: place.lat, lng: place.lng, address: savedAddress(place) } });
     router.push('/order');
   };
 
@@ -179,9 +189,27 @@ export default function HomeScreen() {
             onPress={() => router.push({ pathname: '/ride/[id]', params: { id: openRide.id } })}
             style={[styles.activeRide, shadow.card]}
           >
-            <Icon name="car-sport" size={18} color={colors.ink} />
+            <Icon
+              name={openRide.status === 'awaiting_payment' ? 'card' : 'car-sport'}
+              size={18}
+              color={colors.ink}
+            />
             <T variant="smallStrong" numberOfLines={1} style={styles.flex}>
-              Faol safaringiz bor
+              {openRide.status === 'awaiting_payment' ? 'To‘lov kutilmoqda' : 'Faol safaringiz bor'}
+            </T>
+            <Icon name="chevron-forward" size={18} color={colors.ink} />
+          </Pressable>
+        ) : scheduled[0]?.scheduledFor ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Oldindan buyurtmalar: ${scheduled.length} ta. Eng yaqini ${formatDateTime(scheduled[0].scheduledFor)}`}
+            onPress={() => router.push('/scheduled')}
+            style={[styles.activeRide, styles.laterRide, shadow.card]}
+          >
+            <Icon name="calendar-outline" size={18} color={colors.ink} />
+            <T variant="smallStrong" numberOfLines={1} style={styles.flex}>
+              {formatDateTime(scheduled[0].scheduledFor)}
+              {scheduled.length > 1 ? ` · +${scheduled.length - 1}` : ''}
             </T>
             <Icon name="chevron-forward" size={18} color={colors.ink} />
           </Pressable>
@@ -254,7 +282,7 @@ export default function HomeScreen() {
               label={places[kind] ? SAVED_LABELS[kind] : `${SAVED_LABELS[kind]} manzilini qo‘shish`}
               accessibilityLabel={
                 places[kind]
-                  ? `${SAVED_LABELS[kind]}ga borish: ${places[kind]!.title}`
+                  ? `${SAVED_LABELS[kind]}ga borish: ${savedAddress(places[kind]!) ?? ''}`
                   : `${SAVED_LABELS[kind]} manzilini qo‘shish`
               }
               onPress={() => {
@@ -263,6 +291,14 @@ export default function HomeScreen() {
               }}
             />
           ))}
+          {intercityOn ? (
+            <Chip
+              icon="bus-outline"
+              label="Shaharlararo"
+              accessibilityLabel="Shaharlararo qatnovlar: joy band qilish"
+              onPress={() => router.push('/intercity')}
+            />
+          ) : null}
         </View>
       </View>
       <Attribution config={config} />
@@ -321,6 +357,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: colors.brand,
   },
+  laterRide: { backgroundColor: colors.bg },
   panel: {
     position: 'absolute',
     left: 0,

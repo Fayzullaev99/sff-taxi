@@ -96,6 +96,7 @@ export type RideClass = 'economy' | 'comfort';
 export type RideOption = 'child_seat' | 'luggage' | 'pets' | 'ac';
 export type RideKind = 'city' | 'intercity';
 export type PaymentMethod = 'cash' | 'card';
+export type CardProvider = 'payme' | 'click';
 
 export interface WaitingRule {
   free_minutes: number;
@@ -115,6 +116,7 @@ export interface TariffInfo {
     intercity_from_km: number;
   } | null;
   paymentMethods: PaymentMethod[];
+  cardProviders?: CardProvider[];
 }
 
 export interface Fare {
@@ -145,12 +147,35 @@ export interface Quote {
   paymentMethods: PaymentMethod[];
   waiting: WaitingRule;
   cancellationFee: number;
+  /** A ride for later (priced for its own time), else null. */
+  scheduledFor: string | null;
+  /** The nearest free car per class by road; null for a ride for later. */
+  availability: Record<RideClass, ClassAvailability> | null;
+}
+
+export interface ClassAvailability {
+  /** Road seconds of the nearest free car to the pickup; null: none free nearby. */
+  etaS: number | null;
+  cars: number;
 }
 
 // Rides -------------------------------------------------------------------------------
 
 export type RideStatus =
-  'searching' | 'driver_assigned' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
+  | 'scheduled'
+  | 'awaiting_payment'
+  | 'searching'
+  | 'driver_assigned'
+  | 'driver_arrived'
+  | 'in_progress'
+  | 'completed'
+  | 'cancelled';
+
+export type RidePaymentStatus =
+  'pending' | 'paid' | 'not_charged' | 'failed' | 'refund_pending' | 'refunded';
+
+export type PaymentIntentStatus =
+  'pending' | 'paid' | 'cancelled' | 'expired' | 'refund_pending' | 'refunded';
 
 export type RideActor = 'rider' | 'driver' | 'operator' | 'system';
 
@@ -174,7 +199,53 @@ export interface RideDriver {
   phone: string;
   rating: number;
   ridesCompleted: number;
+  /** Short-lived read URLs (private bucket); null until the driver uploaded them. */
+  photoUrl?: string | null;
+  vehiclePhotoUrl?: string | null;
   location: { lat: number; lng: number; heading: number | null; at: string | null } | null;
+}
+
+/** The car's road ETA to the pickup while the driver is on the way. */
+export interface DriverEta {
+  etaS: number;
+  distanceM: number;
+  source: string;
+  at: string;
+}
+
+export interface TrailFix {
+  lat: number;
+  lng: number;
+  at: string;
+  heading: number | null;
+  speed?: number | null;
+}
+
+/** The ride's own waiting and cancellation rules (the tariff it was ordered under). */
+export interface RideRulesView {
+  freeWaitingMinutes: number;
+  waitingPerMinute: number;
+  cancellationFee: number;
+}
+
+/** A card ride's prepayment. `checkout` is there only while it can still be paid. */
+export interface RidePayment {
+  id: string;
+  amount: number;
+  status: PaymentIntentStatus;
+  provider: CardProvider | null;
+  expiresAt: string;
+  paidAt: string | null;
+  refundRequestedAt: string | null;
+  refundedAt: string | null;
+  checkout: Partial<Record<CardProvider, string>> | null;
+}
+
+/** The electronic fiscal receipt of a completed ride. */
+export interface FiscalReceipt {
+  status: 'pending' | 'sent' | 'skipped';
+  url: string | null;
+  sentAt: string | null;
 }
 
 export interface RideEvent {
@@ -208,7 +279,7 @@ export interface RideSummary {
     breakdown: Fare;
   };
   paymentMethod: PaymentMethod;
-  paymentStatus: string;
+  paymentStatus: RidePaymentStatus;
   vehicle: RideVehicle | null;
   cancelledBy: RideActor | null;
   cancelReason: string | null;
@@ -218,13 +289,21 @@ export interface RideSummary {
   startedAt: string | null;
   completedAt: string | null;
   cancelledAt: string | null;
+  /** Ordered for later: when the car should come (dispatch starts 15 min before). */
+  scheduledFor: string | null;
 }
 
 /** The rider's full view of one ride (GET /rides/:id). */
 export interface Ride extends RideSummary {
   driver: RideDriver | null;
+  receipt: FiscalReceipt | null;
   canCancel: boolean;
   cancelFeeNow: number;
+  payment: RidePayment | null;
+  rules: RideRulesView;
+  rated: boolean;
+  driverEta: DriverEta | null;
+  trail: TrailFix[];
   events: RideEvent[];
 }
 
@@ -272,4 +351,181 @@ export type RealtimeEvent =
       lng: number;
       heading: number | null;
       at: string;
-    };
+      /** Road ETA to the pickup while the driver is on the way (refreshed every ~15 s). */
+      etaS: number | null;
+    }
+  | { type: 'intercity.updated'; tripId: string; bookingId: string | null; status: string }
+  | { type: 'complaint.updated'; complaintId: string; rideId: string; status: string };
+
+// App configuration (GET /config) --------------------------------------------------------
+
+export interface AppConfig {
+  support: { phone: string | null; telegram: string | null; officeAddress: string | null };
+  minAppVersion: { rider: string; driver: string };
+  features: {
+    cardPayments: boolean;
+    uploads: boolean;
+    intercity: boolean;
+    maskedCalls: boolean;
+    scheduledRides: boolean;
+  };
+  cardProviders: CardProvider[];
+  shareBaseUrl: string;
+}
+
+// Saved places ---------------------------------------------------------------------------
+
+export type PlaceKind = 'home' | 'work' | 'other';
+
+export interface SavedPlace {
+  id: string;
+  kind: PlaceKind;
+  label: string | null;
+  address: string | null;
+  landmark: string | null;
+  lat: number;
+  lng: number;
+  updatedAt: string;
+}
+
+export interface PlaceInput {
+  kind: PlaceKind;
+  label?: string | null;
+  address?: string | null;
+  landmark?: string | null;
+  lat: number;
+  lng: number;
+}
+
+export interface RecentPlace {
+  address: string | null;
+  landmark: string | null;
+  lat: number;
+  lng: number;
+  lastUsedAt: string;
+}
+
+// Complaints (support tickets) -----------------------------------------------------------
+
+export type ComplaintType =
+  'lost_item' | 'driver_behaviour' | 'route' | 'price' | 'car_condition' | 'safety' | 'other';
+
+export type ComplaintStatus = 'open' | 'in_progress' | 'resolved';
+
+export type ComplaintResolution =
+  'item_returned' | 'refund' | 'driver_warned' | 'driver_blocked' | 'rejected' | 'no_action';
+
+export interface ComplaintListItem {
+  id: string;
+  rideId: string;
+  rideNumber: number;
+  type: ComplaintType;
+  typeLabel: string;
+  status: ComplaintStatus;
+  resolution: ComplaintResolution | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ComplaintMessage {
+  id: string;
+  authorRole: 'rider' | 'admin';
+  text: string;
+  at: string;
+}
+
+export interface Complaint {
+  id: string;
+  rideId: string;
+  rideNumber: number;
+  riderId: string;
+  type: ComplaintType;
+  typeLabel: string;
+  status: ComplaintStatus;
+  text: string;
+  resolution: ComplaintResolution | null;
+  resolutionNote: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  messages: ComplaintMessage[];
+}
+
+export interface Page<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+// Intercity trip board -------------------------------------------------------------------
+
+export interface IntercityPoint {
+  id: string;
+  slug: string;
+  nameUz: string;
+  nameRu: string;
+  lat: number;
+  lng: number;
+  meetingPoint: string;
+}
+
+export type TripStatus = 'scheduled' | 'boarding' | 'departed' | 'arrived' | 'cancelled';
+export type BookingStatus = 'booked' | 'boarded' | 'completed' | 'cancelled' | 'no_show';
+
+export interface IntercityTrip {
+  id: string;
+  number: number;
+  status: TripStatus;
+  from: IntercityPoint;
+  to: IntercityPoint;
+  departureAt: string;
+  meetingPoint: string;
+  comment: string | null;
+  class: RideClass;
+  distanceM: number;
+  seats: { total: number; free: number; frontOffered: boolean; frontFree: boolean };
+  price: { rear: number; front: number };
+  driver: { name: string; rating: number; ridesCompleted: number; photoUrl: string | null };
+  vehicle: {
+    make: string;
+    model: string;
+    colour: string;
+    class: RideClass;
+    photoUrl: string | null;
+  };
+  /** GET /intercity/trips/:id only: the rider's latest booking on it. */
+  myBookingId?: string | null;
+}
+
+export interface IntercityBooking {
+  id: string;
+  number: number;
+  tripId: string;
+  status: BookingStatus;
+  channel: 'app' | 'phone';
+  seats: number;
+  front: boolean;
+  price: number;
+  pickupNote: string | null;
+  cancelledBy: 'rider' | 'driver' | 'operator' | 'system' | null;
+  cancelReason: string | null;
+  cancellationFee: number;
+  createdAt: string;
+  boardedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  trip: IntercityTrip;
+  /** Once booked: whom to call and which car to look for. */
+  contact: {
+    driverName: string;
+    driverPhone: string;
+    plate: string;
+    plateFormatted: string;
+  } | null;
+  canCancel: boolean;
+}
+
+export interface BookInput {
+  seats: number;
+  front: boolean;
+  pickupNote: string | null;
+  clientRequestId: string;
+}

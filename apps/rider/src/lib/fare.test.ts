@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Fare } from '../api/types';
-import { cancelTerms, fareLines, optionPriceLabel, seatShareText, waitingState } from './fare';
+import {
+  cancelTerms,
+  fareLines,
+  optionPriceLabel,
+  rideRules,
+  seatShareText,
+  waitingRuleText,
+  waitingState,
+} from './fare';
 
 const s = (text: string) => text.replace(/\u00a0/g, ' ');
 
@@ -113,6 +121,27 @@ describe('cancel terms', () => {
     );
     expect(onWay.fee).toBe(0);
     expect(onWay.message).toContain('bepul');
+  });
+
+  it('is free for rides for later and unpaid card rides; a paid one is refunded', () => {
+    const base = { arrivedAt: null, cancelFeeNow: 0 };
+    expect(cancelTerms({ ...base, status: 'scheduled' }, null, now).message).toBe(
+      'Oldindan buyurtmani bekor qilish bepul.',
+    );
+    expect(cancelTerms({ ...base, status: 'awaiting_payment' }, null, now).fee).toBe(0);
+    expect(
+      cancelTerms({ ...base, status: 'searching', paymentStatus: 'paid' }, null, now).message,
+    ).toMatch(/to‘liq qaytariladi/);
+  });
+
+  it('reads the ride’s own rules from the rider view', () => {
+    expect(
+      rideRules({ rules: { freeWaitingMinutes: 3, waitingPerMinute: 700, cancellationFee: 5000 } }),
+    ).toEqual({ waiting: { free_minutes: 3, per_minute: 700 }, cancellationFee: 5000 });
+    expect(rideRules({})).toBeNull();
+    expect(s(waitingRuleText(rules))).toBe(
+      'Haydovchi yetib kelgach 2 daqiqa kutish bepul, keyin har daqiqa 500 so‘m. Shu vaqt tugagach bekor qilish 3 000 so‘m.',
+    );
   });
 
   it('warns before the free waiting runs out', () => {

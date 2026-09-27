@@ -54,6 +54,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-secure-store',
     ['expo-location', { locationWhenInUsePermission: LOCATION_REASON }],
     ['react-native-maps', googleMapsApiKey ? { androidGoogleMapsApiKey: googleMapsApiKey } : {}],
+    // Payme / Click checkout pages for card rides open in an in-app browser tab
+    'expo-web-browser',
     [
       'expo-notifications',
       {
