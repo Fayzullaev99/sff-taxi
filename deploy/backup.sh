@@ -41,7 +41,9 @@ umask 077
 
 fail() {
   echo "$(date -u +%FT%TZ) backup FAILED: $1" >&2
-  [ -n "$PING_URL" ] && curl -fsS -m 10 --retry 3 "$PING_URL/fail" > /dev/null 2>&1 || true
+  if [ -n "$PING_URL" ]; then
+    curl -fsS -m 10 --retry 3 "$PING_URL/fail" > /dev/null 2>&1 || true
+  fi
   exit 1
 }
 
