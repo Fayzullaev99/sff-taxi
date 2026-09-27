@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { describeError } from '../../api/client';
 import { endpoints } from '../../api/endpoints';
@@ -14,6 +14,7 @@ import { PhotoAttach, PhotoStrip, useComplaintPhotos } from '../../ui/ComplaintP
 import { Banner, Button, Card, IconButton, T, TextField } from '../../ui/primitives';
 import { ErrorView, LoadingView } from '../../ui/states';
 import { colors, radius, space } from '../../ui/theme';
+import { KeyboardAvoider } from '../../ui/KeyboardAvoider';
 
 /** One complaint: what the rider wrote, the thread with the operators, the outcome. */
 export default function ComplaintScreen() {
@@ -56,11 +57,7 @@ export default function ComplaintScreen() {
 
   const resolved = c.status === 'resolved';
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-    >
+    <KeyboardAvoider style={styles.root} keyboardVerticalOffset={90}>
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space(6) }]}
         keyboardShouldPersistTaps="handled"
@@ -141,7 +138,7 @@ export default function ComplaintScreen() {
           onPress={() => router.replace('/support')}
         />
       </ScrollView>
-    </KeyboardAvoidingView>
+    </KeyboardAvoider>
   );
 }
 
