@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  driverGivenName,
   firstName,
   formatClock,
   formatDateTime,
@@ -69,5 +70,13 @@ describe('format', () => {
     );
     expect(firstName('  Aziz Karimov ')).toBe('Aziz');
     expect(firstName(null)).toBeNull();
+  });
+
+  it('addresses a driver by the given name (surname first)', () => {
+    expect(driverGivenName('Qodirov Sherzodbek Abdumalikovich')).toBe('Sherzodbek');
+    expect(driverGivenName(' Aliyev  Vali ')).toBe('Vali');
+    expect(driverGivenName('Sherzod')).toBe('Sherzod');
+    expect(driverGivenName('')).toBeNull();
+    expect(driverGivenName(null)).toBeNull();
   });
 });

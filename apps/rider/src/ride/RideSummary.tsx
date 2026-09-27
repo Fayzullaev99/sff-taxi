@@ -5,7 +5,7 @@ import { useSupport } from '../api/support';
 import type { Ride } from '../api/types';
 import { canComplain } from '../lib/complaints';
 import { cancellationFeeNote, CLASS_LABELS, fareLines, OWED_FEE_LABEL } from '../lib/fare';
-import { firstName, formatDateTime, formatMoney, placeLine } from '../lib/format';
+import { driverGivenName, formatDateTime, formatMoney, placeLine } from '../lib/format';
 import { callPhone, openLink } from '../lib/links';
 import { cardMoneyNote } from '../lib/payment';
 import { cancelledText, rideScreen } from '../lib/ride-state';
@@ -137,7 +137,7 @@ export function RideSummary({ ride }: { ride: Ride }) {
         <Card style={styles.card}>
           <RatingForm
             rideId={ride.id}
-            driverName={firstName(ride.driver?.name)}
+            driverName={driverGivenName(ride.driver?.name)}
             rated={ride.rated}
           />
           <T variant="small" color={colors.textMuted} align="center">
