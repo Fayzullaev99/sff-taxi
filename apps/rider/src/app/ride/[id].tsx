@@ -35,6 +35,7 @@ import { searchStartsAt } from '../../lib/schedule';
 import { CancelSheet } from '../../ride/CancelSheet';
 import { PaymentPanel } from '../../ride/PaymentPanel';
 import { RideSummary } from '../../ride/RideSummary';
+import { KeyboardAvoider } from '../../ui/KeyboardAvoider';
 import { SosSheet } from '../../ride/SosSheet';
 import { markRideShown } from '../../trip/shown-rides';
 import { DriverCard } from '../../ui/DriverCard';
@@ -92,10 +93,11 @@ export default function RideScreenRoute() {
 
   if (screen!.final) {
     return (
-      <View style={styles.root}>
+      // the rating comment sits at the bottom of the summary
+      <KeyboardAvoider style={styles.root}>
         <TopBar ride={ride} />
         <RideSummary ride={ride} />
-      </View>
+      </KeyboardAvoider>
     );
   }
 
