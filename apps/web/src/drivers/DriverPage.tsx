@@ -2,27 +2,27 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   Ban,
+  Camera,
   CircleCheck,
   CircleX,
-  FileText,
+  ClipboardList,
   ShieldCheck,
   Undo2,
-  Wallet,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { api, errorText, fieldErrors } from '../api/client';
-import { useDriver, useLedger, useLive } from '../api/queries';
+import { api, ApiError, errorText } from '../api/client';
+import { type RideFilters, useDriver, useDriverRides, useLive } from '../api/queries';
 import {
   type AdminDriver,
   type DriverDecision,
   type DriverDocument,
   type RideClass,
-  type Standing,
   VEHICLE_FEATURES,
   type VehicleFeature,
 } from '../api/types';
-import { approvalChecks, expiryState, isImageUrl } from '../lib/drivers';
+import { LedgerCard } from '../billing/LedgerCard';
+import { approvalChecks, approvalProblems, expiryState } from '../lib/drivers';
 import {
   ACTORS,
   ago,
@@ -35,16 +35,19 @@ import {
   DRIVER_STATUS_TONE,
   FEATURES,
   fullYears,
-  LEDGER_KINDS,
+  LICENCE_STATUS,
+  LICENCE_TONE,
   percent,
   rating,
-  signedSom,
-  som,
+  RIDE_STATUS_SHORT,
   tashkentToday,
 } from '../lib/format';
-import { Badge, Button, Field, MoneyInput, PageHeader, PhoneLink, Segmented } from '../ui/controls';
-import { Empty, ErrorBox, Loading, useConfirm, useToast } from '../ui/feedback';
+import { RideRows } from '../rides/RideRows';
+import { Badge, Button, Field, PageHeader, PhoneLink, Segmented, Toggle } from '../ui/controls';
+import { Empty, ErrorBox, Loading, useToast } from '../ui/feedback';
 import { Modal } from '../ui/Modal';
+import { DocumentPreview, DocumentTile } from './Documents';
+import { LicencePanel } from './LicencePanel';
 
 const DECISIONS: Record<
   DriverDecision,
@@ -110,10 +113,16 @@ function DecisionDialog({
       queryClient.setQueryData(['driver', driver.id], updated);
       void queryClient.invalidateQueries({ queryKey: ['drivers'] });
       void queryClient.invalidateQueries({ queryKey: ['live'] });
+      void queryClient.invalidateQueries({ queryKey: ['appeals'] });
       toast(`${updated.fullName}: ${DRIVER_STATUS[updated.status]}`);
       onClose();
     },
   });
+  // 422: the rules the server found unmet (a licence card not verified, a document missing)
+  const refused =
+    decide.error instanceof ApiError && decide.error.status === 422
+      ? approvalProblems(decide.error.body)
+      : [];
 
   return (
     <Modal
@@ -143,15 +152,29 @@ function DecisionDialog({
       <p>
         <strong>{driver.fullName}</strong> — {d.hint}
       </p>
-      {failing.length > 0 && (
+      {failing.length > 0 && refused.length === 0 && (
         <div className="alert alert-warn">
           Talablar bajarilmagan: {failing.map((c) => c.label).join('; ')}. Server tasdiqlashni rad
           etadi.
         </div>
       )}
+      {refused.length > 0 && (
+        <div className="alert alert-error" role="alert">
+          <div>
+            <strong>Server tasdiqlamadi:</strong>
+            <ul className="problems">
+              {refused.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
       <Field
         label={d.reasonRequired ? 'Sabab' : 'Izoh (ixtiyoriy)'}
-        error={(touched && invalid) || (decide.error ? errorText(decide.error) : null)}
+        error={
+          (touched && invalid) || (decide.error && !refused.length ? errorText(decide.error) : null)
+        }
       >
         {(p) => (
           <textarea
@@ -167,61 +190,23 @@ function DecisionDialog({
   );
 }
 
-function DocumentTile({
-  doc,
-  today,
-  onOpen,
-}: {
-  doc: DriverDocument;
-  today: string;
-  onOpen: () => void;
-}) {
-  const state = expiryState(doc.expiresOn, today);
-  return (
-    <li className="doc-tile">
-      <button
-        type="button"
-        className="doc-preview"
-        onClick={onOpen}
-        aria-label={`${DOCUMENTS[doc.kind]}: kattalashtirish`}
-      >
-        {isImageUrl(doc.url) ? (
-          <img src={doc.url} alt="" loading="lazy" />
-        ) : (
-          <FileText size={32} aria-hidden />
-        )}
-      </button>
-      <div className="doc-meta">
-        <strong>{DOCUMENTS[doc.kind]}</strong>
-        <span className="muted small">yuklangan {date(doc.uploadedAt)}</span>
-        {doc.expiresOn && (
-          <Badge tone={state === 'expired' ? 'red' : state === 'soon' ? 'amber' : 'neutral'}>
-            {state === 'expired' ? 'muddati o‘tgan' : 'amal qiladi'} {date(doc.expiresOn)}
-          </Badge>
-        )}
-        <a href={doc.url} target="_blank" rel="noreferrer noopener" className="small">
-          Asl faylni ochish
-        </a>
-      </div>
-    </li>
-  );
-}
-
 function VehicleEditor({ driver }: { driver: AdminDriver }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const v = driver.vehicle!;
   const [rideClass, setRideClass] = useState<RideClass>(v.class);
   const [features, setFeatures] = useState<VehicleFeature[]>(v.features);
+  const [cng, setCng] = useState(v.cngInTrunk ?? false);
   const changed =
     rideClass !== v.class ||
+    cng !== (v.cngInTrunk ?? false) ||
     features.length !== v.features.length ||
     features.some((f) => !v.features.includes(f));
   const save = useMutation({
     mutationFn: () =>
       api<AdminDriver>(`/v1/admin/drivers/${driver.id}/vehicle`, {
         method: 'PATCH',
-        body: { class: rideClass, features },
+        body: { class: rideClass, features, cngInTrunk: cng },
       }),
     onSuccess: (updated) => {
       queryClient.setQueryData(['driver', driver.id], updated);
@@ -255,6 +240,11 @@ function VehicleEditor({ driver }: { driver: AdminDriver }) {
           </label>
         ))}
       </div>
+      <Toggle
+        checked={cng}
+        onChange={setCng}
+        label="Yukxonada gaz ballon (katta yukli buyurtmalar bormaydi)"
+      />
       {save.error && <ErrorBox error={save.error} />}
       <Button
         size="sm"
@@ -269,183 +259,49 @@ function VehicleEditor({ driver }: { driver: AdminDriver }) {
   );
 }
 
-function LedgerCard({ driver }: { driver: AdminDriver }) {
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const confirm = useConfirm();
-  const [cursors, setCursors] = useState<(string | null)[]>([null]);
-  const cursor = cursors.at(-1) ?? null;
-  const ledger = useLedger(driver.id, cursor);
-  const [kind, setKind] = useState<'topup' | 'adjustment'>('topup');
-  const [amount, setAmount] = useState<number | null>(null);
-  const [negative, setNegative] = useState(false);
-  const [note, setNote] = useState('');
-  const [submitted, setSubmitted] = useState(false);
+type RideTab = Extract<RideFilters['status'], 'all' | 'open' | 'completed' | 'cancelled'>;
 
-  const signed = amount === null ? null : kind === 'adjustment' && negative ? -amount : amount;
-  const local: Record<string, string> = {};
-  if (!amount) local.amount = 'Summani kiriting';
-  if (kind === 'adjustment' && note.trim().length < 1) local.note = 'Tuzatish uchun izoh yozing';
-
-  const record = useMutation({
-    mutationFn: () =>
-      api<Standing>(`/v1/admin/billing/drivers/${driver.id}/ledger`, {
-        method: 'POST',
-        body: { kind, amount: signed, note: note.trim() || null },
-      }),
-    onSuccess: (standing) => {
-      queryClient.setQueryData<AdminDriver>(['driver', driver.id], (d) =>
-        d ? { ...d, balance: standing.balance } : d,
-      );
-      void queryClient.invalidateQueries({ queryKey: ['driver', driver.id] });
-      setCursors([null]);
-      setAmount(null);
-      setNote('');
-      setSubmitted(false);
-      toast(`Balans: ${som(standing.balance)}`);
-    },
-  });
-  const server = fieldErrors(record.error);
-
-  const submit = async () => {
-    setSubmitted(true);
-    if (Object.keys(local).length || signed === null) return;
-    const ok = await confirm({
-      title: kind === 'topup' ? 'Balansni to‘ldirish' : 'Balansni tuzatish',
-      text: (
-        <p>
-          {driver.fullName}: <strong>{signedSom(signed)} so‘m</strong>
-          {kind === 'topup' ? ' naqd qabul qilindi.' : `. Izoh: ${note.trim()}`}
-        </p>
-      ),
-      confirm: 'Yozish',
-    });
-    if (ok) record.mutate();
-  };
-
+/** The driver's rides from the API (GET /admin/drivers/:id/rides), newest first, paged. */
+function DriverRides({ driverId }: { driverId: string }) {
+  const [status, setStatus] = useState<RideTab>('all');
+  const rides = useDriverRides(driverId, { status });
+  const rows = useMemo(() => rides.data?.pages.flat() ?? [], [rides.data]);
   return (
     <section className="card">
       <div className="card-head">
         <h2>
-          <Wallet size={17} aria-hidden /> Balans
+          <ClipboardList size={17} aria-hidden /> Safarlari
         </h2>
-        <strong className={`balance${driver.balance < 0 ? ' negative' : ''}`}>
-          {som(driver.balance)}
-        </strong>
+        <Link to={`/rides?status=all&driverId=${driverId}`} className="small">
+          Safarlar ro‘yxatida filtrlash
+        </Link>
       </div>
-      <div className="ledger-form">
-        <Segmented
-          label="Yozuv turi"
-          value={kind}
-          onChange={setKind}
-          options={[
-            { value: 'topup', label: 'Naqd to‘ldirish' },
-            { value: 'adjustment', label: 'Tuzatish' },
-          ]}
-        />
-        <div className="grid-3 align-end">
-          <Field label="Summa" error={submitted ? (local.amount ?? server.amount) : null}>
-            {(p) => <MoneyInput {...p} value={amount} onChange={setAmount} />}
-          </Field>
-          {kind === 'adjustment' ? (
-            <Field label="Yo‘nalish">
-              {(p) => (
-                <select
-                  {...p}
-                  value={negative ? 'minus' : 'plus'}
-                  onChange={(e) => setNegative(e.target.value === 'minus')}
-                >
-                  <option value="plus">Qo‘shish (+)</option>
-                  <option value="minus">Ayirish (−)</option>
-                </select>
-              )}
-            </Field>
-          ) : (
-            <div />
-          )}
-          <Field
-            label={kind === 'adjustment' ? 'Izoh' : 'Izoh (ixtiyoriy)'}
-            error={submitted ? (local.note ?? server.note) : null}
-          >
-            {(p) => (
-              <input
-                {...p}
-                value={note}
-                maxLength={300}
-                onChange={(e) => setNote(e.target.value)}
-              />
-            )}
-          </Field>
-        </div>
-        {record.error && !Object.keys(server).length && <ErrorBox error={record.error} />}
-        <Button
-          variant="primary"
-          size="sm"
-          loading={record.isPending}
-          onClick={() => void submit()}
-        >
-          Yozish
-        </Button>
-      </div>
-
-      {ledger.error ? (
-        <ErrorBox error={ledger.error} onRetry={() => void ledger.refetch()} />
-      ) : ledger.isPending ? (
+      <Segmented
+        label="Safar holati"
+        value={status}
+        onChange={setStatus}
+        options={[
+          { value: 'all', label: 'Hammasi' },
+          { value: 'open', label: 'Ochiq' },
+          { value: 'completed', label: RIDE_STATUS_SHORT.completed },
+          { value: 'cancelled', label: RIDE_STATUS_SHORT.cancelled },
+        ]}
+      />
+      {rides.error ? (
+        <ErrorBox error={rides.error} onRetry={() => void rides.refetch()} />
+      ) : rides.isPending ? (
         <Loading />
-      ) : !ledger.data.items.length ? (
-        <Empty title="Yozuvlar yo‘q" />
+      ) : !rows.length ? (
+        <Empty title="Safar yo‘q" />
       ) : (
-        <div className="table-scroll">
-          <table className="table compact">
-            <thead>
-              <tr>
-                <th>Vaqt</th>
-                <th>Tur</th>
-                <th className="num">Summa</th>
-                <th>Izoh / safar</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ledger.data.items.map((e) => (
-                <tr key={e.id}>
-                  <td className="nowrap">{dateTime(e.createdAt)}</td>
-                  <td>{LEDGER_KINDS[e.kind]}</td>
-                  <td className={`num${e.amount < 0 ? ' negative' : ''}`}>{signedSom(e.amount)}</td>
-                  <td>
-                    {e.note}
-                    {e.rideId && (
-                      <>
-                        {e.note ? ' · ' : ''}
-                        <Link to={`/rides/${e.rideId}`}>safar</Link>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <RideRows
+          rides={rows}
+          showDriver={false}
+          hasMore={rides.hasNextPage}
+          loadingMore={rides.isFetchingNextPage}
+          onMore={() => void rides.fetchNextPage()}
+        />
       )}
-      <div className="pager">
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={cursors.length === 1}
-          onClick={() => setCursors((c) => c.slice(0, -1))}
-        >
-          ← Yangiroq
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={!ledger.data?.nextCursor}
-          onClick={() =>
-            ledger.data?.nextCursor && setCursors((c) => [...c, ledger.data.nextCursor])
-          }
-        >
-          Eskiroq →
-        </Button>
-      </div>
     </section>
   );
 }
@@ -454,7 +310,7 @@ function LedgerCard({ driver }: { driver: AdminDriver }) {
 export default function DriverPage() {
   const { driverId } = useParams();
   const driver = useDriver(driverId);
-  const live = useLive(15_000);
+  const live = useLive();
   const [decision, setDecision] = useState<DriverDecision | null>(null);
   const [preview, setPreview] = useState<DriverDocument | null>(null);
   const today = tashkentToday();
@@ -466,6 +322,10 @@ export default function DriverPage() {
   const cardState = expiryState(d.licenceCard.expiresOn, today);
   const onBoard = live.data?.drivers.find((x) => x.id === d.id);
   const currentRide = onBoard?.rideId ?? onBoard?.offeredRideId ?? null;
+  const photos = [
+    { key: 'face', label: 'Haydovchi surati', url: d.photoUrl ?? null },
+    { key: 'car', label: 'Avtomobil surati', url: d.vehicle?.photoUrl ?? null },
+  ];
 
   return (
     <div className="driver-page">
@@ -477,6 +337,9 @@ export default function DriverPage() {
         subtitle={
           <>
             <Badge tone={DRIVER_STATUS_TONE[d.status]}>{DRIVER_STATUS[d.status]}</Badge>{' '}
+            <Badge tone={LICENCE_TONE[d.licenceCard.verification]}>
+              {LICENCE_STATUS[d.licenceCard.verification]}
+            </Badge>{' '}
             {d.isOnline && (
               <Badge tone="green">Onlayn {onBoard ? `· ${DRIVER_STATE[onBoard.state]}` : ''}</Badge>
             )}{' '}
@@ -531,6 +394,15 @@ export default function DriverPage() {
           {date(d.licenceCard.expiresOn)}
         </div>
       )}
+      {d.licenceCard.verification !== 'valid' && (
+        <div
+          className={`alert ${d.licenceCard.verification === 'invalid' ? 'alert-error' : 'alert-warn'}`}
+        >
+          {d.licenceCard.verification === 'invalid'
+            ? 'Litsenziya kartochkasi reyestrda tasdiqlanmadi: liniyaga chiqolmaydi.'
+            : 'Litsenziya kartochkasi reyestrda tekshirilmagan: tasdiqlash uchun avval tekshiring.'}
+        </div>
+      )}
       {currentRide && (
         <div className="alert alert-info">
           Hozir buyurtmada: <Link to={`/dispatch?ride=${currentRide}`}>xaritada ochish</Link>
@@ -562,6 +434,8 @@ export default function DriverPage() {
             </section>
           )}
 
+          <LicencePanel driver={d} />
+
           <section className="card">
             <h2>Shaxsiy ma’lumotlar</h2>
             <dl className="facts facts-2">
@@ -587,14 +461,6 @@ export default function DriverPage() {
                 <dd>
                   {date(d.licence.issuedOn)} ({fullYears(d.licence.issuedOn, today)} yil)
                 </dd>
-              </div>
-              <div>
-                <dt>Litsenziya kartochkasi</dt>
-                <dd className="mono">{d.licenceCard.number}</dd>
-              </div>
-              <div>
-                <dt>Amal qiladi</dt>
-                <dd>{date(d.licenceCard.expiresOn)}</dd>
               </div>
               <div>
                 <dt>Ariza</dt>
@@ -627,6 +493,26 @@ export default function DriverPage() {
             ) : (
               <p className="muted">Avtomobil ma’lumotlari yo‘q</p>
             )}
+          </section>
+
+          <section className="card">
+            <h2>
+              <Camera size={17} aria-hidden /> Yo‘lovchilar ko‘radigan suratlar
+            </h2>
+            <ul className="photo-row">
+              {photos.map((p) => (
+                <li key={p.key}>
+                  {p.url ? (
+                    <a href={p.url} target="_blank" rel="noreferrer noopener">
+                      <img src={p.url} alt={p.label} loading="lazy" />
+                    </a>
+                  ) : (
+                    <span className="photo-missing">Yuklanmagan</span>
+                  )}
+                  <span className="small muted">{p.label}</span>
+                </li>
+              ))}
+            </ul>
           </section>
 
           <section className="card">
@@ -672,7 +558,10 @@ export default function DriverPage() {
               <div>
                 <dt>Reyting (30%)</dt>
                 <dd>
-                  {rating(d.priority.stars)} ★ ({d.stats.ratingCount} baho)
+                  {rating(d.priority.stars)} ★ ({d.stats.ratingCount} baho){' '}
+                  <Link to={`/ratings?subjectId=${d.id}&of=driver`} className="small">
+                    baholar
+                  </Link>
                 </dd>
               </div>
               <div>
@@ -730,26 +619,12 @@ export default function DriverPage() {
         </div>
       </div>
 
+      {d.status !== 'pending' && <DriverRides driverId={d.id} />}
+
       {decision && (
         <DecisionDialog driver={d} decision={decision} onClose={() => setDecision(null)} />
       )}
-      <Modal
-        open={preview !== null}
-        onClose={() => setPreview(null)}
-        title={preview ? DOCUMENTS[preview.kind] : ''}
-        size="lg"
-      >
-        {preview &&
-          (isImageUrl(preview.url) ? (
-            <img src={preview.url} alt={DOCUMENTS[preview.kind]} className="doc-full" />
-          ) : (
-            <p>
-              <a href={preview.url} target="_blank" rel="noreferrer noopener">
-                Faylni yangi oynada ochish
-              </a>
-            </p>
-          ))}
-      </Modal>
+      <DocumentPreview doc={preview} onClose={() => setPreview(null)} />
     </div>
   );
 }

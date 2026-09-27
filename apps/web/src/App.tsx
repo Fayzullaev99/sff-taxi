@@ -18,6 +18,14 @@ const Tariffs = lazy(() => import('./settings/Tariffs'));
 const Cities = lazy(() => import('./settings/Cities'));
 const Settings = lazy(() => import('./settings/Settings'));
 const Account = lazy(() => import('./pages/Account'));
+const IntercityBoard = lazy(() => import('./intercity/IntercityBoard'));
+const TripPage = lazy(() => import('./intercity/TripPage'));
+const Payments = lazy(() => import('./billing/Payments'));
+const Complaints = lazy(() => import('./support/Complaints'));
+const Ratings = lazy(() => import('./support/Ratings'));
+const Appeals = lazy(() => import('./drivers/Appeals'));
+const Fiscal = lazy(() => import('./operations/Fiscal'));
+const Outbox = lazy(() => import('./operations/Outbox'));
 
 export function App() {
   const signedIn = useSignedIn();
@@ -55,7 +63,15 @@ export function App() {
           <Route path="/rides/:rideId" element={<RidePage />} />
           <Route path="/drivers" element={<DriversList />} />
           <Route path="/drivers/:driverId" element={<DriverPage />} />
+          <Route path="/intercity" element={<IntercityBoard />} />
+          <Route path="/intercity/:tripId" element={<TripPage />} />
+          <Route path="/appeals" element={<Appeals />} />
+          <Route path="/ratings" element={<Ratings />} />
           <Route path="/sos" element={<SosQueue />} />
+          <Route path="/complaints" element={<Complaints />} />
+          <Route path="/payments" element={<Payments />} />
+          <Route path="/fiscal" element={<Fiscal />} />
+          <Route path="/outbox" element={<Outbox />} />
           <Route path="/taxes" element={<Taxes />} />
           <Route path="/tariffs" element={<Tariffs />} />
           <Route path="/cities" element={<Cities />} />

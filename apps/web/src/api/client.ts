@@ -77,7 +77,11 @@ interface Options {
   auth?: boolean;
 }
 
-export async function api<T>(path: string, options: Options = {}): Promise<T> {
+/** The body and the HTTP status (201 created vs 200 repeated, for idempotent orders). */
+export async function apiResponse<T>(
+  path: string,
+  options: Options = {},
+): Promise<{ status: number; data: T }> {
   const auth = options.auth ?? true;
   const send = () => {
     const session = auth ? sessionStore.get() : null;
@@ -99,7 +103,7 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
     throw new OfflineError();
   }
   if (res.status === 401 && auth) sessionStore.set(null);
-  if (res.status === 204) return undefined as T;
+  if (res.status === 204) return { status: 204, data: undefined as T };
   const text = await res.text();
   let data: unknown = null;
   try {
@@ -119,7 +123,11 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
         : `Xatolik (${res.status})`;
     throw new ApiError(res.status, message, data);
   }
-  return data as T;
+  return { status: res.status, data: data as T };
+}
+
+export async function api<T>(path: string, options: Options = {}): Promise<T> {
+  return (await apiResponse<T>(path, options)).data;
 }
 
 const GENERIC_429 = 'Juda ko‘p urinish';

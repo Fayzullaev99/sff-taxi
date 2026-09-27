@@ -1,9 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError, errorText, fieldErrors } from '../api/client';
-import { reconnectDelay, staleKeys } from '../api/realtime';
+import {
+  applyOffer,
+  applyPositions,
+  pollInterval,
+  reconnectDelay,
+  staleKeys,
+} from '../api/realtime';
+import { nextCursorOf, ridesQuery } from '../api/queries';
 import type { AdminDriver, AdminRideItem, LiveBoard, RideEvent, SosEvent } from '../api/types';
 import { faviconSvg, titleWithBadge } from './alert';
-import { approvalChecks, expiryState, isImageUrl } from './drivers';
+import { approvalChecks, approvalProblems, expiryState, isImageFile, isImageUrl } from './drivers';
+import {
+  bookingPrice,
+  isLiveBooking,
+  isOpenTrip,
+  routePriceProblems,
+  seatChoices,
+} from './intercity';
+import { entryProblems, eventLink, fiscalProblems, isPlaceholder, resolutionsFor } from './ops';
 import {
   ago,
   date,
@@ -13,10 +28,12 @@ import {
   distance,
   duration,
   fullYears,
+  isoToTashkentLocal,
   parseSom,
   signedSom,
   som,
   tashkentDay,
+  tashkentLocalToIso,
   tashkentMonth,
   tashkentToday,
   time,
@@ -29,11 +46,11 @@ import {
   DEFAULT_LIVE_FILTERS,
   eventDetail,
   filterLive,
-  filterRides,
   freshKeys,
   knownPlaces,
   needsDriver,
   placeLine,
+  scheduleProblem,
   sortForDispatch,
 } from './rides';
 import { taxCsv } from './taxes';
@@ -90,6 +107,7 @@ function ride(over: Partial<AdminRideItem> = {}): AdminRideItem {
     startedAt: null,
     completedAt: null,
     cancelledAt: null,
+    scheduledFor: null,
     riderPhone: '+998901112233',
     riderName: 'Dilnoza',
     driverId: null,
@@ -258,17 +276,6 @@ describe('dispatch helpers', () => {
     ).toEqual(['w']);
   });
 
-  it('narrows the ride list by Tashkent day and driver', () => {
-    const late = ride({ id: 'late', requestedAt: '2026-09-26T20:00:00.000Z' }); // 27th, 01:00
-    const list = [ride(), late, assigned];
-    expect(
-      filterRides(list, { from: '2026-09-27', to: '', driverId: '' }).map((r) => r.id),
-    ).toEqual(['late']);
-    expect(
-      filterRides(list, { from: '', to: '2026-09-26', driverId: 'd1' }).map((r) => r.id),
-    ).toEqual(['a']);
-  });
-
   it('offers the caller’s past places, most used first', () => {
     const home = place(40.4901, 68.7801, 'Uy');
     const trips = [
@@ -315,7 +322,12 @@ describe('driver verification', () => {
     birthDate: '1990-05-01',
     pinfl: '12345678901234',
     licence: { number: 'AF1234567', categories: ['B'], issuedOn: '2015-01-01' },
-    licenceCard: { number: 'LC-1', expiresOn: '2027-01-01' },
+    licenceCard: {
+      number: 'LC-1',
+      expiresOn: '2027-01-01',
+      verification: 'valid',
+      checkedAt: '2026-09-21T00:00:00Z',
+    },
     status: 'pending',
     statusReason: null,
     approvedAt: null,
@@ -345,6 +357,7 @@ describe('driver verification', () => {
     },
     createdAt: '2026-09-20T00:00:00Z',
     history: [],
+    licenceChecks: [],
     balance: 0,
   };
   const today = '2026-09-26';
@@ -370,6 +383,12 @@ describe('driver verification', () => {
       vehicle: { ...driver.vehicle!, class: 'comfort' as const, features: [], year: 2018 },
     };
     expect(failed(comfort)).toHaveLength(2);
+    const unchecked = {
+      ...driver,
+      missingDocuments: [],
+      licenceCard: { ...driver.licenceCard, verification: 'unverified' as const },
+    };
+    expect(failed(unchecked)).toEqual(['Litsenziya kartochkasi reyestrda tasdiqlangan']);
   });
 
   it('warns about expiring cards and previews images only', () => {
@@ -413,5 +432,223 @@ describe('alarm badge', () => {
     expect(titleWithBadge(3, 'SOS')).toBe('(3) SOS — SFF Taxi');
     expect(faviconSvg(2)).toContain('>2</text>');
     expect(faviconSvg(150)).not.toContain('<text');
+  });
+});
+
+describe('live board from the stream', () => {
+  const driver = (id: string, over: Partial<LiveBoard['drivers'][number]> = {}) => ({
+    id,
+    name: id,
+    lat: 40.49,
+    lng: 68.78,
+    heading: null,
+    locatedAt: '2026-09-26T07:00:00.000Z',
+    onlineSince: null,
+    plate: '20A123BC',
+    class: 'economy' as const,
+    rideId: null,
+    rideStatus: null,
+    offeredRideId: null,
+    state: 'free' as const,
+    ...over,
+  });
+  const board: LiveBoard = { drivers: [driver('d1'), driver('d2')], rides: [] };
+
+  it('moves cars to the positions batch and asks for a refetch for new drivers', () => {
+    const at = '2026-09-26T07:00:05.000Z';
+    const moved = applyPositions(board, [
+      { id: 'd1', lat: 40.5, lng: 68.79, heading: 90, at, busy: false },
+    ]);
+    expect(moved.board.drivers[0]).toMatchObject({
+      lat: 40.5,
+      lng: 68.79,
+      heading: 90,
+      locatedAt: at,
+    });
+    expect(moved.board.drivers[1]).toBe(board.drivers[1]);
+    expect(moved.missing).toBe(false);
+    // nothing changed: the same object, so nothing re-renders
+    const same = applyPositions(board, [
+      {
+        id: 'd1',
+        lat: 40.49,
+        lng: 68.78,
+        heading: null,
+        at: board.drivers[0]!.locatedAt!,
+        busy: false,
+      },
+    ]);
+    expect(same.board).toBe(board);
+    expect(
+      applyPositions(board, [{ id: 'd9', lat: 1, lng: 1, heading: null, at, busy: true }]).missing,
+    ).toBe(true);
+  });
+
+  it('marks drivers offered, freed or busy from offer events', () => {
+    const offered = applyOffer(board, {
+      type: 'offer.new',
+      offerId: 'o1',
+      rideId: 'r1',
+      driverId: 'd1',
+      expiresAt: 'x',
+    });
+    expect(offered.drivers[0]).toMatchObject({ state: 'offered', offeredRideId: 'r1' });
+    const declined = applyOffer(offered, {
+      type: 'offer.closed',
+      offerId: 'o1',
+      rideId: 'r1',
+      driverId: 'd1',
+      status: 'declined',
+    });
+    expect(declined.drivers[0]).toMatchObject({ state: 'free', offeredRideId: null });
+    const accepted = applyOffer(offered, {
+      type: 'offer.closed',
+      offerId: 'o1',
+      rideId: 'r1',
+      driverId: 'd1',
+      status: 'accepted',
+    });
+    expect(accepted.drivers[0]).toMatchObject({ state: 'busy', rideId: 'r1' });
+    // a closed offer for another ride leaves the driver alone
+    expect(
+      applyOffer(offered, {
+        type: 'offer.closed',
+        offerId: 'o2',
+        rideId: 'r2',
+        driverId: 'd1',
+        status: 'expired',
+      }),
+    ).toBe(offered);
+  });
+
+  it('polls slowly while the stream is up and fast while it is down', () => {
+    expect(pollInterval('open', 30_000, 5000)).toBe(30_000);
+    expect(pollInterval('down', 30_000, 5000)).toBe(5000);
+    expect(pollInterval('connecting', 30_000, 5000)).toBe(5000);
+  });
+
+  it('refreshes appeals, complaints and trips on their events', () => {
+    expect(staleKeys({ type: 'driver.appeal', appealId: 'a', driverId: 'd1' })).toContainEqual([
+      'appeals',
+    ]);
+    expect(
+      staleKeys({ type: 'complaint.updated', complaintId: 'c1', rideId: 'r1', status: 'open' }),
+    ).toEqual([['complaints'], ['complaint', 'c1']]);
+    expect(
+      staleKeys({ type: 'intercity.updated', tripId: 't1', bookingId: null, status: 'x' }),
+    ).toEqual([['intercity']]);
+    expect(
+      staleKeys({ type: 'offer.new', offerId: 'o', rideId: 'r1', driverId: 'd', expiresAt: 'x' }),
+    ).not.toContainEqual(['live']);
+  });
+});
+
+describe('server-side paging and filters', () => {
+  it('builds the ride filters and the next cursor', () => {
+    expect(
+      ridesQuery({
+        status: 'all',
+        q: '90',
+        driverId: 'd1',
+        class: 'comfort',
+        from: '2026-09-01',
+        to: '',
+      }),
+    ).toBe('status=all&q=90&driverId=d1&class=comfort&from=2026-09-01');
+    const page = Array.from({ length: 3 }, (_, i) => ({ id: `r${i}` }));
+    expect(nextCursorOf(page, 3)).toBe('r2');
+    expect(nextCursorOf(page, 200)).toBeUndefined();
+  });
+});
+
+describe('licence, documents, money rules', () => {
+  it('reads the reasons of a refused approval', () => {
+    expect(
+      approvalProblems({
+        message: 'x',
+        issues: [
+          { path: 'licenceCard', message: 'Litsenziya kartochkasini tekshiring' },
+          { path: 'documents', message: 'Hujjatlar yetishmaydi' },
+          { path: 'documents', message: 'Hujjatlar yetishmaydi' },
+        ],
+      }),
+    ).toEqual(['Litsenziya kartochkasini tekshiring', 'Hujjatlar yetishmaydi']);
+    expect(approvalProblems(null)).toEqual([]);
+  });
+
+  it('tells pictures from PDFs by the upload type first', () => {
+    expect(isImageFile('application/pdf', 'https://s3/x.jpg?sig')).toBe(false);
+    expect(isImageFile('image/webp', 'https://s3/x?sig')).toBe(true);
+    expect(isImageFile(null, 'https://s3/doc.pdf?X-Amz=1')).toBe(false);
+    expect(isImageFile(null, null)).toBe(false);
+  });
+
+  it('checks ledger entries before they are sent', () => {
+    expect(entryProblems('topup', 20_000, '', 0)).toEqual({});
+    expect(entryProblems('adjustment', 500, '', 0)).toHaveProperty('note');
+    expect(entryProblems('payout', 60_000, 'Click 123', 50_000).amount).toMatch(/50 000/);
+    expect(entryProblems('payout', 50_000, '', 50_000)).toHaveProperty('note');
+    expect(entryProblems('payout', 50_000, 'Humo *1234', 50_000)).toEqual({});
+  });
+});
+
+describe('intercity', () => {
+  it('prices bookings and route prices like the API', () => {
+    const prices = { rear: 70_000, front: 80_000 };
+    expect(bookingPrice(1, false, prices)).toBe(70_000);
+    expect(bookingPrice(2, true, prices)).toBe(150_000);
+    expect(routePriceProblems(70_000, 80_000)).toEqual({ rear: undefined, front: undefined });
+    expect(routePriceProblems(80_000, 70_000).front).toMatch(/arzon/);
+    expect(routePriceProblems(null, 500).rear).toBeTruthy();
+    expect(routePriceProblems(null, 500).front).toMatch(/1 000/);
+    expect(seatChoices(2)).toEqual([1, 2]);
+    expect(seatChoices(7)).toEqual([1, 2, 3, 4]);
+    expect(seatChoices(0)).toEqual([]);
+    expect(isOpenTrip('boarding') && !isOpenTrip('departed')).toBe(true);
+    expect(isLiveBooking('boarded') && !isLiveBooking('no_show')).toBe(true);
+  });
+});
+
+describe('support and operations', () => {
+  it('offers the fitting resolutions first', () => {
+    expect(resolutionsFor('lost_item')[0]).toBe('item_returned');
+    expect(resolutionsFor('safety').slice(0, 2)).toEqual(['driver_warned', 'driver_blocked']);
+    expect(new Set(resolutionsFor('other')).size).toBe(6);
+  });
+
+  it('links outbox events to what they are about', () => {
+    expect(eventLink({ payload: { rideId: 'r1', driverId: 'd1' } })).toEqual({
+      to: '/rides/r1',
+      label: 'safar',
+    });
+    expect(eventLink({ payload: { tripId: 't1' } })?.to).toBe('/intercity/t1');
+    expect(eventLink({ payload: {} })).toBeNull();
+  });
+
+  it('validates the receipt settings like the API', () => {
+    const ok = {
+      city_item_name: 'Taksi xizmati',
+      intercity_item_name: 'Shaharlararo',
+      mxik_code: '10112001001000000',
+      package_code: '1500',
+      vat_percent: 0,
+    };
+    expect(fiscalProblems(ok)).toEqual({});
+    expect(fiscalProblems({ ...ok, mxik_code: '123' })).toHaveProperty('mxik_code');
+    expect(fiscalProblems({ ...ok, vat_percent: Number.NaN })).toHaveProperty('vat_percent');
+    expect(isPlaceholder({ ...ok, mxik_code: '00000000000000000' })).toBe(true);
+    expect(isPlaceholder(ok)).toBe(false);
+  });
+});
+
+describe('rides for later', () => {
+  it('takes Tashkent wall-clock times 30 minutes to 24 hours ahead', () => {
+    const now = Date.parse('2026-09-26T07:00:00.000Z'); // 12:00 in Tashkent
+    expect(tashkentLocalToIso('2026-09-26T13:30')).toBe('2026-09-26T08:30:00.000Z');
+    expect(isoToTashkentLocal(now)).toBe('2026-09-26T12:00');
+    expect(scheduleProblem('2026-09-26T13:00', now)).toBeNull();
+    expect(scheduleProblem('2026-09-26T12:20', now)).toMatch(/30/);
+    expect(scheduleProblem('2026-09-27T13:00', now)).toMatch(/24/);
+    expect(scheduleProblem('', now)).toMatch(/kiriting/);
   });
 });

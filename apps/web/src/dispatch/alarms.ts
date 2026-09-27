@@ -27,7 +27,7 @@ const SOUNDED_WINDOW_MS = 5000;
  * favicon carry the count.
  */
 export function useDispatchAlarms() {
-  const live = useLive(15_000);
+  const live = useLive(30_000, 15_000);
   const sos = useSos(true);
   const navigate = useNavigate();
   const [soundOn, setSoundOn] = useState(soundPreference.get);

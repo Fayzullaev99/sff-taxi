@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  CalendarClock,
   CircleAlert,
   CircleCheck,
   History,
@@ -10,21 +11,42 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import { api, ApiError, errorText } from '../api/client';
+import { api, ApiError, apiResponse, errorText } from '../api/client';
+import { useAppConfig } from '../api/queries';
 import type {
   AdminRide,
-  AdminRideItem,
+  CustomerLookup,
   GeoAddress,
   GeoConfig,
   LatLng,
+  Place,
   Quote,
+  RideBase,
   RideClass,
   RideOption,
 } from '../api/types';
 import { RIDE_OPTIONS } from '../api/types';
-import { CLASSES, dateTime, distance, duration, OPTIONS, RIDE_STATUS, som } from '../lib/format';
+import {
+  CLASSES,
+  date,
+  dateTime,
+  distance,
+  duration,
+  isoToTashkentLocal,
+  OPTIONS,
+  rating,
+  RIDE_STATUS,
+  som,
+  tashkentLocalToIso,
+} from '../lib/format';
 import { formatPhone, isUzPhone, normalizePhone } from '../lib/phone';
-import { knownPlaces, type KnownPlace, placeLine } from '../lib/rides';
+import {
+  knownPlaces,
+  placeLine,
+  SCHEDULE_MAX_HOURS,
+  SCHEDULE_MIN_MINUTES,
+  scheduleProblem,
+} from '../lib/rides';
 import type { MapLayers, MarkerSpec } from '../map/adapter';
 import { GeoMap, useGeoConfig } from '../map/GeoMap';
 import { AddressSearch, addressLine, cityLayers, useDebounced, useReverse } from '../map/places';
@@ -48,22 +70,15 @@ const TARGET_LABEL: Record<Target, string> = {
   dropoff: 'Borish manzili (B)',
 };
 
-/** The caller's history: an open ride blocks a new one; past places are offered as shortcuts. */
+/**
+ * Who is calling (POST admin/customers/lookup: the phone stays out of URLs and logs): the
+ * account, an open ride that blocks a new one, recent rides and places, saved places.
+ */
 function useCaller(phone: string | null) {
   return useQuery({
     queryKey: ['caller', phone],
-    queryFn: async () => {
-      const get = (status: string) =>
-        api<AdminRideItem[]>(`/v1/admin/rides?status=${status}&q=${encodeURIComponent(phone!)}`);
-      const [open, completed, cancelled] = await Promise.all([
-        get('open'),
-        get('completed'),
-        get('cancelled'),
-      ]);
-      // the API matches phones by substring: keep this caller's rides only
-      const mine = (list: AdminRideItem[]) => list.filter((r) => r.riderPhone === phone);
-      return { open: mine(open), completed: mine(completed), cancelled: mine(cancelled) };
-    },
+    queryFn: () =>
+      api<CustomerLookup>('/v1/admin/customers/lookup', { method: 'POST', body: { phone } }),
     enabled: phone !== null,
     staleTime: 30_000,
   });
@@ -71,6 +86,15 @@ function useCaller(phone: string | null) {
 
 function newRequestId(): string {
   return crypto.randomUUID();
+}
+
+const PLACE_KIND: Record<string, string> = { home: 'Uy', work: 'Ish', other: 'Saqlangan' };
+
+/** '5 ta safar, 1 ta bekor qilingan' over the caller's recent rides. */
+function callerSummary(rides: readonly RideBase[]): string {
+  const done = rides.filter((r) => r.status === 'completed').length;
+  const cancelled = rides.filter((r) => r.status === 'cancelled').length;
+  return cancelled ? `${done} ta safar, ${cancelled} ta bekor qilingan` : `${done} ta safar`;
 }
 
 function PlaceFields({
@@ -152,20 +176,20 @@ function KnownPlaces({
   places,
   onUse,
 }: {
-  places: KnownPlace[];
-  onUse: (target: Target, p: KnownPlace) => void;
+  places: (Place & { tag: string })[];
+  onUse: (target: Target, p: Place) => void;
 }) {
   if (!places.length) return null;
   return (
     <div className="known-places">
       <h3 className="subhead">
-        <History size={14} aria-hidden /> Avvalgi manzillari
+        <History size={14} aria-hidden /> Saqlangan va avvalgi manzillari
       </h3>
       <ul className="plain-list">
         {places.map((p) => (
-          <li key={`${p.lat},${p.lng}`} className="known-place">
+          <li key={`${p.tag}-${p.lat},${p.lng}`} className="known-place">
             <span className="wrap">
-              {placeLine(p)} <span className="muted small">· {p.uses} marta</span>
+              {placeLine(p)} <span className="muted small">· {p.tag}</span>
             </span>
             <span className="row-actions">
               <Button size="sm" onClick={() => onUse('pickup', p)}>
@@ -185,10 +209,13 @@ function KnownPlaces({
 function Created({
   ride,
   quoted,
+  repeated,
   onNew,
 }: {
   ride: AdminRide;
   quoted: number | null;
+  /** The API answered 200: this attempt was already ordered (a retried request). */
+  repeated: boolean;
   onNew: () => void;
 }) {
   return (
@@ -196,6 +223,12 @@ function Created({
       <h2>
         <CircleCheck size={20} aria-hidden /> #{ride.number} buyurtma qabul qilindi
       </h2>
+      {repeated && (
+        <div className="alert alert-info">
+          Bu so‘rov avval yuborilgan edi: yangi buyurtma ochilmadi, mavjud #{ride.number}{' '}
+          ko‘rsatildi.
+        </div>
+      )}
       <p>
         {placeLine(ride.pickup)} → {placeLine(ride.dropoff)}
       </p>
@@ -203,6 +236,13 @@ function Created({
         <strong>{som(ride.fare.quoted)}</strong> · {CLASSES[ride.class]} · naqd ·{' '}
         {RIDE_STATUS[ride.status]}
       </p>
+      {ride.scheduledFor && (
+        <p>
+          <CalendarClock size={15} aria-hidden /> Keyinroqqa:{' '}
+          <strong>{dateTime(ride.scheduledFor)}</strong> (haydovchi qidiruvi 15 daqiqa oldin
+          boshlanadi)
+        </p>
+      )}
       {quoted !== null && quoted !== ride.fare.quoted && (
         <div className="alert alert-warn">
           Narx hisoblangandan keyin o‘zgardi ({som(quoted)} → {som(ride.fare.quoted)}), masalan
@@ -231,6 +271,7 @@ function Created({
  */
 export default function PhoneOrder() {
   const geo = useGeoConfig();
+  const appConfig = useAppConfig();
   const queryClient = useQueryClient();
   const toast = useToast();
   const [phone, setPhone] = useState('');
@@ -242,22 +283,39 @@ export default function PhoneOrder() {
   const [rideClass, setRideClass] = useState<RideClass>('economy');
   const [options, setOptions] = useState<RideOption[]>([]);
   const [comment, setComment] = useState('');
+  const [later, setLater] = useState(false);
+  const [laterAt, setLaterAt] = useState('');
   const [view, setView] = useState<{ key: string; center: LatLng; zoom?: number }>();
-  const [created, setCreated] = useState<{ ride: AdminRide; quoted: number | null } | null>(null);
+  const [created, setCreated] = useState<{
+    ride: AdminRide;
+    quoted: number | null;
+    repeated: boolean;
+  } | null>(null);
   const [submitted, setSubmitted] = useState(false);
-  // one id per order attempt: a retried request after a network error is the same attempt
+  // one id per order attempt: a retried request (network error, double click) is the same
+  // attempt, and the API answers it with the ride it already created (200 instead of 201)
   const requestId = useRef(newRequestId());
   const phoneRef = useRef<HTMLInputElement>(null);
 
+  // the API prices rides for later; ordering one by phone needs its support (API gap)
+  const canSchedule = appConfig.data?.features.scheduledPhoneOrders === true;
   const normalized = isUzPhone(phone) ? normalizePhone(phone) : null;
   const caller = useCaller(normalized);
-  const openRide = caller.data?.open[0] ?? null;
-  const history = useMemo(
-    () => (caller.data ? [...caller.data.completed, ...caller.data.cancelled] : []),
-    [caller.data],
-  );
-  const places = useMemo(() => knownPlaces(history), [history]);
-  const knownName = history.find((r) => r.riderName)?.riderName ?? openRide?.riderName ?? null;
+  const known = caller.data?.found ? caller.data : null;
+  const openRide = known?.openRide ?? null;
+  const places = useMemo(() => {
+    if (!known) return [];
+    const saved = known.savedPlaces.map((p) => ({
+      ...p,
+      tag: p.label ?? PLACE_KIND[p.kind] ?? 'Saqlangan',
+    }));
+    const seen = new Set(saved.map((p) => `${p.lat.toFixed(3)},${p.lng.toFixed(3)}`));
+    const past = knownPlaces(known.recentRides)
+      .filter((p) => !seen.has(`${p.lat.toFixed(3)},${p.lng.toFixed(3)}`))
+      .map((p) => ({ ...p, tag: `${p.uses} marta` }));
+    return [...saved, ...past].slice(0, 8);
+  }, [known]);
+  const knownName = known?.user.name ?? null;
 
   useEffect(() => {
     if (knownName && !nameTouched) setName(knownName);
@@ -295,7 +353,7 @@ export default function PhoneOrder() {
     setView({ key: `${t}-${a.lat},${a.lng}`, center: { lat: a.lat, lng: a.lng }, zoom: 16 });
     if (t === 'pickup' && !dropoff.point) setTarget('dropoff');
   };
-  const applyKnown = (t: Target, p: KnownPlace) => {
+  const applyKnown = (t: Target, p: Place) => {
     const set = t === 'pickup' ? setPickup : setDropoff;
     set({
       point: { lat: p.lat, lng: p.lng },
@@ -307,10 +365,19 @@ export default function PhoneOrder() {
     if (t === 'pickup' && !dropoff.point) setTarget('dropoff');
   };
 
-  // the fixed price for both classes; recomputed when the trip or options change
+  // for later: priced at that time (the night add-on), so the time is part of the quote
+  const laterProblem = later ? scheduleProblem(laterAt) : null;
+  const scheduledFor = later && !laterProblem ? tashkentLocalToIso(laterAt) : null;
+
+  // the fixed price for both classes; recomputed when the trip, options or time change
   const trip = useDebounced(
-    pickup.point && dropoff.point
-      ? { pickup: pickup.point, dropoff: dropoff.point, options: [...options].sort() }
+    pickup.point && dropoff.point && (!later || scheduledFor)
+      ? {
+          pickup: pickup.point,
+          dropoff: dropoff.point,
+          options: [...options].sort(),
+          ...(scheduledFor ? { scheduledFor } : {}),
+        }
       : null,
     300,
   );
@@ -327,7 +394,7 @@ export default function PhoneOrder() {
 
   const order = useMutation({
     mutationFn: () =>
-      api<AdminRide>('/v1/admin/rides', {
+      apiResponse<AdminRide>('/v1/admin/rides', {
         method: 'POST',
         body: {
           riderPhone: normalized,
@@ -345,30 +412,46 @@ export default function PhoneOrder() {
           class: rideClass,
           options,
           comment: comment.trim() || null,
-          // not read by the API yet (it refuses a second open ride per caller instead);
-          // sent so a retried attempt can be recognised once it is
+          // the price read out to the caller is the price of the ride
+          quoteId: quote.data?.quoteId ?? null,
+          ...(scheduledFor ? { scheduledFor } : {}),
           clientRequestId: requestId.current,
         },
       }),
-    onSuccess: (ride) => {
-      setCreated({ ride, quoted: fare?.total ?? null });
+    onSuccess: ({ status, data: ride }) => {
+      const repeated = status === 200;
+      setCreated({ ride, quoted: fare?.total ?? null, repeated });
       requestId.current = newRequestId();
       void queryClient.invalidateQueries({ queryKey: ['live'] });
       void queryClient.invalidateQueries({ queryKey: ['rides'] });
       void queryClient.invalidateQueries({ queryKey: ['caller'] });
-      toast(`#${ride.number} buyurtma qabul qilindi`);
+      toast(
+        repeated
+          ? `#${ride.number} avval qabul qilingan edi`
+          : `#${ride.number} buyurtma qabul qilindi`,
+      );
+    },
+    onError: (error) => {
+      // the quote ran out (410) or is gone (404): price again, the operator reads it out anew
+      if (error instanceof ApiError && (error.status === 410 || error.status === 404)) {
+        void quote.refetch();
+      }
     },
   });
   const conflictRideId =
     order.error instanceof ApiError && order.error.status === 409
       ? ((order.error.body as { rideId?: string } | null)?.rideId ?? null)
       : null;
+  const quoteExpired =
+    order.error instanceof ApiError && (order.error.status === 410 || order.error.status === 404);
 
   const problems: string[] = [];
   if (!normalized) problems.push('Mijozning telefon raqamini kiriting');
   if (!pickup.point) problems.push('Olib ketish joyini belgilang');
   if (!dropoff.point) problems.push('Borish manzilini belgilang');
   if (openRide) problems.push(`Mijozda tugallanmagan buyurtma bor: #${openRide.number}`);
+  if (known && known.user.status !== 'active') problems.push('Bu mijoz bloklangan');
+  if (later && laterProblem) problems.push(`Keyinroqqa: ${laterProblem.toLowerCase()}`);
   if (quote.error) problems.push(errorText(quote.error));
   const canOrder = problems.length === 0 && Boolean(fare) && !quote.isFetching;
 
@@ -389,6 +472,8 @@ export default function PhoneOrder() {
     setRideClass('economy');
     setOptions([]);
     setComment('');
+    setLater(false);
+    setLaterAt('');
     order.reset();
     requestId.current = newRequestId();
     setTimeout(() => phoneRef.current?.focus(), 0);
@@ -434,7 +519,12 @@ export default function PhoneOrder() {
     return (
       <div className="phone-order">
         <PageHeader title="Telefon buyurtma" />
-        <Created ride={created.ride} quoted={created.quoted} onNew={reset} />
+        <Created
+          ride={created.ride}
+          quoted={created.quoted}
+          repeated={created.repeated}
+          onNew={reset}
+        />
       </div>
     );
   }
@@ -504,12 +594,20 @@ export default function PhoneOrder() {
                       Ochish
                     </Link>
                   </div>
-                ) : history.length ? (
+                ) : known && known.user.status !== 'active' ? (
+                  <div className="alert alert-error">
+                    <CircleAlert size={16} aria-hidden />
+                    <span>Bu mijoz bloklangan: buyurtma qabul qilinmaydi.</span>
+                  </div>
+                ) : known ? (
                   <p className="muted small">
-                    Doimiy mijoz: {caller.data.completed.length} ta safar
-                    {caller.data.cancelled.length > 0 &&
-                      `, ${caller.data.cancelled.length} ta bekor qilingan`}
-                    .
+                    {known.recentRides.length
+                      ? `Doimiy mijoz: ${callerSummary(known.recentRides)}`
+                      : 'Ro‘yxatdan o‘tgan, safarlari yo‘q'}
+                    {' · '}reyting {rating(known.user.rating)}
+                    {known.user.noShows > 0 && ` · ${known.user.noShows} marta chiqmagan`}
+                    {' · '}
+                    {date(known.user.since)} dan beri
                   </p>
                 ) : (
                   <p className="muted small">Yangi mijoz: hisob buyurtma bilan birga ochiladi.</p>
@@ -587,6 +685,54 @@ export default function PhoneOrder() {
                 />
               )}
             </Field>
+          </section>
+
+          <section className="card">
+            <h2>
+              <CalendarClock size={17} aria-hidden /> Vaqti
+            </h2>
+            <Segmented
+              label="Qachon"
+              value={later ? 'later' : 'now'}
+              onChange={(v) => {
+                if (v === 'later' && !canSchedule) return;
+                setLater(v === 'later');
+                if (v === 'later' && !laterAt) {
+                  // a round time about an hour ahead, as callers usually ask
+                  const t = Date.now() + 60 * 60_000;
+                  setLaterAt(isoToTashkentLocal(Math.ceil(t / 900_000) * 900_000));
+                }
+              }}
+              options={[
+                { value: 'now', label: 'Hozir' },
+                { value: 'later', label: 'Keyinroqqa' },
+              ]}
+            />
+            {!canSchedule ? (
+              <p className="muted small">
+                Telefon orqali keyinroqqa buyurtma serverda hali yoqilmagan: mijoz ilovadan buyurtma
+                berishi mumkin.
+              </p>
+            ) : later ? (
+              <Field
+                label="Qachonga (Toshkent vaqti)"
+                hint={`${SCHEDULE_MIN_MINUTES} daqiqadan ${SCHEDULE_MAX_HOURS} soatgacha oldin; narx shu vaqt bo‘yicha, faqat naqd. Qidiruv 15 daqiqa oldin boshlanadi.`}
+                error={laterProblem}
+              >
+                {(p) => (
+                  <input
+                    {...p}
+                    type="datetime-local"
+                    value={laterAt}
+                    min={isoToTashkentLocal(Date.now() + SCHEDULE_MIN_MINUTES * 60_000)}
+                    max={isoToTashkentLocal(Date.now() + SCHEDULE_MAX_HOURS * 3600_000)}
+                    onChange={(e) => setLaterAt(e.target.value)}
+                  />
+                )}
+              </Field>
+            ) : (
+              <p className="muted small">Haydovchi darhol qidiriladi.</p>
+            )}
           </section>
         </div>
 
@@ -689,7 +835,10 @@ export default function PhoneOrder() {
             {order.error && (
               <div className="alert alert-error" role="alert">
                 <CircleAlert size={16} aria-hidden />
-                <span>{errorText(order.error)}</span>
+                <span>
+                  {errorText(order.error)}
+                  {quoteExpired && '. Narx qayta hisoblandi: mijozga yangi narxni ayting.'}
+                </span>
                 {conflictRideId && (
                   <Link to={`/dispatch?ride=${conflictRideId}`} className="btn btn-sm">
                     Ochish

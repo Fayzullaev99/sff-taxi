@@ -1,5 +1,5 @@
 import { type AdminDriver, DOCUMENT_KINDS } from '../api/types';
-import { daysBetween, DOCUMENTS, fullYears } from './format';
+import { daysBetween, DOCUMENTS, fullYears, LICENCE_STATUS } from './format';
 
 /**
  * Resolution 200 rules as the API checks them on approval (apps/api/src/lib/driver-rules.ts),
@@ -48,6 +48,11 @@ export function approvalChecks(d: AdminDriver, today: string): Check[] {
       ok: d.licenceCard.expiresOn >= today,
       label: 'Litsenziya kartochkasi amal qiladi',
       detail: `${d.licenceCard.expiresOn} gacha`,
+    },
+    {
+      ok: d.licenceCard.verification === 'valid',
+      label: 'Litsenziya kartochkasi reyestrda tasdiqlangan',
+      detail: LICENCE_STATUS[d.licenceCard.verification],
     },
   ];
   const v = d.vehicle;
@@ -104,4 +109,19 @@ export function expiryState(expiresOn: string | null, today: string): 'ok' | 'so
 /** Whether a document URL can be shown as a picture (PDFs and others open in a new tab). */
 export function isImageUrl(url: string): boolean {
   return !/\.pdf(\?|#|$)/i.test(url);
+}
+
+/** Whether a file is a picture: by its upload's type when known, else by the URL. */
+export function isImageFile(contentType: string | null | undefined, url: string | null): boolean {
+  if (contentType) return contentType.startsWith('image/');
+  return url !== null && isImageUrl(url);
+}
+
+/** Why the API refused an approval (422 with one issue per unmet rule), as lines to show. */
+export function approvalProblems(body: unknown): string[] {
+  const issues = (body as { issues?: { message?: unknown }[] } | null)?.issues;
+  if (!Array.isArray(issues)) return [];
+  return [
+    ...new Set(issues.map((i) => i.message).filter((m): m is string => typeof m === 'string')),
+  ];
 }

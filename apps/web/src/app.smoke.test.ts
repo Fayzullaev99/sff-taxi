@@ -15,12 +15,23 @@ import type {
   AdminDriver,
   AdminRide,
   AdminRideItem,
+  AdminTrip,
   Candidate,
+  Complaint,
+  CustomerLookup,
+  DriverAppeal,
   DriverListItem,
+  FiscalReceipt,
+  FiscalRules,
+  IntercityPoint,
   LiveBoard,
+  OutboxEvent,
   Quote,
+  Rating,
+  Refund,
   SosEvent,
   TaxReport,
+  TripBooking,
 } from './api/types';
 import { App } from './App';
 import { DEFAULT_TARIFF } from './lib/tariff';
@@ -35,6 +46,13 @@ const D3 = '01a0de48-1111-7000-8000-000000000003';
 const S1 = '01a0de48-2222-7000-8000-000000000001';
 const C1 = '01a0de48-3333-7000-8000-000000000001';
 const C2 = '01a0de48-3333-7000-8000-000000000002';
+const U1 = '01a0de48-4444-7000-8000-000000000001';
+const T1 = '01a0de48-5555-7000-8000-000000000001';
+const B1 = '01a0de48-5555-7000-8000-000000000011';
+const P1 = '01a0de48-6666-7000-8000-000000000001';
+const CP1 = '01a0de48-7777-7000-8000-000000000001';
+const AP1 = '01a0de48-8888-7000-8000-000000000001';
+const OB1 = '01a0de48-9999-7000-8000-000000000031';
 
 const now = Date.now();
 const iso = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString();
@@ -96,6 +114,7 @@ function rideItem(over: Partial<AdminRideItem>): AdminRideItem {
     startedAt: null,
     completedAt: null,
     cancelledAt: null,
+    scheduledFor: null,
     riderPhone: '+998901112233',
     riderName: 'Dilnoza',
     driverId: null,
@@ -354,6 +373,14 @@ const driverItem = (over: Partial<DriverListItem>): DriverListItem => ({
   make: 'Chevrolet',
   model: 'Cobalt',
   class: 'economy',
+  lat: 40.495,
+  lng: 68.776,
+  locatedAt: iso(0.2),
+  ridesCompleted: 120,
+  licenceStatus: 'valid',
+  balance: 35_000,
+  rating: 4.9,
+  priority: 94,
   ...over,
 });
 const pendingDriver = driverItem({
@@ -362,6 +389,9 @@ const pendingDriver = driverItem({
   status: 'pending',
   isOnline: false,
   createdAt: iso(60 * 5),
+  licenceStatus: 'unverified',
+  balance: 0,
+  ridesCompleted: 0,
 });
 
 const driverDetail: AdminDriver = {
@@ -371,7 +401,12 @@ const driverDetail: AdminDriver = {
   birthDate: '1992-04-10',
   pinfl: '31004920123456',
   licence: { number: 'AF1234567', categories: ['B', 'C'], issuedOn: '2012-06-01' },
-  licenceCard: { number: 'LK-20-000123', expiresOn: '2026-10-10' },
+  licenceCard: {
+    number: 'LK-20-000123',
+    expiresOn: '2026-10-10',
+    verification: 'unverified',
+    checkedAt: null,
+  },
   status: 'pending',
   statusReason: null,
   approvedAt: null,
@@ -398,6 +433,7 @@ const driverDetail: AdminDriver = {
     },
     {
       kind: 'passport',
+      uploadId: U1,
       url: 'https://files.example/passport.pdf',
       expiresOn: null,
       uploadedAt: iso(300),
@@ -422,7 +458,35 @@ const driverDetail: AdminDriver = {
   history: [
     { from: 'rejected', to: 'pending', reason: 'Ariza qayta yuborildi', actorId: D3, at: iso(300) },
   ],
+  licenceChecks: [],
   balance: -4500,
+};
+
+const activeDetail: AdminDriver = {
+  ...driverDetail,
+  id: D1,
+  fullName: 'Aziz Karimov',
+  status: 'active',
+  approvedAt: iso(60 * 24 * 20),
+  licenceCard: {
+    number: 'LK-20-000100',
+    expiresOn: '2027-06-01',
+    verification: 'valid',
+    checkedAt: iso(60 * 24 * 20),
+  },
+  licenceChecks: [
+    {
+      source: 'manual',
+      licenceCardNumber: 'LK-20-000100',
+      result: 'valid',
+      expiresOn: null,
+      note: 'Reyestrda bor, 2027 gacha',
+      checkedBy: 'op1',
+      at: iso(60 * 24 * 20),
+    },
+  ],
+  missingDocuments: [],
+  balance: 35_000,
 };
 
 const ledger = {
@@ -538,13 +602,293 @@ const billingRules = {
   min_balance: -10_000,
 };
 
+// Callers ---------------------------------------------------------------------------------
+
+const lookup = (phone: string): CustomerLookup => {
+  if (phone === '+998901234567') {
+    return {
+      found: true,
+      phone,
+      user: {
+        id: 'u2',
+        name: 'Karim aka',
+        status: 'active',
+        rating: 4.9,
+        noShows: 0,
+        since: iso(60 * 24 * 90),
+      },
+      openRide: null,
+      recentRides: [done],
+      recentPlaces: [done.pickup, done.dropoff],
+      savedPlaces: [],
+    };
+  }
+  if (phone === '+998901112233') {
+    return {
+      found: true,
+      phone,
+      user: {
+        id: 'u1',
+        name: 'Dilnoza',
+        status: 'active',
+        rating: 4.8,
+        noShows: 1,
+        since: iso(60 * 24 * 10),
+      },
+      openRide: rideDetail,
+      recentRides: [waiting],
+      recentPlaces: [],
+      savedPlaces: [],
+    };
+  }
+  return { found: false, phone };
+};
+
+// Intercity ---------------------------------------------------------------------------------
+
+const points: IntercityPoint[] = [
+  {
+    id: 'p1',
+    slug: 'guliston',
+    nameUz: 'Guliston',
+    nameRu: 'Гулистан',
+    lat: 40.49,
+    lng: 68.78,
+    meetingPoint: 'Guliston avtovokzali',
+  },
+  {
+    id: 'p2',
+    slug: 'toshkent',
+    nameUz: 'Toshkent',
+    nameRu: 'Ташкент',
+    lat: 41.3,
+    lng: 69.24,
+    meetingPoint: 'Olmazor',
+  },
+];
+
+const tripBooking: TripBooking = {
+  id: B1,
+  number: 77,
+  tripId: T1,
+  status: 'booked',
+  channel: 'app',
+  seats: 2,
+  front: false,
+  price: 140_000,
+  pickupNote: 'Bozor oldida',
+  cancelledBy: null,
+  cancelReason: null,
+  cancellationFee: 0,
+  createdAt: iso(120),
+  boardedAt: null,
+  completedAt: null,
+  cancelledAt: null,
+  riderId: 'u3',
+  riderName: 'Nodira',
+  riderPhone: '+998935550011',
+  commission: null,
+  tax: null,
+};
+
+const trip: AdminTrip = {
+  id: T1,
+  number: 501,
+  status: 'scheduled',
+  from: points[0]!,
+  to: points[1]!,
+  departureAt: new Date(now + 3 * 3600_000).toISOString(),
+  meetingPoint: 'Guliston avtovokzali',
+  comment: 'Yukxona bo‘sh',
+  class: 'economy',
+  distanceM: 118_000,
+  seats: { total: 4, free: 2, frontOffered: true, frontFree: true },
+  price: { rear: 70_000, front: 80_000 },
+  driver: {
+    id: D1,
+    name: 'Aziz Karimov',
+    phone: '+998901234000',
+    rating: 4.9,
+    ridesCompleted: 120,
+    photoUrl: null,
+  },
+  vehicle: {
+    make: 'Chevrolet',
+    model: 'Cobalt',
+    colour: 'Oq',
+    class: 'economy',
+    photoUrl: null,
+    plate: '20A123BC',
+    plateFormatted: '20 A 123 BC',
+  },
+  referenceRear: 70_000,
+  cancelledBy: null,
+  cancelReason: null,
+  boardingAt: null,
+  departedAt: null,
+  arrivedAt: null,
+  cancelledAt: null,
+  bookings: [tripBooking],
+};
+
+const routeFare = {
+  from: points[0]!,
+  to: points[1]!,
+  class: 'economy' as const,
+  distanceM: 118_000,
+  durationS: 5400,
+  source: 'route' as const,
+  reference: { rear: 70_000, front: 80_000 },
+  band: { min: 59_500, max: 80_500 },
+};
+
+// Money, support, operations ---------------------------------------------------------------
+
+const refunds: Refund[] = [
+  {
+    id: P1,
+    amount: 12_000,
+    provider: 'click',
+    paidAt: iso(90),
+    refundRequestedAt: iso(80),
+    rideId: R3,
+    rideNumber: 990,
+    riderPhone: '+998901234567',
+    cancelReason: 'Haydovchi topilmadi',
+  },
+];
+
+const complaint: Complaint = {
+  id: CP1,
+  rideId: R3,
+  rideNumber: 990,
+  riderId: 'u2',
+  driverId: D1,
+  type: 'lost_item',
+  typeLabel: 'Mashinada narsa qoldi',
+  status: 'open',
+  text: 'Orqa o‘rindiqda telefonim qoldi',
+  resolution: null,
+  resolutionNote: null,
+  resolvedBy: null,
+  resolvedAt: null,
+  createdAt: iso(40),
+  messages: [{ id: 'm1', authorRole: 'rider', text: 'Qora Samsung', at: iso(35) }],
+};
+
+const appeal: DriverAppeal = {
+  id: AP1,
+  driverId: D2,
+  fullName: 'Bobur Toshev',
+  phone: '+998935554433',
+  driverStatus: 'blocked',
+  statusReason: 'Shikoyatlar',
+  statusAt: 'blocked',
+  text: 'Iltimos, qayta ko‘rib chiqing, xato tushunmovchilik bo‘ldi',
+  status: 'open',
+  resolution: null,
+  resolvedBy: null,
+  resolvedAt: null,
+  createdAt: iso(200),
+};
+
+const ratingRow: Rating = {
+  id: 'g1',
+  rideId: R3,
+  rideNumber: 990,
+  authorRole: 'rider',
+  authorId: 'u2',
+  authorName: 'Karim aka',
+  subjectId: D1,
+  subjectName: 'Aziz Karimov',
+  subjectPhone: '+998901234000',
+  stars: 2,
+  tags: ['Qo‘pol'],
+  comment: 'Telefonda gaplashib haydadi',
+  createdAt: iso(50),
+};
+
+const receipt: FiscalReceipt = {
+  id: 'fr1',
+  rideId: R3,
+  bookingId: null,
+  provider: 'none',
+  status: 'skipped',
+  amount: 7000,
+  receiptId: null,
+  url: null,
+  attempts: 1,
+  lastError: null,
+  payload: {
+    receiptNumber: `R-${R3}`,
+    kind: 'ride',
+    orderNumber: 990,
+    items: [
+      { name: 'Taksi xizmati', mxik: '00000000000000000', packageCode: '0000000', price: 700_000 },
+    ],
+  },
+  createdAt: iso(55),
+  sentAt: null,
+};
+
+const fiscalRules: FiscalRules = {
+  city_item_name: 'Taksi xizmati (yo‘lovchi tashish)',
+  intercity_item_name: 'Shaharlararo yo‘lovchi tashish (o‘rindiq)',
+  mxik_code: '00000000000000000',
+  package_code: '0000000',
+  vat_percent: 0,
+};
+
+const intercityRules = {
+  price_band_percent: 15,
+  publish_max_days_ahead: 7,
+  publish_min_minutes_ahead: 15,
+  free_cancel_minutes: 60,
+  late_cancel_fee_percent: 30,
+  boarding_opens_minutes: 60,
+};
+
+const outboxEvent: OutboxEvent = {
+  id: OB1,
+  topic: 'fiscal.receipt_due',
+  payload: { rideId: R3 },
+  attempts: 10,
+  maxAttempts: 10,
+  lastError: 'OFD: 503 Service Unavailable',
+  nextAttemptAt: iso(-5),
+  createdAt: iso(300),
+};
+
+/** A page of the ride list: 200 rides, so the list offers the next one. */
+const fullPage = Array.from({ length: 200 }, (_, i) =>
+  rideItem({
+    id: `01a0de48-0000-7000-8000-${String(1000 + i).padStart(12, '0')}`,
+    number: 5000 - i,
+    status: 'completed',
+    class: 'comfort',
+    attentionAt: null,
+  }),
+);
+
 type Init = RequestInit | undefined;
 type Mock = unknown | ((init: Init, path: string) => unknown);
 const method = (init: Init) => init?.method ?? 'GET';
 const body = (init: Init) => (init?.body ? JSON.parse(init.body as string) : null);
 
 /** Per-test overrides of what an endpoint answers. */
-const state = { rideAfterAction: null as AdminRide | null };
+const state = {
+  rideAfterAction: null as AdminRide | null,
+  /** POST admin/rides: 201 for a new ride, 200 when the request id was seen. */
+  orderStatus: 201,
+  /** POST admin/drivers/:id/approve refuses with the API's 422. */
+  refuseApproval: false,
+  scheduledPhoneOrders: false,
+};
+
+/** A mock answer with another status than 200/201. */
+const withStatus = (status: number, body: unknown) => ({ __status: status, body });
+
+const query = (path: string) => new URLSearchParams(path.split('?')[1]);
 
 const routes: [RegExp, Mock][] = [
   [
@@ -557,6 +901,32 @@ const routes: [RegExp, Mock][] = [
     { accessToken: 'a2', accessTokenExpiresIn: 900, refreshToken: 'r2', isNewUser: false },
   ],
   [/^\/v1\/stream\/ticket$/, { ticket: 'x'.repeat(32), expiresInSeconds: 60 }],
+  [
+    /^\/v1\/config$/,
+    () => ({
+      support: { phone: null, telegram: null, officeAddress: null },
+      features: {
+        cardPayments: true,
+        uploads: true,
+        intercity: true,
+        scheduledRides: true,
+        scheduledPhoneOrders: state.scheduledPhoneOrders,
+      },
+      cardProviders: ['payme', 'click'],
+    }),
+  ],
+  [
+    /^\/v1\/uploads\/[^/]+$/,
+    {
+      id: U1,
+      purpose: 'document',
+      contentType: 'application/pdf',
+      sizeBytes: 2_400_000,
+      status: 'ready',
+      url: 'https://s3.example/documents/passport?X-Amz-Signature=fresh',
+      createdAt: iso(300),
+    },
+  ],
   [
     /^\/v1\/geo\/config$/,
     {
@@ -597,35 +967,70 @@ const routes: [RegExp, Mock][] = [
   [/^\/v1\/admin\/dispatch\/live$/, live],
   [/^\/v1\/admin\/dispatch\/rides\/[^/]+\/candidates$/, candidates],
   [/^\/v1\/admin\/rides\/quote$/, quote],
+  [/^\/v1\/admin\/customers\/lookup$/, (init: Init) => lookup(body(init).phone)],
   [/^\/v1\/admin\/rides\/[^/]+\/assign$/, () => (state.rideAfterAction = assignedDetail)],
   [/^\/v1\/admin\/rides\/[^/]+\/cancel$/, () => (state.rideAfterAction = cancelledDetail)],
   [/^\/v1\/admin\/rides\/[^/]+$/, () => state.rideAfterAction ?? rideDetail],
   [
     /^\/v1\/admin\/rides$/,
     (init: Init, path: string) => {
-      if (method(init) === 'POST') return created;
-      const status = new URLSearchParams(path.split('?')[1]).get('status');
-      const q = new URLSearchParams(path.split('?')[1]).get('q');
+      if (method(init) === 'POST') return withStatus(state.orderStatus, created);
+      const q = query(path);
+      if (q.get('class') === 'comfort') return q.get('cursor') ? [done] : fullPage;
+      const status = q.get('status');
+      const text = q.get('q');
       const all = [waiting, assigned, done];
       return all.filter(
         (r) =>
-          (status === 'open'
-            ? r.status !== 'completed' && r.status !== 'cancelled'
-            : r.status === status) &&
-          (!q || r.riderPhone.includes(q) || String(r.number) === q),
+          (status === 'all' ||
+            (status === 'open'
+              ? r.status !== 'completed' && r.status !== 'cancelled'
+              : r.status === status)) &&
+          (!text || r.riderPhone.includes(text) || String(r.number) === text) &&
+          (!q.get('driverId') || r.driverId === q.get('driverId')),
       );
     },
   ],
+  [/^\/v1\/admin\/drivers\/appeals\/[^/]+\/resolve$/, { ...appeal, status: 'resolved' }],
   [
-    /^\/v1\/admin\/drivers\/[^/]+\/(approve|reject|block|unblock)$/,
-    { ...driverDetail, status: 'active' },
+    /^\/v1\/admin\/drivers\/appeals$/,
+    (_init: Init, path: string) => (query(path).get('status') === 'resolved' ? [] : [appeal]),
   ],
+  [
+    /^\/v1\/admin\/drivers\/[^/]+\/approve$/,
+    () =>
+      state.refuseApproval
+        ? withStatus(422, {
+            statusCode: 422,
+            message: 'Litsenziya kartochkasini Transport vazirligi reyestrida tekshiring',
+            issues: [
+              {
+                path: 'licenceCard',
+                message: 'Litsenziya kartochkasini Transport vazirligi reyestrida tekshiring',
+              },
+              { path: 'documents', message: 'Hujjatlar yetishmaydi: selfie' },
+            ],
+          })
+        : { ...driverDetail, status: 'active' },
+  ],
+  [/^\/v1\/admin\/drivers\/[^/]+\/(reject|block|unblock)$/, { ...driverDetail, status: 'active' }],
+  [
+    /^\/v1\/admin\/drivers\/[^/]+\/licence$/,
+    {
+      ...driverDetail,
+      licenceCard: { ...driverDetail.licenceCard, verification: 'valid', checkedAt: iso(0) },
+    },
+  ],
+  [/^\/v1\/admin\/drivers\/[^/]+\/rides$/, [done]],
   [/^\/v1\/admin\/drivers\/[^/]+\/vehicle$/, driverDetail],
-  [/^\/v1\/admin\/drivers\/[^/]+$/, driverDetail],
+  [
+    /^\/v1\/admin\/drivers\/[^/]+$/,
+    (_init: Init, path: string) => (path.includes(D1) ? activeDetail : driverDetail),
+  ],
   [
     /^\/v1\/admin\/drivers$/,
     (_init: Init, path: string) => {
-      const status = new URLSearchParams(path.split('?')[1]).get('status');
+      const status = query(path).get('status');
       const all = [
         pendingDriver,
         driverItem({}),
@@ -635,6 +1040,7 @@ const routes: [RegExp, Mock][] = [
           status: 'blocked',
           statusReason: 'Shikoyatlar',
           isOnline: false,
+          balance: -2000,
         }),
       ];
       return status ? all.filter((d) => d.status === status) : all;
@@ -647,6 +1053,47 @@ const routes: [RegExp, Mock][] = [
   ],
   [/^\/v1\/admin\/billing\/taxes\/remit$/, { period: '2026-08', rows: 42 }],
   [/^\/v1\/admin\/billing\/taxes$/, taxReport],
+  [/^\/v1\/admin\/payments\/refunds$/, refunds],
+  [/^\/v1\/admin\/payments\/[^/]+\/refunded$/, { id: P1, status: 'refunded' }],
+  [/^\/v1\/intercity\/points$/, points],
+  [/^\/v1\/intercity\/fares$/, routeFare],
+  [/^\/v1\/admin\/intercity\/search$/, [trip]],
+  [/^\/v1\/admin\/intercity\/trips\/[^/]+\/bookings$/, { ...tripBooking, id: 'b2', number: 78 }],
+  [
+    /^\/v1\/admin\/intercity\/trips\/[^/]+\/cancel$/,
+    { ...trip, status: 'cancelled', cancelledBy: 'operator', cancelReason: 'Mashina buzildi' },
+  ],
+  [/^\/v1\/admin\/intercity\/trips\/[^/]+$/, trip],
+  [/^\/v1\/admin\/intercity\/trips$/, [trip]],
+  [/^\/v1\/admin\/intercity\/bookings\/[^/]+\/cancel$/, { ...tripBooking, status: 'cancelled' }],
+  [
+    /^\/v1\/admin\/intercity\/fares$/,
+    (init: Init) =>
+      method(init) === 'PUT'
+        ? routeFare
+        : [{ from: 'guliston', to: 'toshkent', rear: 70_000, front: 80_000, updatedAt: iso(600) }],
+  ],
+  [/^\/v1\/admin\/complaints\/[^/]+\/messages$/, complaint],
+  [/^\/v1\/admin\/complaints\/[^/]+\/resolve$/, { ...complaint, status: 'resolved' }],
+  [/^\/v1\/admin\/complaints\/[^/]+$/, complaint],
+  [
+    /^\/v1\/admin\/complaints$/,
+    (_init: Init, path: string) => ({
+      items:
+        query(path).get('status') === 'resolved'
+          ? []
+          : [{ ...complaint, riderPhone: '+998901234567', updatedAt: iso(35) }],
+      nextCursor: null,
+    }),
+  ],
+  [/^\/v1\/admin\/ratings$/, { items: [ratingRow], nextCursor: null }],
+  [/^\/v1\/admin\/fiscal\/receipts\/resend$/, { queued: 1 }],
+  [/^\/v1\/admin\/fiscal\/receipts$/, [receipt]],
+  [/^\/v1\/admin\/outbox\/[^/]+\/retry$/, { id: OB1, topic: outboxEvent.topic, attempts: 0 }],
+  [
+    /^\/v1\/admin\/outbox$/,
+    (_init: Init, path: string) => (query(path).get('state') === 'failing' ? [] : [outboxEvent]),
+  ],
   [/^\/v1\/admin\/sos\/[^/]+\/resolve$/, { id: S1, resolved: true }],
   [/^\/v1\/admin\/sos$/, sos],
   [
@@ -660,6 +1107,14 @@ const routes: [RegExp, Mock][] = [
   [
     /^\/v1\/admin\/settings\/billing$/,
     (init: Init) => (method(init) === 'PUT' ? body(init) : billingRules),
+  ],
+  [
+    /^\/v1\/admin\/settings\/intercity$/,
+    (init: Init) => (method(init) === 'PUT' ? body(init) : intercityRules),
+  ],
+  [
+    /^\/v1\/admin\/settings\/fiscal$/,
+    (init: Init) => (method(init) === 'PUT' ? body(init) : fiscalRules),
   ],
   [/^\/v1\/admin\/geo\/cities\/[^/]+$/, (init: Init) => ({ ...adminCities[1]!, ...body(init) })],
   [/^\/v1\/admin\/geo\/cities$/, adminCities],
@@ -681,8 +1136,11 @@ beforeAll(() => {
       const hit = routes.find(([re]) => re.test(pathOnly));
       if (!hit) unmatched.push(path);
       const data = hit ? (typeof hit[1] === 'function' ? hit[1](init, path) : hit[1]) : null;
-      return new Response(JSON.stringify(hit ? data : { message: 'not mocked' }), {
-        status: hit ? (method(init) === 'POST' && pathOnly === '/v1/admin/rides' ? 201 : 200) : 404,
+      const custom = data as { __status?: number; body?: unknown } | null;
+      const status = !hit ? 404 : (custom?.__status ?? 200);
+      const payload = !hit ? { message: 'not mocked' } : custom?.__status ? custom.body : data;
+      return new Response(JSON.stringify(payload), {
+        status,
         headers: { 'Content-Type': 'application/json' },
       });
     }),
@@ -720,6 +1178,9 @@ afterEach(() => {
   act(() => root?.unmount());
   container?.remove();
   state.rideAfterAction = null;
+  state.orderStatus = 201;
+  state.refuseApproval = false;
+  state.scheduledPhoneOrders = false;
 });
 
 async function render(path: string): Promise<string> {
@@ -886,6 +1347,58 @@ describe('panel smoke', () => {
       ],
     ],
     ['/cities', ['Shaharlar', 'Guliston', 'Yangiyer', 'Tez orada', 'O‘ziniki']],
+    ['/rides?status=all', ['#1001', '#990', 'Barcha holatlar']],
+    [
+      `/drivers/${D1}`,
+      [
+        'Aziz Karimov',
+        'Reyestrda tasdiqlangan',
+        'Reyestrda bor, 2027 gacha',
+        'Safarlari',
+        '#990',
+        'Pul o‘tkazish',
+      ],
+    ],
+    [
+      '/drivers?status=active',
+      ['Aziz Karimov', 'Tasdiqlangan', '4,9 ★', '120 safar', '94', '35 000 so‘m', 'GPS hozirgina'],
+    ],
+    [
+      '/intercity',
+      ['Shaharlararo', '#501', 'Guliston → Toshkent', 'Aziz Karimov', '2 / 4 bo‘sh', '1 ta bron'],
+    ],
+    ['/intercity?tab=book', ['Mijoz uchun bron', 'Yukxona bo‘sh', 'Bron qilish', 'Uchrashuv']],
+    [
+      '/intercity?tab=fares',
+      ['Yo‘nalish narxi', 'Guliston → Toshkent', '70 000 so‘m', 'haydovchi oralig‘i'],
+    ],
+    [
+      `/intercity/${T1}`,
+      ['#501: Guliston → Toshkent', 'Nodira', 'Bozor oldida', 'Bron qilingan', 'Mijoz uchun bron'],
+    ],
+    ['/payments', ['To‘lovlar', 'Qaytarishlar (1)', '#990', '12 000 so‘m', 'Click', 'Qaytarildi']],
+    ['/payments?tab=payouts', ['Haydovchilarga to‘lov', 'Aziz Karimov', '35 000 so‘m']],
+    [
+      `/payments?tab=topups&driver=${D1}`,
+      ['Aziz Karimov: balans', 'Naqd to‘ldirish', 'Ofisda naqd'],
+    ],
+    [
+      '/complaints',
+      ['Shikoyatlar', 'Orqa o‘rindiqda telefonim qoldi', 'Mashinada narsa qoldi', 'Yangi'],
+    ],
+    [`/complaints?id=${CP1}`, ['Qora Samsung', 'Javob yuborish', 'Murojaatni yopish']],
+    [
+      '/appeals',
+      ['Haydovchilar murojaatlari', 'Bobur Toshev', 'xato tushunmovchilik', 'Shikoyatlar'],
+    ],
+    ['/ratings', ['Baholar', 'Aziz Karimov', 'Telefonda gaplashib haydadi', '#990']],
+    [
+      '/fiscal',
+      ['Fiskal cheklar', 'Saqlangan (yuborilmagan)', '7 000 so‘m', 'Saqlanganlarni yuborish'],
+    ],
+    ['/fiscal?tab=settings', ['MXIK (IKPU) kodi', 'MXIK kodi hali nollardan iborat']],
+    ['/outbox', ['Bajarilmagan amallar', 'Fiskal chek', 'OFD: 503 Service Unavailable', '10 / 10']],
+    ['/settings?x=1', ['Shaharlararo qatnovlar', 'Haydovchi narx oralig‘i']],
     ['/account', ['Hisob', 'Ismingiz']],
     ['/nowhere', ['Jonli xarita']],
   ];
@@ -962,6 +1475,7 @@ describe('panel smoke', () => {
       options: ['child_seat'],
       comment: 'Darvoza oldida',
       clientRequestId: '01a0de48-9999-4000-8000-000000000001',
+      quoteId: 'q1',
       pickup: { lat: 40.4911, lng: 68.7812, address: 'Mustaqillik 5', landmark: 'Dorixona oldida' },
       dropoff: { address: 'Temir yo‘l vokzali' },
     });
@@ -1160,6 +1674,315 @@ describe('panel smoke', () => {
     } finally {
       sessionStore.set({ accessToken: 'a', refreshToken: 'r' });
     }
+  });
+
+  it('records the licence registry check before approval', async () => {
+    calls.length = 0;
+    await render(`/drivers/${D3}`);
+    expect(document.body.textContent).toContain('Reyestrda tekshirilmagan');
+    await click(button('Reyestr natijasini yozish'));
+    await settle(4);
+    // the note must say where it was checked
+    await click(button('Tasdiqlangan deb yozish'));
+    await settle(4);
+    expect(posted(`/v1/admin/drivers/${D3}/licence`)).toHaveLength(0);
+    const note = document.querySelector<HTMLTextAreaElement>('dialog textarea')!;
+    await typeInto(note, 'Transport vazirligi reyestri: LK-20-000123 amal qiladi');
+    await click(button('Tasdiqlangan deb yozish'));
+    await settle();
+    expect(posted(`/v1/admin/drivers/${D3}/licence`).map((c) => c.body)).toEqual([
+      {
+        result: 'valid',
+        note: 'Transport vazirligi reyestri: LK-20-000123 amal qiladi',
+        expiresOn: null,
+      },
+    ]);
+    expect(document.body.textContent).toContain('Reyestrda tasdiqlangan');
+  });
+
+  it('shows why the API refused an approval (422)', async () => {
+    state.refuseApproval = true;
+    await render(`/drivers/${D3}`);
+    await click(button('Tasdiqlash'));
+    await settle(4);
+    await click(button('Tasdiqlash'));
+    await settle();
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('Server tasdiqlamadi');
+    expect(text).toContain('Litsenziya kartochkasini Transport vazirligi reyestrida tekshiring');
+    expect(text).toContain('Hujjatlar yetishmaydi: selfie');
+  });
+
+  it('opens an uploaded document through a fresh read URL', async () => {
+    calls.length = 0;
+    await render(`/drivers/${D3}`);
+    expect(calls.some((c) => c.path === `/v1/uploads/${U1}`)).toBe(true);
+    // the last tile is the passport, an upload
+    await click(button('Asl faylni ochish'));
+    await settle();
+    const frame = document.querySelector<HTMLIFrameElement>('dialog iframe');
+    expect(frame?.src).toBe('https://s3.example/documents/passport?X-Amz-Signature=fresh');
+    expect(document.body.textContent).toContain('2,3 MB');
+  });
+
+  it('opens the existing ride when an order request is repeated (200)', async () => {
+    state.orderStatus = 200;
+    calls.length = 0;
+    await render('/phone-order');
+    await typeInto(document.querySelector<HTMLInputElement>('input[type="tel"]')!, '90 123 45 67');
+    await settle();
+    const places = [...document.querySelectorAll<HTMLElement>('.known-place')];
+    await click([...places[0]!.querySelectorAll('button')].find((b) => b.textContent === 'A')!);
+    await click([...places[1]!.querySelectorAll('button')].find((b) => b.textContent === 'B')!);
+    await settle(30);
+    await click(button('Buyurtma berish ·'));
+    await settle();
+    expect(posted('/v1/admin/rides')).toHaveLength(1);
+    expect(document.body.textContent).toContain('Bu so‘rov avval yuborilgan edi');
+    // the caller lookup is one POST (again after the order), not three ride searches
+    const lookups = posted('/v1/admin/customers/lookup').map((c) => c.body);
+    expect(lookups[0]).toEqual({ phone: '+998901234567' });
+    expect(lookups.length).toBeLessThanOrEqual(2);
+    expect(calls.filter((c) => c.path.startsWith('/v1/admin/rides?'))).toHaveLength(0);
+  });
+
+  it('orders a ride for later when the server allows it', async () => {
+    state.scheduledPhoneOrders = true;
+    calls.length = 0;
+    await render('/phone-order');
+    await typeInto(document.querySelector<HTMLInputElement>('input[type="tel"]')!, '90 123 45 67');
+    await settle();
+    const places = [...document.querySelectorAll<HTMLElement>('.known-place')];
+    await click([...places[0]!.querySelectorAll('button')].find((b) => b.textContent === 'A')!);
+    await click([...places[1]!.querySelectorAll('button')].find((b) => b.textContent === 'B')!);
+    await click(button('Keyinroqqa'));
+    await settle(30);
+    const when = document.querySelector<HTMLInputElement>('input[type="datetime-local"]')!;
+    expect(when.value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+    const quoted = posted('/v1/admin/rides/quote').at(-1)!.body as { scheduledFor?: string };
+    expect(Date.parse(quoted.scheduledFor!) - Date.now()).toBeGreaterThan(30 * 60_000);
+    await click(button('Buyurtma berish ·'));
+    await settle();
+    const order = posted('/v1/admin/rides').at(-1)!.body as Record<string, unknown>;
+    expect(order.scheduledFor).toBe(quoted.scheduledFor);
+    expect(order.quoteId).toBe('q1');
+  });
+
+  it('keeps the for-later option off while the server does not support it', async () => {
+    await render('/phone-order');
+    await click(button('Keyinroqqa'));
+    await settle(4);
+    expect(document.querySelector('input[type="datetime-local"]')).toBeNull();
+    expect(document.body.textContent).toContain('hali yoqilmagan');
+  });
+
+  it('filters rides on the server and loads the next page', async () => {
+    calls.length = 0;
+    await render('/rides?status=all');
+    const classSelect = document.querySelector<HTMLSelectElement>('#ride-class')!;
+    await act(async () => {
+      classSelect.value = 'comfort';
+      classSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await settle(30);
+    const listCalls = calls.filter((c) => c.path.startsWith('/v1/admin/rides?'));
+    expect(listCalls.map((c) => c.path)).toContain('/v1/admin/rides?status=all&class=comfort');
+    expect(document.body.textContent).toContain('200 ta ko‘rsatildi');
+    await click(button('Ko‘proq yuklash'));
+    await settle(30);
+    expect(calls.map((c) => c.path)).toContain(
+      `/v1/admin/rides?status=all&class=comfort&cursor=${fullPage.at(-1)!.id}`,
+    );
+    expect(document.body.textContent).toContain('201 ta ko‘rsatildi');
+  });
+
+  it('moves cars and shows offers from the stream without polling', async () => {
+    calls.length = 0;
+    streams.length = 0;
+    await render('/dispatch');
+    const stream = streams.at(-1)!;
+    const send = async (event: unknown) => {
+      await act(async () => {
+        stream.onmessage?.({ data: JSON.stringify(event) });
+      });
+      await settle(6);
+    };
+    await send({ type: 'ready' });
+    const before = calls.filter((c) => c.path === '/v1/admin/dispatch/live').length;
+    await send({
+      type: 'drivers.positions',
+      drivers: [{ id: D2, lat: 40.5, lng: 68.8, heading: 10, at: iso(0), busy: false }],
+    });
+    await send({ type: 'offer.new', offerId: 'o9', rideId: R1, driverId: D2, expiresAt: iso(-1) });
+    expect(document.body.textContent).toContain('Taklif ko‘rmoqda 2');
+    // known drivers and offers are applied in place: no refetch of the board
+    expect(calls.filter((c) => c.path === '/v1/admin/dispatch/live').length).toBe(before);
+    // a driver who just came online is not on the board: fetch it
+    await send({
+      type: 'drivers.positions',
+      drivers: [{ id: 'new-driver', lat: 40.5, lng: 68.8, heading: null, at: iso(0), busy: false }],
+    });
+    expect(calls.filter((c) => c.path === '/v1/admin/dispatch/live').length).toBeGreaterThan(
+      before,
+    );
+  });
+
+  it('books seats for a caller and cancels a booking on the trip page', async () => {
+    calls.length = 0;
+    await render(`/intercity/${T1}`);
+    await click(button('Mijoz uchun bron'));
+    await settle(4);
+    await typeInto(
+      document.querySelector<HTMLInputElement>('dialog input[type="tel"]')!,
+      '93 555 00 22',
+    );
+    await click(button('Old o‘rindiq'));
+    await click(button('Bron qilish ·'));
+    await settle();
+    expect(posted(`/v1/admin/intercity/trips/${T1}/bookings`).map((c) => c.body)).toEqual([
+      { riderPhone: '+998935550022', riderName: null, seats: 1, front: true, pickupNote: null },
+    ]);
+    await click(button('Bekor qilish'));
+    await settle(4);
+    await click(button('Takroriy bron'));
+    await click(button('Bronni bekor qilish'));
+    await settle();
+    expect(posted(`/v1/admin/intercity/bookings/${B1}/cancel`).map((c) => c.body)).toEqual([
+      { reason: 'Takroriy bron' },
+    ]);
+  });
+
+  it('sets a route price after confirmation', async () => {
+    calls.length = 0;
+    await render('/intercity?tab=fares');
+    const [rear, front] = [
+      ...document.querySelectorAll<HTMLInputElement>('.fares-layout input[inputmode="numeric"]'),
+    ];
+    await typeInto(rear!, '75000');
+    await typeInto(front!, '70000');
+    await click(button('Saqlash'));
+    await settle(4);
+    expect(document.body.textContent).toContain('Old o‘rindiq orqadagidan arzon bo‘lmasin');
+    await typeInto(front!, '85000');
+    await click(button('Saqlash'));
+    await settle(4);
+    await click(button('Saqlash'));
+    await settle();
+    expect(posted('/v1/admin/intercity/fares', 'PUT').map((c) => c.body)).toEqual([
+      { from: 'guliston', to: 'toshkent', rear: 75000, front: 85000 },
+    ]);
+  });
+
+  it('records a refund and a payout of card money', async () => {
+    calls.length = 0;
+    await render('/payments');
+    await click(button('Qaytarildi'));
+    await settle(4);
+    await typeInto(document.querySelector<HTMLTextAreaElement>('dialog textarea')!, 'CLICK-778899');
+    await click(button('Qaytarildi deb yozish'));
+    await settle();
+    expect(posted(`/v1/admin/payments/${P1}/refunded`).map((c) => c.body)).toEqual([
+      { reference: 'CLICK-778899' },
+    ]);
+    act(() => root?.unmount());
+    container?.remove();
+
+    await render('/payments?tab=payouts');
+    await click(button('Pul o‘tkazish'));
+    await settle(4);
+    await click(button('O‘tkazildi deb yozish'));
+    await settle(4);
+    // the transfer reference is required
+    expect(posted(`/v1/admin/billing/drivers/${D1}/ledger`)).toHaveLength(0);
+    await typeInto(
+      document.querySelector<HTMLInputElement>('dialog input:not([inputmode])')!,
+      'Humo *4411, 0012',
+    );
+    await click(button('O‘tkazildi deb yozish'));
+    await settle();
+    expect(posted(`/v1/admin/billing/drivers/${D1}/ledger`).map((c) => c.body)).toEqual([
+      { kind: 'payout', amount: 35000, note: 'Humo *4411, 0012' },
+    ]);
+  });
+
+  it('answers and closes a lost-item complaint', async () => {
+    calls.length = 0;
+    await render(`/complaints?id=${CP1}`);
+    const reply = document.querySelector<HTMLTextAreaElement>('dialog textarea')!;
+    await typeInto(reply, 'Haydovchi telefoningizni ofisga olib keladi');
+    await act(async () => {
+      reply.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }),
+      );
+    });
+    await settle();
+    expect(posted(`/v1/admin/complaints/${CP1}/messages`).map((c) => c.body)).toEqual([
+      { text: 'Haydovchi telefoningizni ofisga olib keladi' },
+    ]);
+    const select = document.querySelector<HTMLSelectElement>('dialog select')!;
+    await act(async () => {
+      select.value = 'item_returned';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await click(button('Murojaatni yopish'));
+    await settle(4);
+    await click(button('Yopish'));
+    await settle();
+    expect(posted(`/v1/admin/complaints/${CP1}/resolve`).map((c) => c.body)).toEqual([
+      { resolution: 'item_returned', note: null },
+    ]);
+  });
+
+  it('answers a driver’s appeal', async () => {
+    calls.length = 0;
+    await render('/appeals');
+    await click(button('Javob berish'));
+    await settle(4);
+    await click(button('Hujjatlarni to‘g‘rilab'));
+    await click(button('Javob berish'));
+    await settle();
+    expect(posted(`/v1/admin/drivers/appeals/${AP1}/resolve`).map((c) => c.body)).toEqual([
+      { resolution: 'Hujjatlarni to‘g‘rilab, arizani qayta yuboring' },
+    ]);
+  });
+
+  it('queues kept receipts and saves the MXIK codes', async () => {
+    calls.length = 0;
+    await render('/fiscal');
+    await click(button('Saqlanganlarni yuborish'));
+    await settle(4);
+    await click(button('Navbatga qo‘yish'));
+    await settle();
+    expect(posted('/v1/admin/fiscal/receipts/resend').map((c) => c.body)).toEqual([
+      { status: 'skipped' },
+    ]);
+    act(() => root?.unmount());
+    container?.remove();
+
+    await render('/fiscal?tab=settings');
+    const mxik = [...document.querySelectorAll<HTMLInputElement>('input.mono')][0]!;
+    await typeInto(mxik, '1011200');
+    await settle(2);
+    expect(document.body.textContent).toContain('MXIK kodi 17 ta raqam');
+    await typeInto(mxik, '10112001001000000');
+    await click(button('Saqlash'));
+    await settle(4);
+    await click(button('Saqlash'));
+    await settle();
+    expect(posted('/v1/admin/settings/fiscal', 'PUT').map((c) => c.body)).toEqual([
+      { ...fiscalRules, mxik_code: '10112001001000000' },
+    ]);
+  });
+
+  it('retries a dead side effect', async () => {
+    calls.length = 0;
+    await render('/outbox');
+    await click(button('Qayta urinish'));
+    await settle(4);
+    // the confirmation dialog's button
+    await click(button('Qayta urinish'));
+    await settle();
+    expect(posted(`/v1/admin/outbox/${OB1}/retry`)).toHaveLength(1);
   });
 
   it('called only mocked endpoints', () => {

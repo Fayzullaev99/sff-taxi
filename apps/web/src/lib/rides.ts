@@ -8,7 +8,7 @@ import type {
   RideStatus,
   SosEvent,
 } from '../api/types';
-import { ACTORS, CLASSES, digits, duration, OPTIONS, tashkentDay } from './format';
+import { ACTORS, CLASSES, digits, duration, OPTIONS, tashkentLocalToIso } from './format';
 
 export const OPEN_STATUSES: RideStatus[] = [
   'searching',
@@ -18,6 +18,10 @@ export const OPEN_STATUSES: RideStatus[] = [
 ];
 
 export const isOpen = (s: RideStatus) => OPEN_STATUSES.includes(s);
+
+/** Operators may cancel anything unfinished: rides for later and unpaid card rides too. */
+export const canCancel = (s: RideStatus) =>
+  isOpen(s) || s === 'scheduled' || s === 'awaiting_payment';
 
 /** The API assigns a searching ride, or moves an assigned one to another driver. */
 export const canAssign = (s: RideStatus) => s === 'searching' || s === 'driver_assigned';
@@ -172,25 +176,6 @@ export function countByState(board: LiveBoard): Record<LiveDriverState, number> 
   return out;
 }
 
-// Ride list filters (the API filters by status and phone/number only) ----------------------
-
-export interface ListFilters {
-  /** Tashkent days "YYYY-MM-DD", inclusive; empty = no bound. */
-  from: string;
-  to: string;
-  driverId: string;
-}
-
-export function filterRides(rides: readonly AdminRideItem[], f: ListFilters): AdminRideItem[] {
-  return rides.filter((r) => {
-    const day = tashkentDay(r.requestedAt);
-    if (f.from && day < f.from) return false;
-    if (f.to && day > f.to) return false;
-    if (f.driverId && r.driverId !== f.driverId) return false;
-    return true;
-  });
-}
-
 // Caller lookup ---------------------------------------------------------------------------
 
 export interface KnownPlace extends Place {
@@ -199,7 +184,10 @@ export interface KnownPlace extends Place {
 }
 
 /** The caller's past pickups and drop-offs, most used first (about 50 m counts as the same). */
-export function knownPlaces(rides: readonly AdminRideItem[], limit = 6): KnownPlace[] {
+export function knownPlaces(
+  rides: readonly Pick<AdminRideItem, 'pickup' | 'dropoff'>[],
+  limit = 6,
+): KnownPlace[] {
   const byKey = new Map<string, KnownPlace>();
   for (const r of rides) {
     for (const p of [r.pickup, r.dropoff]) {
@@ -215,4 +203,20 @@ export function knownPlaces(rides: readonly AdminRideItem[], limit = 6): KnownPl
     }
   }
   return [...byKey.values()].sort((a, b) => b.uses - a.uses).slice(0, limit);
+}
+
+// Rides for later -------------------------------------------------------------------------
+
+/** Rides for later: 30 minutes to 24 hours ahead (the API's quote rule). */
+export const SCHEDULE_MIN_MINUTES = 30;
+export const SCHEDULE_MAX_HOURS = 24;
+
+/** Why a time for later cannot be ordered, or null (`local` is Tashkent wall clock). */
+export function scheduleProblem(local: string, now = Date.now()): string | null {
+  const iso = tashkentLocalToIso(local);
+  if (!iso) return 'Sana va vaqtni kiriting';
+  const ahead = (Date.parse(iso) - now) / 60_000;
+  if (ahead < SCHEDULE_MIN_MINUTES) return `Kamida ${SCHEDULE_MIN_MINUTES} daqiqadan keyin`;
+  if (ahead > SCHEDULE_MAX_HOURS * 60) return `Ko‘pi bilan ${SCHEDULE_MAX_HOURS} soat oldin`;
+  return null;
 }
