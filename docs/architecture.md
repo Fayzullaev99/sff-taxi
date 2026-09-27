@@ -306,5 +306,6 @@ Backend backlog:
   (a telephony provider's number masking; today riders and drivers see each other's phones only
   within a ride or a booking), tips by card, owed fees of card riders and late seat cancellations,
   automatic payouts.
-- The shared driver pool with SFF Eats (A9); a load test before launch.
+- The shared driver pool with SFF Eats (A9); a load test on the production host with two API
+  replicas (the laptop run and its fixes: [audit.md](audit.md) "Load test").
 - Deployment in a UZ data centre: [deploy.md](deploy.md).

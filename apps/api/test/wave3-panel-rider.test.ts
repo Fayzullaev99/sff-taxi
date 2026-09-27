@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { randomUUID } from 'node:crypto';
+import { v7 as uuidv7 } from 'uuid';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { loadEnv } from '../src/config/env.js';
 import { Database } from '../src/core/db/database.js';
@@ -8,6 +9,7 @@ import { OutboxDispatcher } from '../src/core/outbox/dispatcher.js';
 import { REDIS } from '../src/core/redis/redis.token.js';
 import { FiscalService } from '../src/modules/fiscal/fiscal.service.js';
 import { checkoutUrl, returnUrl } from '../src/modules/payments/payment-config.js';
+import { uuidFloor } from '../src/modules/rides/rides.service.js';
 import { PositionsJob } from '../src/modules/realtime/positions.job.js';
 import {
   REALTIME_CHANNEL,
@@ -397,6 +399,33 @@ describe('app gaps, wave 3: operator panel and rider app', () => {
         reasonLabel: 'Avtomobil nosoz',
       });
       expect(view.body.reasonLabels.decline.break).toBe('Dam olyapman');
+    });
+  });
+
+  describe('ride lists (load test fixes)', () => {
+    it('bounds the day filter by time-ordered ids and finds rides by a phone fragment', async () => {
+      const at = new Date();
+      expect(uuidFloor(at) <= uuidv7({ msecs: at.getTime() })).toBe(true);
+      expect(uuidFloor(new Date(at.getTime() + 1)) > uuidv7({ msecs: at.getTime() })).toBe(true);
+      const rider = await signIn(app);
+      const { id } = await orderRide(app, rider);
+      const day = (offset: number) =>
+        new Date(Date.now() + 5 * 3600_000 + offset * 86_400_000).toISOString().slice(0, 10);
+      const today = await admin
+        .get(`/v1/admin/rides?status=all&from=${day(0)}&to=${day(0)}`)
+        .expect(200);
+      expect(today.body.map((r: { id: string }) => r.id)).toContain(id);
+      const tomorrow = await admin.get(`/v1/admin/rides?status=all&from=${day(1)}`).expect(200);
+      expect(tomorrow.body.map((r: { id: string }) => r.id)).not.toContain(id);
+      const yesterday = await admin.get(`/v1/admin/rides?status=all&to=${day(-1)}`).expect(200);
+      expect(yesterday.body.map((r: { id: string }) => r.id)).not.toContain(id);
+      const byPhone = await admin
+        .get(`/v1/admin/rides?status=all&q=${rider.phone.slice(-6)}`)
+        .expect(200);
+      expect(byPhone.body.map((r: { id: string }) => r.id)).toContain(id);
+      // lists leave the tariff snapshot out; the ride view still has its rules
+      expect(byPhone.body[0]).not.toHaveProperty('tariff');
+      await admin.post(`/v1/admin/rides/${id}/cancel`).send({ reason: 'Sinov' }).expect(200);
     });
   });
 

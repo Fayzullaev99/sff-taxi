@@ -65,6 +65,8 @@ import { AvailabilityService } from './availability.service.js';
 
 type Db = Tx | Database['kysely'];
 type Ride = Selectable<RidesTable>;
+/** A ride as lists read it (without the tariff snapshot). */
+type ListedRide = Omit<Ride, 'tariff'>;
 
 /** How long a quoted price may be ordered. */
 export const QUOTE_TTL_SECONDS = 10 * 60;
@@ -1219,7 +1221,7 @@ export class RidesService {
         .executeTakeFirst(),
       this.db.kysely
         .selectFrom('rides')
-        .selectAll()
+        .select(LIST_COLUMNS)
         .where('rider_id', '=', user.id)
         .orderBy('id', 'desc')
         .limit(10)
@@ -1277,7 +1279,7 @@ export class RidesService {
   async riderScheduled(user: AuthUser) {
     const rows = await this.db.kysely
       .selectFrom('rides')
-      .selectAll()
+      .select(LIST_COLUMNS)
       .where('rider_id', '=', user.userId)
       .where('status', '=', 'scheduled')
       .orderBy('scheduled_for')
@@ -1597,7 +1599,7 @@ export class RidesService {
     };
   }
 
-  baseView(ride: Ride) {
+  baseView(ride: ListedRide) {
     const vehicle = ride.vehicle
       ? { ...ride.vehicle, plateFormatted: formatPlate(ride.vehicle.plate) }
       : null;
@@ -1641,7 +1643,7 @@ export class RidesService {
     };
   }
 
-  private earnings(ride: Ride) {
+  private earnings(ride: ListedRide) {
     return ride.status === 'completed'
       ? {
           fare: ride.fare_total,
@@ -1733,7 +1735,7 @@ export class RidesService {
   async riderHistory(user: AuthUser, cursor?: string) {
     const rows = await this.db.kysely
       .selectFrom('rides')
-      .selectAll()
+      .select(LIST_COLUMNS)
       .where('rider_id', '=', user.userId)
       .$if(Boolean(cursor), (q) => q.where('id', '<', cursor!))
       .orderBy('id', 'desc')
@@ -1768,7 +1770,7 @@ export class RidesService {
   async driverHistory(user: AuthUser, cursor?: string) {
     const rows = await this.db.kysely
       .selectFrom('rides')
-      .selectAll()
+      .select(LIST_COLUMNS)
       .where('driver_id', '=', user.userId)
       .where('status', 'in', ['completed', 'cancelled'])
       .$if(Boolean(cursor), (q) => q.where('id', '<', cursor!))
@@ -1806,14 +1808,23 @@ export class RidesService {
     const dayStart = (d: string) => new Date(`${d}T00:00:00+05:00`);
     const rows = await this.db.kysely
       .selectFrom('rides')
-      .selectAll()
+      .select(LIST_COLUMNS)
       .$if(statuses !== null, (q) => q.where('status', 'in', statuses!))
       .$if(Boolean(filter.driverId), (q) => q.where('driver_id', '=', filter.driverId!))
       .$if(Boolean(filter.riderId), (q) => q.where('rider_id', '=', filter.riderId!))
       .$if(Boolean(filter.class), (q) => q.where('class', '=', filter.class!))
-      .$if(Boolean(filter.from), (q) => q.where('requested_at', '>=', dayStart(filter.from!)))
+      // ids are time-ordered (uuid v7) and a ride's id never comes after its request time (a
+      // ride for later or a card ride is requested at most ~a day after it was created): the
+      // id bounds let the newest-first scan start and stop at the right days
+      .$if(Boolean(filter.from), (q) =>
+        q
+          .where('requested_at', '>=', dayStart(filter.from!))
+          .where('id', '>=', uuidFloor(new Date(dayStart(filter.from!).getTime() - 26 * 3600_000))),
+      )
       .$if(Boolean(filter.to), (q) =>
-        q.where('requested_at', '<', new Date(dayStart(filter.to!).getTime() + 86_400_000)),
+        q
+          .where('requested_at', '<', new Date(dayStart(filter.to!).getTime() + 86_400_000))
+          .where('id', '<', uuidFloor(new Date(dayStart(filter.to!).getTime() + 86_400_000))),
       )
       .$if(Boolean(filter.cursor), (q) => q.where('id', '<', filter.cursor!))
       .$if(Boolean(filter.q), (q) =>
@@ -1837,6 +1848,71 @@ export class RidesService {
     }));
   }
 }
+
+/** The smallest uuid v7 of a moment: ids of rides created from then on are >= it. */
+export function uuidFloor(at: Date): string {
+  const hex = Math.max(0, at.getTime()).toString(16).padStart(12, '0');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-0000-0000-000000000000`;
+}
+
+/** Every ride column but the tariff snapshot (2 KB of JSON): lists never show it. */
+const LIST_COLUMNS = [
+  'id',
+  'number',
+  'rider_id',
+  'rider_phone',
+  'rider_name',
+  'channel',
+  'created_by',
+  'client_request_id',
+  'quote_id',
+  'city_id',
+  'kind',
+  'class',
+  'pickup',
+  'pickup_lat',
+  'pickup_lng',
+  'dropoff',
+  'dropoff_lat',
+  'dropoff_lng',
+  'options',
+  'comment',
+  'distance_m',
+  'duration_s',
+  'fare',
+  'fare_quoted',
+  'waiting_fee',
+  'fare_total',
+  'cancellation_fee',
+  'commission',
+  'commission_note',
+  'tax',
+  'payment_method',
+  'payment_status',
+  'status',
+  'driver_id',
+  'vehicle',
+  'dispatch_stage',
+  'direct_offers',
+  'broadcast_at',
+  'attention_at',
+  'cancelled_by',
+  'cancel_reason',
+  'share_token',
+  'scheduled_for',
+  'fee_status',
+  'fee_collect_ride_id',
+  'fee_waived_by',
+  'fee_waive_note',
+  'owed_fee',
+  'requested_at',
+  'assigned_at',
+  'arrived_at',
+  'started_at',
+  'completed_at',
+  'cancelled_at',
+  'updated_at',
+] as const satisfies readonly Exclude<keyof RidesTable, 'tariff'>[];
 
 /** An event for operators, with the Uzbek label of the reason code it carries. */
 function labelEvent<E extends { type: string; data: Record<string, unknown> }>(e: E) {

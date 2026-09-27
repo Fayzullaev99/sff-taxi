@@ -100,6 +100,53 @@ Re-run it before launch and after any change to ordering, payments, the outbox o
 - **Collecting owed fees**: cash rides' cancellation fees are collected by the rider's next cash
   ride (a separate quote line, once per ride in the ledger, waivable; `wave3-driver-fees.test.ts`).
   Late seat cancellations are recorded only; card riders' fees are not kept from refunds.
-- **Load test**: not run for taxi yet; SFF Eats' numbers (same core) are in its checklist.
-  Run one against a throwaway database before launch (quote, order, location updates, dispatch
-  tick with 100 online drivers).
+- **Load test**: run on 2026-09-27 (below); re-run after changes to dispatch, lists or the
+  ledger, and with 2 API replicas on the production host before launch.
+
+## Load test (2026-09-27)
+
+A throwaway database seeded by `apps/api/scripts/loadtest/seed.ts`: 2 000 active drivers and
+50 000 riders in Guliston, 500 000 rides over 180 days (85% completed), 1.45 M ride events,
+450 000 offers, 425 000 tax ledger entries and withholdings, 127 000 ratings. One API process
+(:3270, `DB_POOL_MAX=10`) and one worker (:3271, dispatch tick 1 s) on the development laptop
+(Windows, Postgres 17 and Redis in Docker), driven by `apps/api/scripts/loadtest/run.mjs`:
+300 drivers online sending a GPS fix every 4 s for the whole run (75 fixes/s), drivers hearing
+offers from the realtime channel (as the app's stream) and accepting through the API.
+
+| Scenario (ms)                                  | Load                       | Before p50 / p95 | After p50 / p95 |
+| ---------------------------------------------- | -------------------------- | ---------------- | --------------- |
+| `POST rides/quote`                             | 20 concurrent, ~310 req/s  | 67 / 102         | 61 / 88         |
+| `POST driver/location` (all phases)            | 75 fixes/s in background   | 22 / 143         | 35 / 124        |
+| `GET admin/dispatch/live`                      | 5 concurrent               | 24 / 35          | 39 / 60 ¹       |
+| `GET admin/rides?status=open`                  | 5 concurrent               | 5 / 9            | 5 / 9           |
+| `GET admin/rides?status=all`                   | 5 concurrent               | 58 / 86          | 49 / 77         |
+| `GET admin/rides` completed, one month         | 5 concurrent               | **542 / 599**    | 46 / 73         |
+| `GET admin/rides` by driver                    | 5 concurrent               | 52 / 81          | 39 / 60         |
+| `GET admin/rides?q=` phone fragment            | 5 concurrent               | **406 / 793** ²  | 25 / 42         |
+| `GET admin/drivers` (balances, card owed)      | 3 concurrent               | 54 / 85          | 20 / 34         |
+| `POST rides` (order, busy)                     | 20 rider flows, 4 orders/s | 25 / 85          | 20 / 79         |
+| `POST driver/offers/:id/accept`                | same                       | 21 / 38          | 19 / 34         |
+| `complete` (charges, receipt event)            | same                       | 23 / 43          | 24 / 43         |
+| order → first offer (dispatch)                 | same                       | —                | 390 / 844       |
+| order → assigned (incl. ~2.5 s driver reading) | same                       | 3 728 / 4 863    | 3 029 / 4 117   |
+
+¹ Measured with 553 drivers online (the first run left its 300 on shift). ² p99 4.5 s.
+"Before" is a shorter first run (5-8 s phases, 15 s cycle), "after" 20 s phases and a 60 s
+cycle (241 orders, all assigned; no 5xx, no outbox backlog, no errors in the logs).
+
+Fixes (`migrations/0014_load_test_indexes.sql` and `rides.service.ts`):
+
+- **Rides by day** scanned the primary key backwards through every newer ride (74 000 rows
+  filtered for one month, 250 ms in SQL): ids are time-ordered, so the day filter also bounds
+  the id (a ride's id is never later than its request, and at most ~a day earlier for rides for
+  later and card rides): 250 ms → under 1 ms in SQL.
+- **Phone search** (`%4521%`) read all 500 000 rides: a `pg_trgm` GIN index (129 ms → 0.8 ms).
+- **Balances** (dispatch eligibility, the driver list, card money owed) summed ~250 ledger rows
+  per driver from the heap: a covering index `(driver_id, kind) INCLUDE (amount)` makes it an
+  index-only scan (driver list 54 → 20 ms).
+- **Lists** no longer load the 2 KB tariff snapshot of every ride (views of one ride still do).
+
+Next when the fleet grows: dispatch eligibility sums every in-radius driver's ledger before the
+nearest ten are taken (18 ms with 553 online); above ~1 000 online drivers keep a running
+balance per driver (trigger-maintained) instead. The API is CPU-bound near 300 quotes/s per
+process: the production profile runs two replicas.
