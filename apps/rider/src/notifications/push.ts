@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
 import { endpoints } from '../api/endpoints';
 import { getSessionStatus } from '../api/session';
 import { colors } from '../ui/theme';
-import { pushLocale, resolveProjectId } from './data';
+import { pushLocale, pushPermissionState, resolveProjectId } from './data';
 
 export type PushPermission = 'granted' | 'denied' | 'undetermined' | 'unsupported';
 
@@ -64,10 +64,12 @@ export function configureNotifications(): Promise<void> {
 }
 
 function toPermission(p: Notifications.NotificationPermissionsStatus): PushPermission {
-  if (p.granted) return 'granted';
-  // iOS "provisional" delivers quietly: good enough for status updates
-  if (p.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL) return 'granted';
-  return p.canAskAgain && p.status !== 'denied' ? 'undetermined' : 'denied';
+  return pushPermissionState({
+    granted: p.granted,
+    status: p.status,
+    canAskAgain: p.canAskAgain,
+    provisional: p.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL,
+  });
 }
 
 export async function getPushPermission(): Promise<PushPermission> {
