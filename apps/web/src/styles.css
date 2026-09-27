@@ -2449,3 +2449,42 @@ textarea:disabled {
     transition: none !important;
   }
 }
+
+/* Owed cancellation fees ------------------------------------------------------------------ */
+.fee-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+.owed-fee > div {
+  flex: 1;
+  min-width: 0;
+}
+.owed-fee p {
+  margin: 0 0 6px;
+}
+.owed-line {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--amber-50);
+  color: var(--amber);
+}
+
+/* Card payments summary ------------------------------------------------------------------- */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.summary-card h3 {
+  margin: 0 0 4px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.summary-main {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+}

@@ -5,10 +5,20 @@ import type {
   Place,
   RideClass,
   RideEvent,
+  ReasonLabels,
   RideStatus,
   SosEvent,
 } from '../api/types';
-import { ACTORS, CLASSES, digits, duration, OPTIONS, tashkentLocalToIso } from './format';
+import {
+  ACTORS,
+  CLASSES,
+  DECLINE_REASONS,
+  digits,
+  duration,
+  OPTIONS,
+  PROVIDERS,
+  tashkentLocalToIso,
+} from './format';
 
 export const OPEN_STATUSES: RideStatus[] = [
   'searching',
@@ -61,9 +71,17 @@ export function placeLine(p: Pick<Place, 'address' | 'landmark' | 'lat' | 'lng'>
   return p.landmark ? `${base} (${p.landmark})` : base;
 }
 
-/** What an event in the ride's history says, for the timeline. */
-export function eventDetail(e: RideEvent, driverName: (id: string) => string | null): string {
+/**
+ * What an event in the ride's history says, for the timeline. Reason codes read as the API's
+ * label (`reasonLabel`), else the panel's copy of the table, else the text as sent.
+ */
+export function eventDetail(
+  e: RideEvent,
+  driverName: (id: string) => string | null,
+  labels?: Partial<ReasonLabels>,
+): string {
   const d = e.data ?? {};
+  const text = (v: unknown) => (typeof v === 'string' && v ? v : null);
   const driver = typeof d.driverId === 'string' ? (driverName(d.driverId) ?? 'haydovchi') : null;
   switch (e.type) {
     case 'requested':
@@ -83,8 +101,14 @@ export function eventDetail(e: RideEvent, driverName: (id: string) => string | n
       ]
         .filter(Boolean)
         .join(', ');
-    case 'offer_declined':
-      return d.kind === 'broadcast' ? 'e’lon' : '';
+    case 'offer_declined': {
+      const code = text(d.reason);
+      const reason =
+        e.reasonLabel ?? (code ? ((labels?.decline ?? DECLINE_REASONS)[code] ?? code) : null);
+      return [driver, d.kind === 'broadcast' ? 'e’lon' : null, reason].filter(Boolean).join(', ');
+    }
+    case 'offer_expired':
+      return driver ?? '';
     case 'broadcast':
       return typeof d.drivers === 'number'
         ? `${d.drivers} ta haydovchiga`
@@ -95,9 +119,32 @@ export function eventDetail(e: RideEvent, driverName: (id: string) => string | n
       return d.reason === 'no_driver' ? 'avtomatik qidiruv haydovchi topmadi' : '';
     case 'assigned':
       return [driver, d.manual ? 'operator tayinladi' : null].filter(Boolean).join(', ');
-    case 'driver_released':
-      return [driver, d.reason === 'reassigned' ? 'boshqa haydovchiga berildi' : d.reason]
-        .filter((x) => typeof x === 'string' && x)
+    case 'driver_released': {
+      const code = text(d.reasonCode);
+      const reason =
+        e.reasonLabel ??
+        (code
+          ? (labels?.driverCancel?.[code] ?? code)
+          : d.reason === 'reassigned'
+            ? (labels?.release?.reassigned ?? 'boshqa haydovchiga berildi')
+            : text(d.reason));
+      return [driver, reason].filter(Boolean).join(', ');
+    }
+    case 'paid':
+    case 'refunded':
+      return [
+        typeof d.amount === 'number' ? `${digits(d.amount)} so‘m` : null,
+        text(d.provider) ? (PROVIDERS[d.provider as string] ?? (d.provider as string)) : null,
+      ]
+        .filter(Boolean)
+        .join(', ');
+    case 'owed_fee_added':
+      return typeof d.amount === 'number'
+        ? `bekor qilingan safar(lar) uchun ${digits(d.amount)} so‘m naqd olinadi`
+        : '';
+    case 'fee_waived':
+      return [typeof d.amount === 'number' ? `${digits(d.amount)} so‘m` : null, text(d.note)]
+        .filter(Boolean)
         .join(', ');
     case 'started':
       return typeof d.waitingFee === 'number' && d.waitingFee > 0
@@ -106,6 +153,9 @@ export function eventDetail(e: RideEvent, driverName: (id: string) => string | n
     case 'completed':
       return [
         typeof d.fare === 'number' ? `jami ${digits(d.fare)} so‘m` : null,
+        typeof d.owedFee === 'number' && d.owedFee > 0
+          ? `qarz ${digits(d.owedFee)} so‘m olindi`
+          : null,
         typeof d.commission === 'number' ? `komissiya ${digits(d.commission)}` : null,
         typeof d.tax === 'number' ? `soliq ${digits(d.tax)}` : null,
       ]
@@ -210,6 +260,8 @@ export function knownPlaces(
 /** Rides for later: 30 minutes to 24 hours ahead (the API's quote rule). */
 export const SCHEDULE_MIN_MINUTES = 30;
 export const SCHEDULE_MAX_HOURS = 24;
+/** Rides for later one rider may have waiting at once (the API's SCHEDULED_PER_RIDER). */
+export const SCHEDULED_PER_RIDER = 3;
 
 /** Why a time for later cannot be ordered, or null (`local` is Tashkent wall clock). */
 export function scheduleProblem(local: string, now = Date.now()): string | null {

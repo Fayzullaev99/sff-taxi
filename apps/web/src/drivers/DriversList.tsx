@@ -155,7 +155,17 @@ export default function DriversList() {
                     {rating(d.rating)} ★<div className="muted small">{d.ridesCompleted} safar</div>
                   </td>
                   <td className="num">{d.priority}</td>
-                  <td className={`num${d.balance < 0 ? ' negative' : ''}`}>{som(d.balance)}</td>
+                  <td className={`num${d.balance < 0 ? ' negative' : ''}`}>
+                    {som(d.balance)}
+                    {(d.cardOwed ?? 0) > 0 && (
+                      <div
+                        className="muted small"
+                        title="Karta safarlari puli: haydovchiga o‘tkazilishi kerak"
+                      >
+                        karta puli {som(d.cardOwed!)}
+                      </div>
+                    )}
+                  </td>
                   <td className="nowrap">
                     {date(d.createdAt)}
                     {tab === 'pending' && <div className="muted small">{ago(d.createdAt)}</div>}

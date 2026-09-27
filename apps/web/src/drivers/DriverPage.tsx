@@ -6,6 +6,7 @@ import {
   CircleCheck,
   CircleX,
   ClipboardList,
+  CreditCard,
   ShieldCheck,
   Undo2,
 } from 'lucide-react';
@@ -40,6 +41,7 @@ import {
   percent,
   rating,
   RIDE_STATUS_SHORT,
+  som,
   tashkentToday,
 } from '../lib/format';
 import { RideRows } from '../rides/RideRows';
@@ -256,6 +258,58 @@ function VehicleEditor({ driver }: { driver: AdminDriver }) {
         Saqlash
       </Button>
     </div>
+  );
+}
+
+/** Card-ride fares the platform holds for the driver, what was paid out and what is due. */
+function CardMoneyCard({ driver }: { driver: AdminDriver }) {
+  const m = driver.cardMoney!;
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2>
+          <CreditCard size={17} aria-hidden /> Karta safarlari puli
+        </h2>
+        <Link to="/payments?tab=payouts" className="small">
+          Haydovchilarga to‘lov
+        </Link>
+      </div>
+      <dl className="facts facts-2">
+        <div>
+          <dt>Tushgan</dt>
+          <dd>{som(m.credited)}</dd>
+        </div>
+        <div>
+          <dt>O‘tkazilgan</dt>
+          <dd>{som(m.paidOut)}</dd>
+        </div>
+        <div>
+          <dt>Qarzimiz</dt>
+          <dd>
+            <strong>{som(m.owed)}</strong>
+          </dd>
+        </div>
+        <div>
+          <dt>Hozir o‘tkazish mumkin</dt>
+          <dd>{som(m.payableNow)}</dd>
+        </div>
+        <div>
+          <dt>Oxirgi o‘tkazma</dt>
+          <dd>{m.lastPayoutAt ? dateTime(m.lastPayoutAt) : '—'}</dd>
+        </div>
+        <div>
+          <dt>Karta to‘lovlari</dt>
+          <dd>
+            <Link to={`/payments?tab=intents&driverId=${driver.id}`}>to‘ldirishlar</Link>
+          </dd>
+        </div>
+      </dl>
+      {m.payableNow < m.owed && (
+        <p className="muted small">
+          Balans {som(driver.balance)}: komissiya, soliq va qarzlar avval ushlanadi.
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -588,6 +642,8 @@ export default function DriverPage() {
               </div>
             </dl>
           </section>
+
+          {d.cardMoney && <CardMoneyCard driver={d} />}
 
           <LedgerCard driver={d} />
 
