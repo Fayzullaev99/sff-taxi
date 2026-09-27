@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react';
+import { AppState } from 'react-native';
 import { secureStorage } from '../lib/secure-storage';
 import { createApiClient, type SessionTokens, type TokenStore } from './client';
+import { whenForeground } from './foreground';
 import { setOnline } from './reachability';
 
 /** Default: the host machine as seen from the Android emulator. */
@@ -22,14 +24,19 @@ function emit() {
   for (const l of listeners) l();
 }
 
+/** Writes to secure storage one after another, so an older pair never lands last. */
+let writes: Promise<void> = Promise.resolve();
+
 /** In-memory tokens for the API client, written through to secure storage. */
 const tokenStore: TokenStore = {
   get: () => tokens,
   set(next) {
     tokens = next;
     status = next ? 'signedIn' : 'signedOut';
-    void secureStorage.set(SESSION_KEY, next ? JSON.stringify(next) : null);
+    const value = next ? JSON.stringify(next) : null;
+    writes = writes.then(() => secureStorage.set(SESSION_KEY, value));
     emit();
+    return writes;
   },
 };
 
@@ -40,6 +47,9 @@ export const api = createApiClient({
     for (const l of signOutListeners) l();
   },
   onReachability: setOnline,
+  // never rotate the refresh token while the app is in the background: the OS may cut the
+  // request off after the server rotated it, and the next try would be a "reuse"
+  refreshGate: () => whenForeground(AppState),
 });
 
 /** Reads the saved session once at start-up. */
@@ -113,6 +123,8 @@ export async function signOut(): Promise<void> {
       ),
     );
   }
+  // a refresh in flight would leave the logout below with a dead token
+  await api.settled();
   const current = tokens;
   tokenStore.set(null);
   for (const l of signOutListeners) l();

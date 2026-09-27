@@ -168,6 +168,122 @@ describe('api client', () => {
     expect(JSON.parse(String(calls[1]!.init.body))).toEqual({ refreshToken: 's' });
   });
 
+  it('never sends two refreshes at once and never reuses a rotated refresh token', async () => {
+    const tokens = memoryStore({ accessToken: 'a0', refreshToken: 'r0' });
+    const used: string[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let n = 0;
+    const { fetch } = fakeFetch(async (url, init) => {
+      if (url.endsWith('/refresh')) {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        const sent = (JSON.parse(String(init.body)) as { refreshToken: string }).refreshToken;
+        used.push(sent);
+        await new Promise((r) => setTimeout(r, 3));
+        inFlight--;
+        n++;
+        return json(200, { accessToken: `a${n}`, refreshToken: `r${n}` });
+      }
+      // only the newest access token works: requests answered after a rotation get 401
+      await new Promise((r) => setTimeout(r, Math.random() * 4));
+      const token = auth(init)?.slice(7);
+      return token === tokens.value?.accessToken ? json(200, {}) : json(401, {});
+    });
+    const api = createApiClient({ baseUrl: 'http://x', tokens, fetch });
+    // SSE tickets, queries and explicit refreshes all mixed together
+    await Promise.all([
+      ...Array.from({ length: 12 }, (_, i) =>
+        api.request(i % 3 ? '/v1/rides/current' : '/v1/stream/ticket').catch(() => undefined),
+      ),
+      api.refresh(),
+      api.refresh(),
+    ]);
+    expect(maxInFlight).toBe(1);
+    expect(new Set(used).size).toBe(used.length);
+  });
+
+  it('waits for the gate (the app in the foreground) before refreshing', async () => {
+    const tokens = memoryStore({ accessToken: 'a', refreshToken: 'r' });
+    let open: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const { fetch, calls } = fakeFetch((url, init) => {
+      if (url.endsWith('/refresh')) return json(200, { accessToken: 'b', refreshToken: 's' });
+      return auth(init) === 'Bearer b' ? json(200, { ok: 1 }) : json(401, {});
+    });
+    const api = createApiClient({ baseUrl: 'http://x', tokens, fetch, refreshGate: () => gate });
+    const pending = api.request('/v1/me');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(calls.map((c) => c.url)).toEqual(['http://x/v1/me']);
+    open();
+    await expect(pending).resolves.toEqual({ ok: 1 });
+    expect(calls.map((c) => c.url)).toEqual([
+      'http://x/v1/me',
+      'http://x/v1/auth/refresh',
+      'http://x/v1/me',
+    ]);
+  });
+
+  it('persists the rotated pair before the retried request goes out', async () => {
+    const order: string[] = [];
+    const store = {
+      value: { accessToken: 'a', refreshToken: 'r' } as SessionTokens | null,
+      get: () => store.value,
+      set: async (t: SessionTokens | null) => {
+        store.value = t;
+        await new Promise((r) => setTimeout(r, 5));
+        order.push('persisted');
+      },
+    };
+    const { fetch } = fakeFetch((url, init) => {
+      if (url.endsWith('/refresh')) return json(200, { accessToken: 'b', refreshToken: 's' });
+      order.push(`request ${auth(init)}`);
+      return auth(init) === 'Bearer b' ? json(200, {}) : json(401, {});
+    });
+    const api = createApiClient({ baseUrl: 'http://x', tokens: store, fetch });
+    await api.request('/v1/me');
+    expect(order).toEqual(['request Bearer a', 'persisted', 'request Bearer b']);
+  });
+
+  it('drops a refresh answer for a session that was replaced meanwhile', async () => {
+    const tokens = memoryStore({ accessToken: 'a', refreshToken: 'r' });
+    const { fetch } = fakeFetch(async () => {
+      // the rider signs in again while the old session's refresh is in flight
+      tokens.value = { accessToken: 'fresh', refreshToken: 'fresh-r' };
+      return json(200, { accessToken: 'b', refreshToken: 's' });
+    });
+    const api = createApiClient({ baseUrl: 'http://x', tokens, fetch });
+    await expect(api.refresh()).resolves.toBe('ok');
+    expect(tokens.value).toEqual({ accessToken: 'fresh', refreshToken: 'fresh-r' });
+  });
+
+  it('does not sign out a newer session when an old refresh token is rejected', async () => {
+    const tokens = memoryStore({ accessToken: 'a', refreshToken: 'r' });
+    const onSignedOut = vi.fn();
+    const { fetch } = fakeFetch(async () => {
+      tokens.value = { accessToken: 'fresh', refreshToken: 'fresh-r' };
+      return json(401, {});
+    });
+    const api = createApiClient({ baseUrl: 'http://x', tokens, fetch, onSignedOut });
+    await expect(api.refresh()).resolves.toBe('ok');
+    expect(tokens.value?.refreshToken).toBe('fresh-r');
+    expect(onSignedOut).not.toHaveBeenCalled();
+  });
+
+  it('settles once the refresh in flight is done', async () => {
+    const tokens = memoryStore({ accessToken: 'a', refreshToken: 'r' });
+    const { fetch } = fakeFetch(async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      return json(200, { accessToken: 'b', refreshToken: 's' });
+    });
+    const api = createApiClient({ baseUrl: 'http://x', tokens, fetch });
+    void api.refresh();
+    await api.settled();
+    expect(tokens.value?.refreshToken).toBe('s');
+  });
+
   it('does not send tokens or refresh on public requests', async () => {
     const tokens = memoryStore({ accessToken: 'a', refreshToken: 'r' });
     const { fetch, calls } = fakeFetch(() => json(401, { message: 'x' }));
