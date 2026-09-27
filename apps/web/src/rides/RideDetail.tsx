@@ -4,6 +4,7 @@ import {
   Car,
   CircleUserRound,
   ExternalLink,
+  HandCoins,
   MapPin,
   RefreshCw,
   UserCheck,
@@ -11,8 +12,8 @@ import {
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { api, errorText } from '../api/client';
-import { useCandidates, useRide } from '../api/queries';
-import type { AdminRide, Candidate, LatLng } from '../api/types';
+import { useCandidates, useReasons, useRide } from '../api/queries';
+import type { AdminRide, Candidate, LatLng, ReasonLabels } from '../api/types';
 import {
   ACTORS,
   ago,
@@ -23,6 +24,8 @@ import {
   distance,
   duration,
   EVENTS,
+  FEE_STATUS,
+  FEE_TONE,
   OFFER_STATUS,
   OFFER_TONE,
   rating,
@@ -30,6 +33,7 @@ import {
   RIDE_STATUS_TONE,
   som,
   PAYMENT_STATUS,
+  reasonText,
   STAGES,
   time,
   timeSec,
@@ -48,6 +52,80 @@ import { cityLayers } from '../map/places';
 import { Badge, Button, PhoneLink } from '../ui/controls';
 import { Empty, ErrorBox, Loading, useConfirm, useToast } from '../ui/feedback';
 import { CancelRideDialog } from './CancelRideDialog';
+import { WaiveFeeDialog } from './WaiveFeeDialog';
+
+type Waivable = { rideId: string; number: number; amount: number };
+
+/**
+ * Cancellation fees: this ride's own (a cash ride cancelled with a fee: owed until the rider's
+ * next cash ride collects it) and earlier rides' fees this ride collects in cash on top of its
+ * fare. An owed fee can be waived with a note.
+ */
+function OwedFeesSection({ ride }: { ride: AdminRide }) {
+  const [waiving, setWaiving] = useState<Waivable | null>(null);
+  const own = ride.owedFees?.own ?? null;
+  const collects = ride.owedFees?.collects ?? [];
+  if (!own && !collects.length) return null;
+  const collecting = ride.fare.owedFee ?? 0;
+  return (
+    <section className="detail-section">
+      <h3>
+        <HandCoins size={16} aria-hidden /> Bekor qilish to‘lovlari
+      </h3>
+      {own && (
+        <div className="fee-row">
+          <span>
+            Shu safar uchun: <strong>{som(own.amount)}</strong>{' '}
+            <Badge tone={FEE_TONE[own.status]}>{FEE_STATUS[own.status]}</Badge>
+            {own.collectingRideId && own.status !== 'waived' && (
+              <>
+                {' '}
+                <Link to={`/rides/${own.collectingRideId}`} className="small">
+                  yig‘uvchi safar
+                </Link>
+              </>
+            )}
+            {own.waiveNote && <span className="muted small"> · {own.waiveNote}</span>}
+          </span>
+          {own.status === 'owed' && (
+            <Button
+              size="sm"
+              onClick={() =>
+                setWaiving({ rideId: ride.id, number: ride.number, amount: own.amount })
+              }
+            >
+              Kechirish
+            </Button>
+          )}
+        </div>
+      )}
+      {collects.length > 0 && (
+        <>
+          <p className="small">
+            Bu safar oldingi safarlar qarzini ham oladi (naqd, narxdan tashqari):{' '}
+            <strong>{som(collecting)}</strong>
+          </p>
+          <ul className="plain-list">
+            {collects.map((c) => (
+              <li key={c.rideId} className="fee-row">
+                <span>
+                  <Link to={`/rides/${c.rideId}`}>#{c.number}</Link> · {som(c.amount)}{' '}
+                  {c.status && <Badge tone={FEE_TONE[c.status]}>{FEE_STATUS[c.status]}</Badge>}
+                </span>
+                {c.status === 'owed' && ride.status !== 'completed' && (
+                  <Button size="sm" onClick={() => setWaiving(c)}>
+                    Kechirish
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {waiving && <WaiveFeeDialog ride={waiving} onClose={() => setWaiving(null)} />}
+    </section>
+  );
+}
 
 function RideMap({ ride, candidates }: { ride: AdminRide; candidates: Candidate[] }) {
   const geo = useGeoConfig();
@@ -220,6 +298,7 @@ export function RideDetail({
   standalone?: boolean;
 }) {
   const ride = useRide(rideId);
+  const reasons = useReasons();
   const [cancelling, setCancelling] = useState(false);
   const candidatesForMap = useCandidates(rideId, Boolean(ride.data && canAssign(ride.data.status)));
 
@@ -231,6 +310,8 @@ export function RideDetail({
   for (const c of candidatesForMap.data ?? []) names.set(c.driverId, c.name);
   if (r.driver) names.set(r.driver.id, r.driver.name);
   const waiting = needsDriver({ status: r.status, attentionAt: r.dispatch.attentionAt });
+  // the ride carries the labels; the reasons table covers older rides and free text
+  const labels: Partial<ReasonLabels> | undefined = r.reasonLabels ?? reasons.data;
 
   return (
     <div className="ride-detail">
@@ -355,10 +436,21 @@ export function RideDetail({
               </dd>
             </div>
           )}
+          {r.fare.owedFee !== undefined && r.fare.owedFee > 0 && (
+            <div>
+              <dt>Oldingi safarlar qarzi (naqd)</dt>
+              <dd>{som(r.fare.owedFee)}</dd>
+            </div>
+          )}
           {r.fare.cancellationFee > 0 && (
             <div>
               <dt>Bekor qilish jarimasi</dt>
-              <dd>{som(r.fare.cancellationFee)}</dd>
+              <dd>
+                {som(r.fare.cancellationFee)}
+                {r.fare.cancellationFeeStatus && (
+                  <div className="muted small">{FEE_STATUS[r.fare.cancellationFeeStatus]}</div>
+                )}
+              </dd>
             </div>
           )}
           <div>
@@ -381,6 +473,8 @@ export function RideDetail({
           </p>
         )}
       </section>
+
+      <OwedFeesSection ride={r} />
 
       {canAssign(r.status) && <Candidates ride={r} />}
 
@@ -411,7 +505,8 @@ export function RideDetail({
                       <Badge tone={OFFER_TONE[o.status]}>{OFFER_STATUS[o.status]}</Badge>
                       {o.declineReason && (
                         <div className="muted small">
-                          {DECLINE_REASONS[o.declineReason] ?? o.declineReason}
+                          {o.declineReasonLabel ??
+                            reasonText(labels?.decline ?? DECLINE_REASONS, o.declineReason)}
                         </div>
                       )}
                     </td>
@@ -432,7 +527,7 @@ export function RideDetail({
         ) : (
           <ol className="timeline">
             {r.events.map((e) => {
-              const detail = eventDetail(e, (id) => names.get(id) ?? null);
+              const detail = eventDetail(e, (id) => names.get(id) ?? null, labels);
               return (
                 <li key={e.id} className={`tl-${e.type}`}>
                   <time dateTime={e.at}>{time(e.at)}</time>

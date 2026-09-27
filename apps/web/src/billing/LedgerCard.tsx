@@ -32,7 +32,7 @@ export function LedgerCard({
   filter = null,
   title = 'Balans',
 }: {
-  driver: Pick<AdminDriver, 'id' | 'fullName' | 'balance'>;
+  driver: Pick<AdminDriver, 'id' | 'fullName' | 'balance' | 'cardMoney'>;
   kinds?: EntryKind[];
   /** Show only these ledger kinds (e.g. top-ups and payouts). */
   filter?: LedgerKind[] | null;
@@ -52,7 +52,9 @@ export function LedgerCard({
 
   // a payout is sent as a positive amount: the API debits it
   const signed = amount === null ? null : kind === 'adjustment' && negative ? -amount : amount;
-  const local = entryProblems(kind, amount, note, driver.balance);
+  // a payout is card money owed, within the balance (older APIs: the balance)
+  const payable = driver.cardMoney?.payableNow ?? driver.balance;
+  const local = entryProblems(kind, amount, note, payable);
 
   const record = useMutation({
     mutationFn: () =>
@@ -122,7 +124,8 @@ export function LedgerCard({
         )}
         {kind === 'payout' && (
           <p className="muted small">
-            Karta safarlari puli haydovchiga o‘tkazilganda yoziladi: balansdan ayiriladi.
+            Karta safarlari puli haydovchiga o‘tkazilganda yoziladi: balansdan ayiriladi. Hozir
+            ko‘pi bilan <strong>{som(Math.max(0, payable))}</strong>.
           </p>
         )}
         <div className="grid-3 align-end">

@@ -21,11 +21,13 @@ import type {
   CustomerLookup,
   DriverAppeal,
   DriverListItem,
+  DriverPayout,
   FiscalReceipt,
   FiscalRules,
   IntercityPoint,
   LiveBoard,
   OutboxEvent,
+  PaymentIntent,
   Quote,
   Rating,
   Refund,
@@ -40,6 +42,8 @@ import { FeedbackProvider } from './ui/feedback';
 const R1 = '01a0de48-0000-7000-8000-000000000001';
 const R2 = '01a0de48-0000-7000-8000-000000000002';
 const R3 = '01a0de48-0000-7000-8000-000000000003';
+const R4 = '01a0de48-0000-7000-8000-000000000004';
+const R5 = '01a0de48-0000-7000-8000-000000000005';
 const D1 = '01a0de48-1111-7000-8000-000000000001';
 const D2 = '01a0de48-1111-7000-8000-000000000002';
 const D3 = '01a0de48-1111-7000-8000-000000000003';
@@ -232,6 +236,8 @@ const rideDetail: AdminRide = {
       createdAt: iso(5),
       expiresAt: iso(4.7),
       respondedAt: iso(4.8),
+      declineReason: 'too_far',
+      declineReasonLabel: 'Juda uzoq',
     },
     {
       id: 'o2',
@@ -266,8 +272,9 @@ const rideDetail: AdminRide = {
       id: 'e3',
       type: 'offer_declined',
       actor: 'driver',
-      data: { offerId: 'o1', kind: 'direct' },
+      data: { offerId: 'o1', kind: 'direct', reason: 'too_far' },
       at: iso(4.8),
+      reasonLabel: 'Juda uzoq',
     },
     { id: 'e4', type: 'broadcast', actor: 'system', data: { drivers: 1 }, at: iso(4) },
     { id: 'e5', type: 'attention', actor: 'system', data: { reason: 'no_driver' }, at: iso(2) },
@@ -303,6 +310,67 @@ const cancelledDetail: AdminRide = {
   status: 'cancelled',
   cancelledBy: 'operator',
   cancelReason: 'Takroriy buyurtma',
+};
+
+// a cash ride cancelled with a fee the rider still owes; the driver gave it up first
+const owedDetail: AdminRide = {
+  ...rideDetail,
+  id: R4,
+  number: 980,
+  status: 'cancelled',
+  cancelledBy: 'rider',
+  cancelReason: 'Rejam o‘zgardi',
+  dispatch: { ...rideDetail.dispatch, attentionAt: null },
+  fare: { ...rideDetail.fare, cancellationFee: 3000, cancellationFeeStatus: 'owed', owedFee: 0 },
+  owedFees: {
+    own: {
+      amount: 3000,
+      status: 'owed',
+      collectingRideId: null,
+      waivedBy: null,
+      waiveNote: null,
+    },
+    collects: [],
+  },
+  events: [
+    ...rideDetail.events,
+    {
+      id: 'e7',
+      type: 'driver_released',
+      actor: 'driver',
+      data: { driverId: D3, reason: 'Avtomobil nosoz', reasonCode: 'car_problem' },
+      at: iso(1),
+      reasonLabel: 'Avtomobil nosoz',
+    },
+  ],
+};
+
+// a scheduled ride that will collect the owed fee of #980 on top of its fare
+const collectingDetail: AdminRide = {
+  ...rideDetail,
+  id: R5,
+  number: 1020,
+  status: 'scheduled',
+  scheduledFor: new Date(now + 3 * 3600_000).toISOString(),
+  dispatch: { ...rideDetail.dispatch, attentionAt: null },
+  fare: { ...rideDetail.fare, owedFee: 3000 },
+  offers: [],
+  owedFees: { own: null, collects: [{ rideId: R4, number: 980, amount: 3000, status: 'owed' }] },
+};
+
+const waivedDetail = (): AdminRide => ({
+  ...owedDetail,
+  fare: { ...owedDetail.fare, cancellationFeeStatus: 'waived' },
+  owedFees: {
+    own: { ...owedDetail.owedFees!.own!, status: 'waived', waiveNote: 'Haydovchi kechikdi' },
+    collects: [],
+  },
+});
+
+const reasonLabels = {
+  decline: { too_far: 'Juda uzoq', destination: 'Bu tomonga bormayman' },
+  driverCancel: { car_problem: 'Avtomobil nosoz', rider_no_show: 'Yo‘lovchi chiqmadi' },
+  release: { reassigned: 'Operator boshqa haydovchiga berdi' },
 };
 
 const candidates: Candidate[] = [
@@ -379,6 +447,7 @@ const driverItem = (over: Partial<DriverListItem>): DriverListItem => ({
   ridesCompleted: 120,
   licenceStatus: 'valid',
   balance: 35_000,
+  cardOwed: 30_000,
   rating: 4.9,
   priority: 94,
   ...over,
@@ -391,6 +460,7 @@ const pendingDriver = driverItem({
   createdAt: iso(60 * 5),
   licenceStatus: 'unverified',
   balance: 0,
+  cardOwed: 0,
   ridesCompleted: 0,
 });
 
@@ -487,7 +557,29 @@ const activeDetail: AdminDriver = {
   ],
   missingDocuments: [],
   balance: 35_000,
+  cardMoney: {
+    credited: 80_000,
+    paidOut: 50_000,
+    owed: 30_000,
+    payableNow: 30_000,
+    lastPayoutAt: iso(60 * 24 * 3),
+  },
 };
+
+const payouts: DriverPayout[] = [
+  {
+    driverId: D1,
+    fullName: 'Aziz Karimov',
+    phone: '+998901234000',
+    status: 'active',
+    balance: 25_000,
+    credited: 80_000,
+    paidOut: 50_000,
+    owed: 30_000,
+    payableNow: 25_000,
+    lastPayoutAt: iso(60 * 24 * 3),
+  },
+];
 
 const ledger = {
   items: [
@@ -639,6 +731,40 @@ const lookup = (phone: string): CustomerLookup => {
       recentRides: [waiting],
       recentPlaces: [],
       savedPlaces: [],
+    };
+  }
+  if (phone === '+998935551122') {
+    // a ride on its way, one for later, and a cancellation fee still owed
+    return {
+      found: true,
+      phone,
+      user: {
+        id: 'u4',
+        name: 'Gulnora',
+        status: 'active',
+        rating: 4.7,
+        noShows: 0,
+        since: iso(60 * 24 * 40),
+      },
+      openRide: rideDetail,
+      recentRides: [
+        rideItem({
+          id: R5,
+          number: 1020,
+          status: 'scheduled',
+          scheduledFor: collectingDetail.scheduledFor,
+          attentionAt: null,
+        }),
+        done,
+      ],
+      recentPlaces: [],
+      savedPlaces: [],
+      owedFee: {
+        amount: 3000,
+        collectedWith: 'cash',
+        label: 'Oldingi bekor qilingan safar uchun to‘lov',
+        rides: [{ rideId: R4, number: 980, amount: 3000, cancelledAt: iso(60 * 24) }],
+      },
     };
   }
   return { found: false, phone };
@@ -831,6 +957,69 @@ const receipt: FiscalReceipt = {
   sentAt: null,
 };
 
+const pendingReceipt: FiscalReceipt = {
+  ...receipt,
+  id: 'fr2',
+  status: 'pending',
+  provider: 'ofd',
+  attempts: 3,
+  lastError: 'OFD: 503 Service Unavailable',
+  payload: {
+    ...receipt.payload,
+    receiptNumber: 'R-pending',
+    orderNumber: 991,
+    receivedCash: 700_000,
+  },
+};
+
+const intents: PaymentIntent[] = [
+  {
+    id: 'pi1',
+    purpose: 'ride',
+    status: 'refund_pending',
+    amount: 12_000,
+    provider: 'click',
+    rideId: R3,
+    rideNumber: 990,
+    driverId: null,
+    driverName: null,
+    userId: 'u2',
+    phone: '+998901234567',
+    expiresAt: iso(80),
+    paidAt: iso(90),
+    refundRequestedAt: iso(80),
+    refundedAt: null,
+    refundReference: null,
+    createdAt: iso(95),
+  },
+  {
+    id: 'pi2',
+    purpose: 'topup',
+    status: 'paid',
+    amount: 50_000,
+    provider: 'payme',
+    rideId: null,
+    rideNumber: null,
+    driverId: D1,
+    driverName: 'Aziz Karimov',
+    userId: D1,
+    phone: '+998901234000',
+    expiresAt: iso(100),
+    paidAt: iso(108),
+    refundRequestedAt: null,
+    refundedAt: null,
+    refundReference: null,
+    createdAt: iso(110),
+  },
+];
+
+const intentSummary = [
+  { purpose: 'ride', status: 'paid', count: 14, amount: 168_000 },
+  { purpose: 'ride', status: 'refund_pending', count: 1, amount: 12_000 },
+  { purpose: 'ride', status: 'expired', count: 3, amount: 30_000 },
+  { purpose: 'topup', status: 'paid', count: 2, amount: 90_000 },
+];
+
 const fiscalRules: FiscalRules = {
   city_item_name: 'Taksi xizmati (yo‘lovchi tashish)',
   intercity_item_name: 'Shaharlararo yo‘lovchi tashish (o‘rindiq)',
@@ -883,6 +1072,10 @@ const state = {
   /** POST admin/drivers/:id/approve refuses with the API's 422. */
   refuseApproval: false,
   scheduledPhoneOrders: false,
+  /** The last quote was for later: the order made with it is a scheduled ride. */
+  quotedFor: null as string | null,
+  /** POST admin/rides/:id/fee/waive was called: the ride reads waived. */
+  feeWaived: false,
 };
 
 /** A mock answer with another status than 200/201. */
@@ -966,15 +1159,47 @@ const routes: [RegExp, Mock][] = [
   [/^\/v1\/geo\/reverse$/, { address: null, city: null, serviceable: true }],
   [/^\/v1\/admin\/dispatch\/live$/, live],
   [/^\/v1\/admin\/dispatch\/rides\/[^/]+\/candidates$/, candidates],
-  [/^\/v1\/admin\/rides\/quote$/, quote],
+  [
+    /^\/v1\/admin\/rides\/quote$/,
+    (init: Init) => {
+      state.quotedFor = (body(init).scheduledFor as string | undefined) ?? null;
+      // operators' quotes carry no owed line (the caller lookup does)
+      return { ...quote, scheduledFor: state.quotedFor, owedFee: null };
+    },
+  ],
+  [/^\/v1\/admin\/reasons$/, reasonLabels],
+  [
+    /^\/v1\/admin\/rides\/[^/]+\/fee\/waive$/,
+    () => {
+      state.feeWaived = true;
+      return waivedDetail();
+    },
+  ],
   [/^\/v1\/admin\/customers\/lookup$/, (init: Init) => lookup(body(init).phone)],
   [/^\/v1\/admin\/rides\/[^/]+\/assign$/, () => (state.rideAfterAction = assignedDetail)],
   [/^\/v1\/admin\/rides\/[^/]+\/cancel$/, () => (state.rideAfterAction = cancelledDetail)],
-  [/^\/v1\/admin\/rides\/[^/]+$/, () => state.rideAfterAction ?? rideDetail],
+  [
+    /^\/v1\/admin\/rides\/[^/]+$/,
+    (_init: Init, path: string) =>
+      path.includes(R4)
+        ? state.feeWaived
+          ? waivedDetail()
+          : owedDetail
+        : path.includes(R5)
+          ? collectingDetail
+          : (state.rideAfterAction ?? rideDetail),
+  ],
   [
     /^\/v1\/admin\/rides$/,
     (init: Init, path: string) => {
-      if (method(init) === 'POST') return withStatus(state.orderStatus, created);
+      if (method(init) === 'POST') {
+        return withStatus(
+          state.orderStatus,
+          state.quotedFor
+            ? { ...created, status: 'scheduled', scheduledFor: state.quotedFor }
+            : created,
+        );
+      }
       const q = query(path);
       if (q.get('class') === 'comfort') return q.get('cursor') ? [done] : fullPage;
       const status = q.get('status');
@@ -1021,6 +1246,7 @@ const routes: [RegExp, Mock][] = [
       licenceCard: { ...driverDetail.licenceCard, verification: 'valid', checkedAt: iso(0) },
     },
   ],
+  [/^\/v1\/admin\/drivers\/payouts$/, payouts],
   [/^\/v1\/admin\/drivers\/[^/]+\/rides$/, [done]],
   [/^\/v1\/admin\/drivers\/[^/]+\/vehicle$/, driverDetail],
   [
@@ -1054,6 +1280,21 @@ const routes: [RegExp, Mock][] = [
   [/^\/v1\/admin\/billing\/taxes\/remit$/, { period: '2026-08', rows: 42 }],
   [/^\/v1\/admin\/billing\/taxes$/, taxReport],
   [/^\/v1\/admin\/payments\/refunds$/, refunds],
+  [/^\/v1\/admin\/payments\/intents\/summary$/, intentSummary],
+  [
+    /^\/v1\/admin\/payments\/intents$/,
+    (_init: Init, path: string) => {
+      const q = query(path);
+      return {
+        items: intents.filter(
+          (i) =>
+            (!q.get('purpose') || i.purpose === q.get('purpose')) &&
+            (!q.get('phone') || i.phone === q.get('phone')),
+        ),
+        nextCursor: null,
+      };
+    },
+  ],
   [/^\/v1\/admin\/payments\/[^/]+\/refunded$/, { id: P1, status: 'refunded' }],
   [/^\/v1\/intercity\/points$/, points],
   [/^\/v1\/intercity\/fares$/, routeFare],
@@ -1088,7 +1329,15 @@ const routes: [RegExp, Mock][] = [
   ],
   [/^\/v1\/admin\/ratings$/, { items: [ratingRow], nextCursor: null }],
   [/^\/v1\/admin\/fiscal\/receipts\/resend$/, { queued: 1 }],
-  [/^\/v1\/admin\/fiscal\/receipts$/, [receipt]],
+  [
+    /^\/v1\/admin\/fiscal\/receipts\/[^/]+\/retry$/,
+    { ...pendingReceipt, attempts: 0, lastError: null },
+  ],
+  [
+    /^\/v1\/admin\/fiscal\/receipts\/(?!resend)[^/]+$/,
+    (_init: Init, path: string) => (path.endsWith('fr2') ? pendingReceipt : receipt),
+  ],
+  [/^\/v1\/admin\/fiscal\/receipts$/, [receipt, pendingReceipt]],
   [/^\/v1\/admin\/outbox\/[^/]+\/retry$/, { id: OB1, topic: outboxEvent.topic, attempts: 0 }],
   [
     /^\/v1\/admin\/outbox$/,
@@ -1181,6 +1430,8 @@ afterEach(() => {
   state.orderStatus = 201;
   state.refuseApproval = false;
   state.scheduledPhoneOrders = false;
+  state.quotedFor = null;
+  state.feeWaived = false;
 });
 
 async function render(path: string): Promise<string> {
@@ -1288,7 +1539,22 @@ describe('panel smoke', () => {
         'Operator e’tibori so‘raldi',
         'avtomatik qidiruv haydovchi topmadi',
         'Sardor Ali, to‘g‘ridan-to‘g‘ri, yetib kelish 4 daq',
+        'Juda uzoq',
       ],
+    ],
+    [
+      `/rides/${R4}`,
+      [
+        'Bekor qilish to‘lovlari',
+        'Shu safar uchun: 3 000 so‘m',
+        'qarz (keyingi naqd safarda olinadi)',
+        'Kechirish',
+        'Sardor Ali, Avtomobil nosoz',
+      ],
+    ],
+    [
+      `/rides/${R5}`,
+      ['Keyinroqqa buyurtma', 'oldingi safarlar qarzini', '#980', 'Oldingi safarlar qarzi (naqd)'],
     ],
     [
       '/phone-order',
@@ -1357,11 +1623,23 @@ describe('panel smoke', () => {
         'Safarlari',
         '#990',
         'Pul o‘tkazish',
+        'Karta safarlari puli',
+        'Qarzimiz',
+        '50 000 so‘m',
       ],
     ],
     [
       '/drivers?status=active',
-      ['Aziz Karimov', 'Tasdiqlangan', '4,9 ★', '120 safar', '94', '35 000 so‘m', 'GPS hozirgina'],
+      [
+        'Aziz Karimov',
+        'Tasdiqlangan',
+        '4,9 ★',
+        '120 safar',
+        '94',
+        '35 000 so‘m',
+        'karta puli 30 000 so‘m',
+        'GPS hozirgina',
+      ],
     ],
     [
       '/intercity',
@@ -1377,7 +1655,22 @@ describe('panel smoke', () => {
       ['#501: Guliston → Toshkent', 'Nodira', 'Bozor oldida', 'Bron qilingan', 'Mijoz uchun bron'],
     ],
     ['/payments', ['To‘lovlar', 'Qaytarishlar (1)', '#990', '12 000 so‘m', 'Click', 'Qaytarildi']],
-    ['/payments?tab=payouts', ['Haydovchilarga to‘lov', 'Aziz Karimov', '35 000 so‘m']],
+    [
+      '/payments?tab=payouts',
+      ['Haydovchilarga to‘lov', 'Aziz Karimov', '80 000 so‘m', '30 000 so‘m', 'balans 25 000 so‘m'],
+    ],
+    [
+      '/payments?tab=intents',
+      [
+        'Karta to‘lovlari',
+        '168 000 so‘m',
+        '14 ta to‘langan',
+        'Qaytarilishi kerak',
+        'safar #990',
+        'Aziz Karimov',
+        'Payme',
+      ],
+    ],
     [
       `/payments?tab=topups&driver=${D1}`,
       ['Aziz Karimov: balans', 'Naqd to‘ldirish', 'Ofisda naqd'],
@@ -1394,7 +1687,18 @@ describe('panel smoke', () => {
     ['/ratings', ['Baholar', 'Aziz Karimov', 'Telefonda gaplashib haydadi', '#990']],
     [
       '/fiscal',
-      ['Fiskal cheklar', 'Saqlangan (yuborilmagan)', '7 000 so‘m', 'Saqlanganlarni yuborish'],
+      [
+        'Fiskal cheklar',
+        'Saqlangan (yuborilmagan)',
+        '7 000 so‘m',
+        'Saqlanganlarni yuborish',
+        'Qayta yuborish',
+        'Batafsil',
+      ],
+    ],
+    [
+      '/fiscal?receipt=fr2',
+      ['Chek R-pending', 'Oxirgi xato: OFD: 503', 'safar #991', 'Taksi xizmati', 'Naqd'],
     ],
     ['/fiscal?tab=settings', ['MXIK (IKPU) kodi', 'MXIK kodi hali nollardan iborat']],
     ['/outbox', ['Bajarilmagan amallar', 'Fiskal chek', 'OFD: 503 Service Unavailable', '10 / 10']],
@@ -1764,8 +2068,13 @@ describe('panel smoke', () => {
     await click(button('Buyurtma berish ·'));
     await settle();
     const order = posted('/v1/admin/rides').at(-1)!.body as Record<string, unknown>;
-    expect(order.scheduledFor).toBe(quoted.scheduledFor);
+    // the quote carries the time: the order only names it
+    expect(order.scheduledFor).toBeUndefined();
     expect(order.quoteId).toBe('q1');
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('#1010 buyurtma qabul qilindi');
+    expect(text).toContain('Keyinroqqa:');
+    expect(text).not.toContain('Buyurtma keyinroqqa emas');
   });
 
   it('keeps the for-later option off while the server does not support it', async () => {
@@ -1840,7 +2149,14 @@ describe('panel smoke', () => {
     await click(button('Bron qilish ·'));
     await settle();
     expect(posted(`/v1/admin/intercity/trips/${T1}/bookings`).map((c) => c.body)).toEqual([
-      { riderPhone: '+998935550022', riderName: null, seats: 1, front: true, pickupNote: null },
+      {
+        riderPhone: '+998935550022',
+        riderName: null,
+        seats: 1,
+        front: true,
+        pickupNote: null,
+        clientRequestId: '01a0de48-9999-4000-8000-000000000001',
+      },
     ]);
     await click(button('Bekor qilish'));
     await settle(4);
@@ -1888,6 +2204,7 @@ describe('panel smoke', () => {
     container?.remove();
 
     await render('/payments?tab=payouts');
+    expect(document.body.textContent).toContain('hozir o‘tkazish mumkin 25 000 so‘m');
     await click(button('Pul o‘tkazish'));
     await settle(4);
     await click(button('O‘tkazildi deb yozish'));
@@ -1901,7 +2218,8 @@ describe('panel smoke', () => {
     await click(button('O‘tkazildi deb yozish'));
     await settle();
     expect(posted(`/v1/admin/billing/drivers/${D1}/ledger`).map((c) => c.body)).toEqual([
-      { kind: 'payout', amount: 35000, note: 'Humo *4411, 0012' },
+      // what can be paid out now: the card money owed, within the balance
+      { kind: 'payout', amount: 25000, note: 'Humo *4411, 0012' },
     ]);
   });
 
@@ -1983,6 +2301,112 @@ describe('panel smoke', () => {
     await click(button('Qayta urinish'));
     await settle();
     expect(posted(`/v1/admin/outbox/${OB1}/retry`)).toHaveLength(1);
+  });
+
+  it('waives an owed cancellation fee with a note after confirmation', async () => {
+    calls.length = 0;
+    await render(`/rides/${R4}`);
+    await click(button('Kechirish'));
+    await settle(4);
+    expect(document.body.textContent).toContain('3 000 so‘m to‘lamaydi');
+    // a note is required
+    await click(button('Kechirish'));
+    await settle(4);
+    expect(posted(/\/fee\/waive$/)).toHaveLength(0);
+    await click(button('Haydovchi kechikdi'));
+    await click(button('Kechirish'));
+    await settle();
+    expect(posted(`/v1/admin/rides/${R4}/fee/waive`).map((c) => c.body)).toEqual([
+      { note: 'Haydovchi kechikdi' },
+    ]);
+    expect(document.body.textContent).toContain('kechirilgan');
+  });
+
+  it('shows a caller’s owed fee and orders for later despite an open ride', async () => {
+    state.scheduledPhoneOrders = true;
+    calls.length = 0;
+    await render('/phone-order');
+    await typeInto(document.querySelector<HTMLInputElement>('input[type="tel"]')!, '93 555 11 22');
+    await settle();
+    let text = document.body.textContent ?? '';
+    expect(text).toContain('Bekor qilingan safar(lar) uchun qarzi: 3 000 so‘m');
+    expect(text).toContain('Keyinroqqa buyurtmalari: #1020');
+    expect(text).toContain('Hozirga yangi buyurtma berib bo‘lmaydi, keyinroqqa mumkin');
+    // the fee can be waived right from the call
+    await click(button('Kechirish'));
+    await settle(4);
+    expect(document.querySelector('dialog textarea')).not.toBeNull();
+    await click(button('Qaytish'));
+    await settle(4);
+
+    // for later, the open ride does not block the order
+    await click(button('Keyinroqqa'));
+    await settle(4);
+    text = document.body.textContent ?? '';
+    expect(text).toContain('Keyinroqqa buyurtma berish mumkin');
+    expect(text).not.toContain('Mijozda tugallanmagan buyurtma bor');
+  });
+
+  it('retries one kept receipt and opens its details', async () => {
+    calls.length = 0;
+    await render('/fiscal');
+    await click(button('Qayta yuborish'));
+    await settle(4);
+    // the confirmation dialog's button
+    await click(button('Qayta yuborish'));
+    await settle();
+    expect(posted('/v1/admin/fiscal/receipts/fr2/retry')).toHaveLength(1);
+    await click(button('Batafsil'));
+    await settle();
+    expect(calls.some((c) => c.path === '/v1/admin/fiscal/receipts/fr2')).toBe(true);
+    expect(document.querySelector('dialog')?.textContent).toContain('Chek R-pending');
+  });
+
+  it('filters card payments on the server', async () => {
+    calls.length = 0;
+    await render('/payments?tab=intents');
+    const purpose = document.querySelector<HTMLSelectElement>('#intent-purpose')!;
+    await act(async () => {
+      purpose.value = 'topup';
+      purpose.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await settle(20);
+    expect(calls.map((c) => c.path)).toContain('/v1/admin/payments/intents?purpose=topup');
+    await typeInto(
+      document.querySelector<HTMLInputElement>('input[aria-label="To‘lovchi telefoni"]')!,
+      '90 123 40 00',
+    );
+    await settle(30);
+    expect(calls.map((c) => c.path)).toContain(
+      '/v1/admin/payments/intents?purpose=topup&phone=%2B998901234000',
+    );
+    expect(document.body.textContent).not.toContain('safar #990');
+  });
+
+  it('drops the markers of drivers the positions batch lists offline', async () => {
+    calls.length = 0;
+    streams.length = 0;
+    await render('/dispatch');
+    const stream = streams.at(-1)!;
+    const send = async (event: unknown) => {
+      await act(async () => {
+        stream.onmessage?.({ data: JSON.stringify(event) });
+      });
+      await settle(6);
+    };
+    await send({ type: 'ready' });
+    expect(document.body.textContent).toContain('1 ta haydovchining joylashuvi noma’lum');
+    const before = calls.filter((c) => c.path === '/v1/admin/dispatch/live').length;
+    await send({
+      type: 'drivers.positions',
+      drivers: [{ id: D1, lat: 40.5, lng: 68.8, heading: 10, at: iso(0), busy: true }],
+      offline: [D2],
+    });
+    // Bobur went off the map; the board is refetched (he may be off shift) and he stays off
+    expect(document.body.textContent).toContain('2 ta haydovchining joylashuvi noma’lum');
+    expect(calls.filter((c) => c.path === '/v1/admin/dispatch/live').length).toBeGreaterThan(
+      before,
+    );
   });
 
   it('called only mocked endpoints', () => {

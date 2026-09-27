@@ -9,6 +9,8 @@ import type {
   TripStatus,
   DocumentKind,
   DriverStatus,
+  FeeStatus,
+  IntentStatus,
   LedgerKind,
   LiveDriverState,
   RideActor,
@@ -259,6 +261,8 @@ export const LEDGER_KINDS: Record<LedgerKind, string> = {
   adjustment: 'Tuzatish',
   card_fare: 'Karta safari puli',
   payout: 'Pul o‘tkazildi',
+  cancel_fee: 'Bekor qilish to‘lovi',
+  cancel_fee_collected: 'Olingan qarz (boshqa haydovchiga)',
 };
 
 export const OFFER_STATUS: Record<RideOffer['status'], string> = {
@@ -282,6 +286,12 @@ export const EVENTS: Record<string, string> = {
   requested: 'Buyurtma berildi',
   offered: 'Haydovchiga taklif yuborildi',
   offer_declined: 'Haydovchi rad etdi',
+  offer_expired: 'Taklifga javob bo‘lmadi',
+  dispatch_started: 'Haydovchi qidiruvi boshlandi',
+  paid: 'Karta orqali to‘landi',
+  refunded: 'Pul qaytarildi',
+  owed_fee_added: 'Oldingi qarz qo‘shildi',
+  fee_waived: 'Bekor qilish to‘lovi kechirildi',
   broadcast: 'Hammaga e’lon qilindi',
   attention: 'Operator e’tibori so‘raldi',
   assigned: 'Haydovchi tayinlandi',
@@ -395,6 +405,10 @@ export const OUTBOX_TOPICS: Record<string, string> = {
   'driver.appeal': 'Haydovchi murojaati',
   'driver.licence_check_requested': 'Litsenziyani tekshirish',
   'fiscal.receipt_due': 'Fiskal chek',
+  'ride.changed': 'Buyurtma o‘zgardi',
+  'ride.refund_changed': 'Karta to‘lovini qaytarish',
+  'driver.topup_paid': 'Balans to‘ldirildi',
+  'driver.appeal_resolved': 'Murojaatga javob',
   'complaint.changed': 'Shikoyat',
   'intercity.trip_changed': 'Shaharlararo qatnov',
   'intercity.booking_changed': 'Shaharlararo bron',
@@ -426,6 +440,51 @@ export const PAYMENT_STATUS: Record<string, string> = {
   refund_pending: 'qaytarilishi kerak',
   refunded: 'qaytarilgan',
 };
+
+export const INTENT_STATUS: Record<IntentStatus, string> = {
+  pending: 'To‘lov kutilmoqda',
+  paid: 'To‘langan',
+  expired: 'Muddati o‘tdi',
+  cancelled: 'Bekor qilingan',
+  refund_pending: 'Qaytarilishi kerak',
+  refunded: 'Qaytarilgan',
+};
+
+export const INTENT_TONE: Record<IntentStatus, Tone> = {
+  pending: 'amber',
+  paid: 'green',
+  expired: 'neutral',
+  cancelled: 'neutral',
+  refund_pending: 'red',
+  refunded: 'blue',
+};
+
+export const INTENT_PURPOSE: Record<'ride' | 'topup', string> = {
+  ride: 'Safar uchun',
+  topup: 'Balans to‘ldirish',
+};
+
+/** A cash ride's cancellation fee, as operators read it. */
+export const FEE_STATUS: Record<FeeStatus, string> = {
+  owed: 'qarz (keyingi naqd safarda olinadi)',
+  collected: 'olingan',
+  waived: 'kechirilgan',
+};
+
+export const FEE_TONE: Record<FeeStatus, Tone> = {
+  owed: 'amber',
+  collected: 'green',
+  waived: 'neutral',
+};
+
+/** A reason code's label from a table (GET admin/reasons), or the text as sent. */
+export function reasonText(
+  table: Record<string, string> | undefined,
+  value: string | null | undefined,
+): string | null {
+  if (!value) return null;
+  return table && Object.hasOwn(table, value) ? table[value]! : value;
+}
 
 /** Why a driver passed on an offer (apps/api dispatch DECLINE_REASONS). */
 export const DECLINE_REASONS: Record<string, string> = {

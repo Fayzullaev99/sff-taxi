@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { api } from './client';
-import { pollInterval, useStreamState } from './realtime';
+import { hideDropped, pollInterval, useStreamState } from './realtime';
 import type {
   AdminCity,
   AdminDriver,
@@ -15,16 +15,22 @@ import type {
   DispatchRules,
   DriverAppeal,
   DriverListItem,
+  DriverPayout,
   DriverStatus,
   FiscalReceipt,
   FiscalRules,
   IntercityPoint,
   IntercityRules,
+  IntentStatus,
+  IntentSummaryRow,
   LedgerPage,
   LiveBoard,
   OutboxEvent,
   Paged,
+  PaymentIntent,
+  PaymentProvider,
   Rating,
+  ReasonLabels,
   Refund,
   RideClass,
   RideStatus,
@@ -51,6 +57,8 @@ export function useLive(liveMs = 30_000, fallbackMs = 5000) {
   return useQuery({
     queryKey: ['live'],
     queryFn: () => api<LiveBoard>('/v1/admin/dispatch/live'),
+    // drivers a positions batch listed offline stay off the map after a refetch
+    select: hideDropped,
     refetchInterval: pollInterval(stream, liveMs, fallbackMs),
     refetchIntervalInBackground: true,
   });
@@ -256,6 +264,84 @@ export function useTaxReport(period: string) {
   });
 }
 
+/** Card payments (GET /admin/payments/intents): server filters, Tashkent days, cursor paging. */
+export interface IntentFilters {
+  purpose?: 'ride' | 'topup' | '';
+  /** An intent status, or "failed": expired or cancelled without a payment. */
+  status?: IntentStatus | 'failed' | '';
+  provider?: PaymentProvider | '';
+  phone?: string;
+  driverId?: string;
+  rideId?: string;
+  from?: string;
+  to?: string;
+}
+
+export function intentsQuery(f: IntentFilters): string {
+  const p = new URLSearchParams();
+  for (const key of [
+    'purpose',
+    'status',
+    'provider',
+    'phone',
+    'driverId',
+    'rideId',
+    'from',
+    'to',
+  ] as const) {
+    const v = f[key];
+    if (v) p.set(key, v);
+  }
+  return p.toString();
+}
+
+export function useIntents(f: IntentFilters) {
+  return useInfiniteQuery({
+    queryKey: ['payments', 'intents', f],
+    queryFn: ({ pageParam }) => {
+      const qs = intentsQuery(f);
+      const cursor = pageParam ? `cursor=${pageParam}` : '';
+      const all = [qs, cursor].filter(Boolean).join('&');
+      return api<Paged<PaymentIntent>>(`/v1/admin/payments/intents${all ? `?${all}` : ''}`);
+    },
+    initialPageParam: '',
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    placeholderData: (prev) => prev,
+  });
+}
+
+/** Totals per purpose and status over the same Tashkent days. */
+export function useIntentSummary(from?: string, to?: string) {
+  return useQuery({
+    queryKey: ['payments', 'summary', from ?? '', to ?? ''],
+    queryFn: () => {
+      const p = new URLSearchParams();
+      if (from) p.set('from', from);
+      if (to) p.set('to', to);
+      const qs = p.toString();
+      return api<IntentSummaryRow[]>(`/v1/admin/payments/intents/summary${qs ? `?${qs}` : ''}`);
+    },
+    placeholderData: (prev) => prev,
+  });
+}
+
+/** Card money owed per driver (card fares minus payouts), most owed first. */
+export function usePayouts() {
+  return useQuery({
+    queryKey: ['payouts'],
+    queryFn: () => api<DriverPayout[]>('/v1/admin/drivers/payouts'),
+  });
+}
+
+/** Reason codes drivers send (declines, cancels, releases) with their Uzbek labels. */
+export function useReasons() {
+  return useQuery({
+    queryKey: ['reasons'],
+    queryFn: () => api<ReasonLabels>('/v1/admin/reasons'),
+    staleTime: 60 * 60_000,
+  });
+}
+
 export function useRefunds() {
   return useQuery({
     queryKey: ['refunds'],
@@ -386,6 +472,14 @@ export function useReceipts(status: FiscalReceipt['status'] | '') {
     initialPageParam: '',
     getNextPageParam: (last) => nextCursorOf(last, RECEIPTS_PAGE),
     placeholderData: (prev) => prev,
+  });
+}
+
+export function useReceipt(id: string | null) {
+  return useQuery({
+    queryKey: ['fiscal', 'receipt', id],
+    queryFn: () => api<FiscalReceipt>(`/v1/admin/fiscal/receipts/${id}`),
+    enabled: Boolean(id),
   });
 }
 

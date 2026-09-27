@@ -54,17 +54,20 @@ export const isPlaceholder = (r: FiscalRules) => /^0+$/.test(r.mxik_code);
 
 export type EntryKind = 'topup' | 'payout' | 'adjustment';
 
-/** What an operator's ledger entry must carry before it is sent (the API checks the same). */
+/**
+ * What an operator's ledger entry must carry before it is sent (the API checks the same).
+ * `max` caps a payout: what can be paid out now (card money owed, within the balance).
+ */
 export function entryProblems(
   kind: EntryKind,
   amount: number | null,
   note: string,
-  balance: number,
+  max: number,
 ): Record<string, string> {
   const out: Record<string, string> = {};
   if (!amount) out.amount = 'Summani kiriting';
-  else if (kind === 'payout' && amount > balance) {
-    out.amount = `Balansda ${som(balance)} bor: undan ko‘p o‘tkazib bo‘lmaydi`;
+  else if (kind === 'payout' && amount > max) {
+    out.amount = `Hozir ko‘pi bilan ${som(Math.max(0, max))} o‘tkazish mumkin`;
   }
   if (kind === 'adjustment' && !note.trim()) out.note = 'Tuzatish uchun izoh yozing';
   if (kind === 'payout' && note.trim().length < 3) {

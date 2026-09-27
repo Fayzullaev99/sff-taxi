@@ -2,14 +2,15 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, RotateCw, Save } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { api } from '../api/client';
-import { useFiscalRules, useReceipts } from '../api/queries';
+import { api, errorText } from '../api/client';
+import { useFiscalRules, useReceipt, useReceipts } from '../api/queries';
 import type { FiscalReceipt, FiscalRules, ReceiptStatus } from '../api/types';
 import { dateTime, RECEIPT_STATUS, RECEIPT_TONE, som } from '../lib/format';
 import { fiscalProblems, isPlaceholder } from '../lib/ops';
 import { Badge, Button, Field, NumberInput, PageHeader, Segmented } from '../ui/controls';
 import { Empty, ErrorBox, Loading, useConfirm, useToast } from '../ui/feedback';
 import { LoadMore } from '../ui/LoadMore';
+import { Modal } from '../ui/Modal';
 
 type Tab = 'receipts' | 'settings';
 
@@ -28,14 +29,176 @@ function Payload({ receipt }: { receipt: FiscalReceipt }) {
   );
 }
 
+/**
+ * Sends one skipped or pending receipt again (POST receipts/:id/retry) after a confirmation;
+ * a sent receipt is final. The receipt number stays the same: never issued twice.
+ */
+function useRetryReceipt() {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const retry = useMutation({
+    mutationFn: (id: string) =>
+      api<FiscalReceipt>(`/v1/admin/fiscal/receipts/${id}/retry`, { method: 'POST' }),
+    onSuccess: (receipt) => {
+      queryClient.setQueryData(['fiscal', 'receipt', receipt.id], receipt);
+      void queryClient.invalidateQueries({ queryKey: ['fiscal', 'receipts'] });
+      toast(`Chek ${receipt.payload?.receiptNumber ?? ''} navbatga qo‘yildi`);
+    },
+    onError: (e) => toast(errorText(e), 'error'),
+  });
+  const ask = (r: FiscalReceipt) =>
+    void confirm({
+      title: 'Chekni qayta yuborish',
+      text:
+        r.status === 'skipped'
+          ? 'Saqlangan chek fiskal provayderga (OFD) yuboriladi. Chek raqami o‘zgarmaydi, ikki marta chiqmaydi.'
+          : 'Yuborilmay turgan chek qayta navbatga qo‘yiladi. Chek raqami o‘zgarmaydi.',
+      confirm: 'Qayta yuborish',
+    }).then((ok) => ok && retry.mutate(r.id));
+  return { retry, ask };
+}
+
+/** One receipt in full (GET receipts/:id): status, attempts, the error, the payload. */
+function ReceiptDetail({ id, onClose }: { id: string; onClose: () => void }) {
+  const receipt = useReceipt(id);
+  const { retry, ask } = useRetryReceipt();
+  const r = receipt.data;
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Chek ${r?.payload?.receiptNumber ?? ''}`}
+      variant="drawer"
+      footer={
+        r && r.status !== 'sent' ? (
+          <Button
+            variant="primary"
+            icon={<RotateCw size={15} />}
+            loading={retry.isPending}
+            onClick={() => ask(r)}
+          >
+            Qayta yuborish
+          </Button>
+        ) : undefined
+      }
+    >
+      {receipt.error ? (
+        <ErrorBox error={receipt.error} onRetry={() => void receipt.refetch()} />
+      ) : !r ? (
+        <Loading />
+      ) : (
+        <>
+          <p>
+            <Badge tone={RECEIPT_TONE[r.status]}>{RECEIPT_STATUS[r.status]}</Badge>{' '}
+            <strong>{som(r.amount)}</strong>
+          </p>
+          <dl className="facts facts-2">
+            <div>
+              <dt>Buyurtma</dt>
+              <dd>
+                {r.rideId ? (
+                  <Link to={`/rides/${r.rideId}`}>safar #{r.payload?.orderNumber ?? ''}</Link>
+                ) : (
+                  <>shaharlararo bron #{r.payload?.orderNumber ?? ''}</>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>Provayder</dt>
+              <dd>{r.provider}</dd>
+            </div>
+            <div>
+              <dt>Tuzilgan</dt>
+              <dd>{dateTime(r.createdAt)}</dd>
+            </div>
+            <div>
+              <dt>Yuborilgan</dt>
+              <dd>{r.sentAt ? dateTime(r.sentAt) : '—'}</dd>
+            </div>
+            <div>
+              <dt>Urinishlar</dt>
+              <dd>{r.attempts}</dd>
+            </div>
+            <div>
+              <dt>Soliq tizimidagi raqami</dt>
+              <dd className="mono">{r.receiptId ?? '—'}</dd>
+            </div>
+            {r.payload?.receivedCash !== undefined && (
+              <div>
+                <dt>Naqd</dt>
+                <dd>{som(r.payload.receivedCash / 100)}</dd>
+              </div>
+            )}
+            {r.payload?.receivedCard !== undefined && (
+              <div>
+                <dt>Karta</dt>
+                <dd>{som(r.payload.receivedCard / 100)}</dd>
+              </div>
+            )}
+          </dl>
+          {r.lastError && (
+            <div className="alert alert-error" role="alert">
+              Oxirgi xato: {r.lastError}
+            </div>
+          )}
+          {r.status === 'sent' && (
+            <p className="muted small">Yuborilgan chek yakuniy: qayta yuborilmaydi.</p>
+          )}
+          {r.url && (
+            <p>
+              <a href={r.url} target="_blank" rel="noreferrer noopener">
+                <ExternalLink size={13} aria-hidden /> Chekni ochish (soliq.uz)
+              </a>
+            </p>
+          )}
+          {r.payload?.items && r.payload.items.length > 0 && (
+            <div className="table-scroll">
+              <table className="table compact">
+                <thead>
+                  <tr>
+                    <th>Nomi</th>
+                    <th>MXIK</th>
+                    <th>Qadoq</th>
+                    <th className="num">Narx</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.payload.items.map((item, i) => (
+                    <tr key={i}>
+                      <td>{item.name}</td>
+                      <td className="mono">{item.mxik}</td>
+                      <td className="mono">{item.packageCode}</td>
+                      <td className="num">{som(item.price / 100)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <Payload receipt={r} />
+        </>
+      )}
+    </Modal>
+  );
+}
+
 function ReceiptsTab() {
   const [params, setParams] = useSearchParams();
   const status = (params.get('status') ?? '') as ReceiptStatus | '';
+  const openId = params.get('receipt');
   const receipts = useReceipts(status);
   const queryClient = useQueryClient();
   const toast = useToast();
   const confirm = useConfirm();
+  const one = useRetryReceipt();
   const rows = useMemo(() => receipts.data?.pages.flat() ?? [], [receipts.data]);
+  const openReceipt = (id: string | null) => {
+    const next = new URLSearchParams(params);
+    if (id) next.set('receipt', id);
+    else next.delete('receipt');
+    setParams(next, { replace: true });
+  };
   const resend = useMutation({
     mutationFn: (which: 'skipped' | 'pending') =>
       api<{ queued: number }>('/v1/admin/fiscal/receipts/resend', {
@@ -112,6 +275,9 @@ function ReceiptsTab() {
                 <th className="num">Summa</th>
                 <th>Holat</th>
                 <th>Chek</th>
+                <th>
+                  <span className="sr-only">Amal</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -144,6 +310,21 @@ function ReceiptsTab() {
                     )}
                     <Payload receipt={r} />
                   </td>
+                  <td className="actions">
+                    <Button size="sm" variant="ghost" onClick={() => openReceipt(r.id)}>
+                      Batafsil
+                    </Button>
+                    {r.status !== 'sent' && (
+                      <Button
+                        size="sm"
+                        icon={<RotateCw size={14} />}
+                        loading={one.retry.isPending && one.retry.variables === r.id}
+                        onClick={() => one.ask(r)}
+                      >
+                        Qayta yuborish
+                      </Button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -156,6 +337,7 @@ function ReceiptsTab() {
           />
         </div>
       )}
+      {openId && <ReceiptDetail id={openId} onClose={() => openReceipt(null)} />}
     </>
   );
 }

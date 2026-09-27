@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
-import { api, errorText, fieldErrors } from '../api/client';
+import { useRef, useState } from 'react';
+import { apiResponse, errorText, fieldErrors } from '../api/client';
 import type { PublicTrip, TripBooking } from '../api/types';
 import { bookingPrice, seatChoices } from '../lib/intercity';
 import { CLASSES, dateTime, som } from '../lib/format';
@@ -16,7 +16,8 @@ type BookableTrip = Pick<
 
 /**
  * Seats for a caller without the app (POST admin/intercity/trips/:id/bookings): the caller
- * gets an SMS with the car, plate and the driver's phone. Seats are paid in cash.
+ * gets an SMS with the car, plate and the driver's phone. Seats are paid in cash. One request id
+ * per dialog: a retried request (network error, double click) returns the same booking (200).
  */
 export function BookDialog({
   trip,
@@ -38,10 +39,11 @@ export function BookDialog({
   const [touched, setTouched] = useState(false);
   const normalized = isUzPhone(phone) ? normalizePhone(phone) : null;
   const price = bookingPrice(seats, front, trip.price);
+  const requestId = useRef(crypto.randomUUID());
 
   const book = useMutation({
     mutationFn: () =>
-      api<TripBooking>(`/v1/admin/intercity/trips/${trip.id}/bookings`, {
+      apiResponse<TripBooking>(`/v1/admin/intercity/trips/${trip.id}/bookings`, {
         method: 'POST',
         body: {
           riderPhone: normalized,
@@ -49,11 +51,16 @@ export function BookDialog({
           seats,
           front,
           pickupNote: note.trim() || null,
+          clientRequestId: requestId.current,
         },
       }),
-    onSuccess: (booking) => {
+    onSuccess: ({ status, data: booking }) => {
       void queryClient.invalidateQueries({ queryKey: ['intercity'] });
-      toast(`#${booking.number} bron qilindi: ${formatPhone(booking.riderPhone)} ga SMS boradi`);
+      toast(
+        status === 200
+          ? `#${booking.number} avval bron qilingan edi: yangi bron ochilmadi`
+          : `#${booking.number} bron qilindi: ${formatPhone(booking.riderPhone)} ga SMS boradi`,
+      );
       onBooked?.(booking);
       onClose();
     },

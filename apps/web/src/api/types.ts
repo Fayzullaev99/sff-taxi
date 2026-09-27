@@ -198,9 +198,29 @@ export interface Quote {
   options: RideOption[];
   fares: Record<RideClass, Fare>;
   paymentMethods: string[];
+  /** Card providers a card payment can go through (Payme, Click). */
+  cardProviders?: string[];
   waiting: Tariff['waiting'];
   cancellationFee: number;
+  /** A quote for later: the phone order made with it is a ride for later (status scheduled). */
+  scheduledFor?: string | null;
+  /** Riders' quotes only (operators' quotes send null): see CustomerLookup.owedFee. */
+  owedFee?: OwedFeeLine | null;
 }
+
+/**
+ * Cancellation fees a rider still owes from cancelled cash rides that no ride collects yet:
+ * the next cash ride collects them in cash on top of its fare (a separate line).
+ */
+export interface OwedFeeLine {
+  amount: number;
+  collectedWith: 'cash';
+  label: string;
+  rides: { rideId: string; number: number; amount: number; cancelledAt: string | null }[];
+}
+
+/** A cash ride's own cancellation fee: owed until a later cash ride collects it, or waived. */
+export type FeeStatus = 'owed' | 'collected' | 'waived';
 
 export interface Place extends LatLng {
   address: string | null;
@@ -236,6 +256,10 @@ export interface RideBase {
     waiting: number;
     total: number | null;
     cancellationFee: number;
+    /** A cash ride's cancellation fee: owed, collected (by a later ride) or waived. */
+    cancellationFeeStatus?: FeeStatus | null;
+    /** Earlier rides' owed fees this ride collects in cash, on top of the fare. */
+    owedFee?: number;
     breakdown: Fare;
   };
   paymentMethod: 'cash' | 'card';
@@ -275,6 +299,8 @@ export interface RideOffer {
   expiresAt: string;
   respondedAt: string | null;
   declineReason?: string | null;
+  /** The decline reason code's Uzbek label (free text as sent). */
+  declineReasonLabel?: string | null;
 }
 
 export interface RideEvent {
@@ -283,6 +309,29 @@ export interface RideEvent {
   actor: RideActor;
   data: Record<string, unknown> | null;
   at: string;
+  /** Declines and releases: the reason code's Uzbek label. */
+  reasonLabel?: string;
+}
+
+/** GET /admin/reasons: reason codes drivers send, with Uzbek labels. */
+export interface ReasonLabels {
+  decline: Record<string, string>;
+  driverCancel: Record<string, string>;
+  release: Record<string, string>;
+}
+
+/** GET /admin/rides/:id owedFees */
+export interface OwedFees {
+  /** This ride's own cancellation fee (cash rides cancelled with a fee). */
+  own: {
+    amount: number;
+    status: FeeStatus;
+    collectingRideId: string | null;
+    waivedBy: string | null;
+    waiveNote: string | null;
+  } | null;
+  /** Earlier rides' fees this ride collects in cash. */
+  collects: { rideId: string; number: number; amount: number; status: FeeStatus | null }[];
 }
 
 export interface DriverCard {
@@ -314,8 +363,10 @@ export interface AdminRide extends RideBase {
     attentionAt: string | null;
   };
   earnings: RideEarnings | null;
+  owedFees?: OwedFees;
   offers: RideOffer[];
   events: RideEvent[];
+  reasonLabels?: ReasonLabels;
 }
 
 /** GET /admin/dispatch/rides/:id/candidates */
@@ -395,6 +446,8 @@ export interface DriverListItem {
   ridesCompleted: number;
   licenceStatus: LicenceStatus;
   balance: number;
+  /** Card fares credited minus payouts: what the platform still owes the driver. */
+  cardOwed?: number;
   /** Average stars with the prior (priority's rating part). */
   rating: number;
   /** Priority score 0..100. */
@@ -485,6 +538,26 @@ export interface AdminDriver {
   }[];
   licenceChecks: LicenceCheck[];
   balance: number;
+  cardMoney?: CardMoney;
+}
+
+/** Card money: fares riders prepaid by card, credited to the driver, minus payouts. */
+export interface CardMoney {
+  credited: number;
+  paidOut: number;
+  owed: number;
+  /** What can be paid out now: a payout above the balance is refused (fees and debts first). */
+  payableNow: number;
+  lastPayoutAt: string | null;
+}
+
+/** GET /admin/drivers/payouts items, most owed first. */
+export interface DriverPayout extends CardMoney {
+  driverId: string;
+  fullName: string;
+  phone: string;
+  status: DriverStatus;
+  balance: number;
 }
 
 /** GET /admin/drivers/appeals items */
@@ -548,6 +621,8 @@ export type CustomerLookup =
       recentRides: RideBase[];
       recentPlaces: Place[];
       savedPlaces: SavedPlace[];
+      /** Fees from cancelled cash rides the next cash ride collects (operators may waive). */
+      owedFee?: OwedFeeLine | null;
     };
 
 /** GET /config */
@@ -560,7 +635,17 @@ export interface AppConfig {
 // Money ------------------------------------------------------------------------------------
 
 export type LedgerKind =
-  'topup' | 'commission' | 'tax' | 'pass' | 'adjustment' | 'card_fare' | 'payout';
+  | 'topup'
+  | 'commission'
+  | 'tax'
+  | 'pass'
+  | 'adjustment'
+  | 'card_fare'
+  | 'payout'
+  /** A cash ride's owed cancellation fee, credited to the driver it is owed to. */
+  | 'cancel_fee'
+  /** Owed fees a driver collected in cash on top of a fare (debited: not theirs). */
+  | 'cancel_fee_collected';
 
 export interface LedgerEntry {
   id: string;
@@ -607,6 +692,46 @@ export interface Refund {
   rideNumber: number;
   riderPhone: string;
   cancelReason: string | null;
+}
+
+export type PaymentProvider = 'payme' | 'click';
+export const INTENT_STATUSES = [
+  'pending',
+  'paid',
+  'expired',
+  'cancelled',
+  'refund_pending',
+  'refunded',
+] as const;
+export type IntentStatus = (typeof INTENT_STATUSES)[number];
+
+/** GET /admin/payments/intents items: ride prepayments and driver top-ups by card. */
+export interface PaymentIntent {
+  id: string;
+  purpose: 'ride' | 'topup';
+  status: IntentStatus;
+  amount: number;
+  provider: PaymentProvider | null;
+  rideId: string | null;
+  rideNumber: number | null;
+  driverId: string | null;
+  driverName: string | null;
+  userId: string;
+  phone: string;
+  expiresAt: string;
+  paidAt: string | null;
+  refundRequestedAt: string | null;
+  refundedAt: string | null;
+  refundReference: string | null;
+  createdAt: string;
+}
+
+/** GET /admin/payments/intents/summary rows: count and amount per purpose and status. */
+export interface IntentSummaryRow {
+  purpose: 'ride' | 'topup';
+  status: IntentStatus;
+  count: number;
+  amount: number;
 }
 
 // Intercity --------------------------------------------------------------------------------

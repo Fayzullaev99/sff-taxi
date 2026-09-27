@@ -3,6 +3,7 @@ import {
   CalendarClock,
   CircleAlert,
   CircleCheck,
+  HandCoins,
   History,
   MapPin,
   PhoneCall,
@@ -19,6 +20,7 @@ import type {
   GeoAddress,
   GeoConfig,
   LatLng,
+  OwedFeeLine,
   Place,
   Quote,
   RideBase,
@@ -43,6 +45,7 @@ import { formatPhone, isUzPhone, normalizePhone } from '../lib/phone';
 import {
   knownPlaces,
   placeLine,
+  SCHEDULED_PER_RIDER,
   SCHEDULE_MAX_HOURS,
   SCHEDULE_MIN_MINUTES,
   scheduleProblem,
@@ -50,6 +53,7 @@ import {
 import type { MapLayers, MarkerSpec } from '../map/adapter';
 import { GeoMap, useGeoConfig } from '../map/GeoMap';
 import { AddressSearch, addressLine, cityLayers, useDebounced, useReverse } from '../map/places';
+import { WaiveFeeDialog } from '../rides/WaiveFeeDialog';
 import { Badge, Button, Field, PageHeader, PhoneInput, Segmented } from '../ui/controls';
 import { ErrorBox, Loading, Spinner, useToast } from '../ui/feedback';
 
@@ -206,18 +210,55 @@ function KnownPlaces({
   );
 }
 
+/**
+ * Cancellation fees the caller owes from cancelled cash rides: this cash order collects them
+ * on top of its fare (the driver takes both). An operator may waive one with a note.
+ */
+function OwedFeeNotice({ owed }: { owed: OwedFeeLine }) {
+  const [waiving, setWaiving] = useState<OwedFeeLine['rides'][number] | null>(null);
+  return (
+    <div className="alert alert-warn owed-fee" role="status">
+      <HandCoins size={16} aria-hidden />
+      <div>
+        <p>
+          Bekor qilingan safar(lar) uchun qarzi: <strong>{som(owed.amount)}</strong>. Yangi naqd
+          buyurtmada haydovchi narxdan tashqari shu summani ham oladi: mijozga ayting.
+        </p>
+        <ul className="plain-list">
+          {owed.rides.map((r) => (
+            <li key={r.rideId} className="fee-row">
+              <span>
+                <Link to={`/rides/${r.rideId}`}>#{r.number}</Link> · {som(r.amount)}
+                {r.cancelledAt && <span className="muted small"> · {dateTime(r.cancelledAt)}</span>}
+              </span>
+              <Button size="sm" onClick={() => setWaiving(r)}>
+                Kechirish
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </div>
+      {waiving && <WaiveFeeDialog ride={waiving} onClose={() => setWaiving(null)} />}
+    </div>
+  );
+}
+
 function Created({
   ride,
   quoted,
   repeated,
+  later,
   onNew,
 }: {
   ride: AdminRide;
   quoted: number | null;
   /** The API answered 200: this attempt was already ordered (a retried request). */
   repeated: boolean;
+  /** The operator ordered it for later. */
+  later: boolean;
   onNew: () => void;
 }) {
+  const owed = ride.fare.owedFee ?? 0;
   return (
     <div className="card created-card" role="status">
       <h2>
@@ -242,6 +283,19 @@ function Created({
           <strong>{dateTime(ride.scheduledFor)}</strong> (haydovchi qidiruvi 15 daqiqa oldin
           boshlanadi)
         </p>
+      )}
+      {later && ride.status !== 'scheduled' && (
+        <div className="alert alert-warn">
+          Buyurtma keyinroqqa emas, hozirga qabul qilindi: haydovchi darhol qidirilmoqda. Kerak
+          bo‘lmasa, bekor qiling.
+        </div>
+      )}
+      {owed > 0 && (
+        <div className="alert alert-info">
+          Haydovchi narxdan tashqari oldingi bekor qilingan safar(lar) uchun{' '}
+          <strong>{som(owed)}</strong> ham oladi: mijozga jami{' '}
+          <strong>{som(ride.fare.quoted + owed)}</strong>.
+        </div>
       )}
       {quoted !== null && quoted !== ride.fare.quoted && (
         <div className="alert alert-warn">
@@ -290,6 +344,7 @@ export default function PhoneOrder() {
     ride: AdminRide;
     quoted: number | null;
     repeated: boolean;
+    later: boolean;
   } | null>(null);
   const [submitted, setSubmitted] = useState(false);
   // one id per order attempt: a retried request (network error, double click) is the same
@@ -297,7 +352,7 @@ export default function PhoneOrder() {
   const requestId = useRef(newRequestId());
   const phoneRef = useRef<HTMLInputElement>(null);
 
-  // the API prices rides for later; ordering one by phone needs its support (API gap)
+  // a quote with scheduledFor makes the phone order a ride for later (a config feature flag)
   const canSchedule = appConfig.data?.features.scheduledPhoneOrders === true;
   const normalized = isUzPhone(phone) ? normalizePhone(phone) : null;
   const caller = useCaller(normalized);
@@ -316,6 +371,9 @@ export default function PhoneOrder() {
     return [...saved, ...past].slice(0, 8);
   }, [known]);
   const knownName = known?.user.name ?? null;
+  const owedFee = known?.owedFee ?? null;
+  // rides for later the caller already has (the recent rides are the newest 10: they are there)
+  const scheduled = known?.recentRides.filter((r) => r.status === 'scheduled') ?? [];
 
   useEffect(() => {
     if (knownName && !nameTouched) setName(knownName);
@@ -413,14 +471,14 @@ export default function PhoneOrder() {
           options,
           comment: comment.trim() || null,
           // the price read out to the caller is the price of the ride
+          // a quote priced for later (scheduledFor) makes this a ride for later
           quoteId: quote.data?.quoteId ?? null,
-          ...(scheduledFor ? { scheduledFor } : {}),
           clientRequestId: requestId.current,
         },
       }),
     onSuccess: ({ status, data: ride }) => {
       const repeated = status === 200;
-      setCreated({ ride, quoted: fare?.total ?? null, repeated });
+      setCreated({ ride, quoted: fare?.total ?? null, repeated, later: Boolean(scheduledFor) });
       requestId.current = newRequestId();
       void queryClient.invalidateQueries({ queryKey: ['live'] });
       void queryClient.invalidateQueries({ queryKey: ['rides'] });
@@ -449,7 +507,17 @@ export default function PhoneOrder() {
   if (!normalized) problems.push('Mijozning telefon raqamini kiriting');
   if (!pickup.point) problems.push('Olib ketish joyini belgilang');
   if (!dropoff.point) problems.push('Borish manzilini belgilang');
-  if (openRide) problems.push(`Mijozda tugallanmagan buyurtma bor: #${openRide.number}`);
+  // an unfinished ride blocks a ride now, not one for later (nor the other way round)
+  if (openRide && !later) {
+    problems.push(`Mijozda tugallanmagan buyurtma bor: #${openRide.number}`);
+  }
+  if (later && scheduled.length >= SCHEDULED_PER_RIDER) {
+    problems.push(`Oldindan ${SCHEDULED_PER_RIDER} tadan ortiq buyurtma berib bo‘lmaydi`);
+  }
+  // a ride for later is ordered only with a quote priced for that time
+  if (later && quote.data && quote.data.scheduledFor === null) {
+    problems.push('Narx keyinroqqa hisoblanmadi: qayta hisoblang');
+  }
   if (known && known.user.status !== 'active') problems.push('Bu mijoz bloklangan');
   if (later && laterProblem) problems.push(`Keyinroqqa: ${laterProblem.toLowerCase()}`);
   if (quote.error) problems.push(errorText(quote.error));
@@ -523,6 +591,7 @@ export default function PhoneOrder() {
           ride={created.ride}
           quoted={created.quoted}
           repeated={created.repeated}
+          later={created.later}
           onNew={reset}
         />
       </div>
@@ -583,12 +652,16 @@ export default function PhoneOrder() {
             {normalized && caller.data && (
               <div className="caller-summary">
                 {openRide ? (
-                  <div className="alert alert-error">
+                  <div className={`alert ${later ? 'alert-info' : 'alert-error'}`}>
                     <CircleAlert size={16} aria-hidden />
                     <span>
                       Tugallanmagan buyurtma bor: <strong>#{openRide.number}</strong> (
-                      {RIDE_STATUS[openRide.status]}, {dateTime(openRide.requestedAt)}). Yangi
-                      buyurtma berib bo‘lmaydi.
+                      {RIDE_STATUS[openRide.status]}, {dateTime(openRide.requestedAt)}).{' '}
+                      {later
+                        ? 'Keyinroqqa buyurtma berish mumkin.'
+                        : canSchedule
+                          ? 'Hozirga yangi buyurtma berib bo‘lmaydi, keyinroqqa mumkin.'
+                          : 'Yangi buyurtma berib bo‘lmaydi.'}
                     </span>
                     <Link to={`/dispatch?ride=${openRide.id}`} className="btn btn-sm">
                       Ochish
@@ -612,6 +685,19 @@ export default function PhoneOrder() {
                 ) : (
                   <p className="muted small">Yangi mijoz: hisob buyurtma bilan birga ochiladi.</p>
                 )}
+                {scheduled.length > 0 && (
+                  <p className="small">
+                    <CalendarClock size={14} aria-hidden /> Keyinroqqa buyurtmalari:{' '}
+                    {scheduled.map((r, i) => (
+                      <span key={r.id}>
+                        {i > 0 && ', '}
+                        <Link to={`/rides/${r.id}`}>#{r.number}</Link>{' '}
+                        {r.scheduledFor && dateTime(r.scheduledFor)}
+                      </span>
+                    ))}
+                  </p>
+                )}
+                {owedFee && owedFee.amount > 0 && <OwedFeeNotice owed={owedFee} />}
                 <KnownPlaces places={places} onUse={applyKnown} />
               </div>
             )}
@@ -819,6 +905,19 @@ export default function PhoneOrder() {
                     </div>
                   )}
                 </dl>
+                {owedFee && owedFee.amount > 0 && (
+                  <p className="small owed-line">
+                    + oldingi bekor qilingan safar uchun <strong>{som(owedFee.amount)}</strong>{' '}
+                    (alohida, naqd): mijozga jami{' '}
+                    <strong>{som(fare!.total + owedFee.amount)}</strong>
+                  </p>
+                )}
+                {scheduledFor && (
+                  <p className="small">
+                    <CalendarClock size={14} aria-hidden /> Narx{' '}
+                    <strong>{dateTime(scheduledFor)}</strong> vaqti uchun qat’iy.
+                  </p>
+                )}
                 <p className="muted small">
                   Kutish: {quote.data.waiting.free_minutes} daqiqa bepul, keyin{' '}
                   {som(quote.data.waiting.per_minute)}/daq. Naqd to‘lov.
