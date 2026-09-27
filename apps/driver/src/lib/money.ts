@@ -1,5 +1,5 @@
 import { type BillingRules, DEFAULT_BILLING } from './driver-config';
-import { som } from './format';
+import { dateTime, som } from './format';
 
 /**
  * The driver's money rules (market analysis §6.3 "Driver fee model"). The numbers come from
@@ -80,9 +80,8 @@ export function passAdvice(promo: PromoStatus, hasActivePass: boolean): string |
 
 /** "Kunlik abonement · 26.09 23:59 gacha" */
 export function passLabel(pass: { kind: string; endsAt: string }): string {
-  const d = new Date(pass.endsAt);
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  const when = `${pad(d.getDate())}.${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  // Tashkent time, like every other time in the app
+  const when = dateTime(pass.endsAt);
   return `${pass.kind === 'week' ? 'Haftalik' : 'Kunlik'} abonement · ${when} gacha`;
 }
 

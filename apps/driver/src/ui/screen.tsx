@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAndroidKeyboardHeight } from './keyboard';
 import { colors, space, TOUCH } from './theme';
 
 /** A strip pinned above the page while the phone has no connection. */
@@ -38,6 +39,8 @@ export function Screen(props: {
   keyboard?: boolean;
   onBack?: () => void;
 }) {
+  // Android: the window is not resized for the keyboard (edge to edge), so make room here
+  const keyboardHeight = useAndroidKeyboardHeight();
   const body = (
     <ScrollView
       contentContainerStyle={styles.content}
@@ -74,7 +77,10 @@ export function Screen(props: {
     </ScrollView>
   );
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+    <SafeAreaView
+      style={[styles.safe, keyboardHeight ? { paddingBottom: keyboardHeight } : null]}
+      edges={['top', 'left', 'right']}
+    >
       <OfflineBanner />
       {props.keyboard ? (
         <KeyboardAvoidingView

@@ -1,11 +1,14 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Tabs } from 'expo-router/js-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFeatures } from '../../data/queries';
 import { colors } from '../../ui/theme';
 
 /** The approved driver's tabs. The runtime (stream, GPS, offers) lives in the root layout. */
 export default function DriverTabs() {
   const features = useFeatures();
+  // a fixed height drops the bottom inset: the tabs sat under a three-button navigation bar
+  const insets = useSafeAreaInsets();
   return (
     <Tabs
       screenOptions={{
@@ -14,8 +17,9 @@ export default function DriverTabs() {
         tabBarInactiveTintColor: colors.muted,
         tabBarLabelStyle: { fontSize: 13, fontWeight: '800' },
         tabBarStyle: {
-          height: 68,
+          height: 68 + insets.bottom,
           paddingTop: 6,
+          paddingBottom: insets.bottom + 6,
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
         },
