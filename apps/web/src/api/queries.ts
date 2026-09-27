@@ -1,21 +1,39 @@
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { api } from './client';
+import { pollInterval, useStreamState } from './realtime';
 import type {
   AdminCity,
   AdminDriver,
   AdminRide,
   AdminRideItem,
+  AdminTrip,
+  AppConfig,
   BillingRules,
   Candidate,
+  Complaint,
+  ComplaintItem,
   DispatchRules,
+  DriverAppeal,
   DriverListItem,
   DriverStatus,
+  FiscalReceipt,
+  FiscalRules,
+  IntercityPoint,
+  IntercityRules,
   LedgerPage,
   LiveBoard,
+  OutboxEvent,
+  Paged,
+  Rating,
+  Refund,
+  RideClass,
   RideStatus,
+  RoutePrice,
   SosEvent,
   Tariff,
   TaxReport,
+  TripStatus,
+  Upload,
 } from './types';
 
 /**
@@ -23,12 +41,17 @@ import type {
  * (api/realtime.ts); intervals are the fallback when the stream is down.
  */
 
-/** Online drivers and open rides. Positions are not pushed, so this polls every few seconds. */
-export function useLive(intervalMs = 5000) {
+/**
+ * Online drivers and open rides. Positions come in the stream's `drivers.positions` batch and
+ * offers in `offer.*` events (applied to this cache); the poll is a slow safety net while the
+ * stream is up and the old fast poll while it is down.
+ */
+export function useLive(liveMs = 30_000, fallbackMs = 5000) {
+  const stream = useStreamState();
   return useQuery({
     queryKey: ['live'],
     queryFn: () => api<LiveBoard>('/v1/admin/dispatch/live'),
-    refetchInterval: intervalMs,
+    refetchInterval: pollInterval(stream, liveMs, fallbackMs),
     refetchIntervalInBackground: true,
   });
 }
@@ -60,14 +83,65 @@ export function useCandidates(id: string | null, enabled: boolean) {
   });
 }
 
-export function useRides(status: RideStatus | 'open', q: string) {
-  return useQuery({
-    queryKey: ['rides', status, q],
-    queryFn: () => {
-      const p = new URLSearchParams({ status });
-      if (q) p.set('q', q);
-      return api<AdminRideItem[]>(`/v1/admin/rides?${p}`);
-    },
+/** Server-side ride filters (GET /admin/rides); days are Tashkent dates, inclusive. */
+export interface RideFilters {
+  status: RideStatus | 'open' | 'all';
+  q?: string;
+  driverId?: string;
+  riderId?: string;
+  class?: RideClass | '';
+  from?: string;
+  to?: string;
+}
+
+/** The API sends up to this many rides per page; the next page starts after the last id. */
+export const RIDES_PAGE = 200;
+
+export function ridesQuery(f: Omit<RideFilters, 'driverId'> & { driverId?: string }): string {
+  const p = new URLSearchParams();
+  p.set('status', f.status);
+  if (f.q) p.set('q', f.q);
+  if (f.driverId) p.set('driverId', f.driverId);
+  if (f.riderId) p.set('riderId', f.riderId);
+  if (f.class) p.set('class', f.class);
+  if (f.from) p.set('from', f.from);
+  if (f.to) p.set('to', f.to);
+  return p.toString();
+}
+
+/** The cursor of the page after `page`: the last id when the page was full. */
+export function nextCursorOf<T extends { id: string }>(page: readonly T[], size: number) {
+  return page.length >= size ? page.at(-1)!.id : undefined;
+}
+
+/** Rides with server-side filters and cursor paging ("Ko‘proq"). */
+export function useRides(filters: RideFilters) {
+  return useInfiniteQuery({
+    queryKey: ['rides', filters],
+    queryFn: ({ pageParam }) =>
+      api<AdminRideItem[]>(
+        `/v1/admin/rides?${ridesQuery(filters)}${pageParam ? `&cursor=${pageParam}` : ''}`,
+      ),
+    initialPageParam: '',
+    getNextPageParam: (last) => nextCursorOf(last, RIDES_PAGE),
+    placeholderData: (prev) => prev,
+  });
+}
+
+/** One driver's rides (GET /admin/drivers/:id/rides), same filters and paging. */
+export function useDriverRides(
+  driverId: string | undefined,
+  filters: Omit<RideFilters, 'driverId'>,
+) {
+  return useInfiniteQuery({
+    queryKey: ['driver', driverId, 'rides', filters],
+    queryFn: ({ pageParam }) =>
+      api<AdminRideItem[]>(
+        `/v1/admin/drivers/${driverId}/rides?${ridesQuery(filters)}${pageParam ? `&cursor=${pageParam}` : ''}`,
+      ),
+    initialPageParam: '',
+    getNextPageParam: (last) => nextCursorOf(last, RIDES_PAGE),
+    enabled: Boolean(driverId),
     placeholderData: (prev) => prev,
   });
 }
@@ -104,6 +178,34 @@ export function useLedger(id: string | undefined, cursor: string | null) {
   });
 }
 
+export function useAppeals(status: 'open' | 'resolved', intervalMs?: number) {
+  return useQuery({
+    queryKey: ['appeals', status],
+    queryFn: () => api<DriverAppeal[]>(`/v1/admin/drivers/appeals?status=${status}`),
+    refetchInterval: intervalMs,
+  });
+}
+
+/** A fresh read URL for an uploaded file (the ones in views expire after 15 minutes). */
+export function useUpload(id: string | null | undefined) {
+  return useQuery({
+    queryKey: ['upload', id],
+    queryFn: () => api<Upload>(`/v1/uploads/${id}`),
+    enabled: Boolean(id),
+    // read URLs live 15 minutes: take a new one well before
+    staleTime: 10 * 60_000,
+    gcTime: 10 * 60_000,
+  });
+}
+
+export function useAppConfig() {
+  return useQuery({
+    queryKey: ['config'],
+    queryFn: () => api<AppConfig>('/v1/config', { auth: false }),
+    staleTime: 5 * 60_000,
+  });
+}
+
 export function useTariff() {
   return useQuery({
     queryKey: ['settings', 'tariff'],
@@ -125,6 +227,20 @@ export function useBillingRules() {
   });
 }
 
+export function useIntercityRules() {
+  return useQuery({
+    queryKey: ['settings', 'intercity'],
+    queryFn: () => api<IntercityRules>('/v1/admin/settings/intercity'),
+  });
+}
+
+export function useFiscalRules() {
+  return useQuery({
+    queryKey: ['settings', 'fiscal'],
+    queryFn: () => api<FiscalRules>('/v1/admin/settings/fiscal'),
+  });
+}
+
 export function useCities() {
   return useQuery({
     queryKey: ['admin-cities'],
@@ -137,5 +253,153 @@ export function useTaxReport(period: string) {
     queryKey: ['taxes', period],
     queryFn: () => api<TaxReport>(`/v1/admin/billing/taxes?period=${period}`),
     enabled: /^\d{4}-(0[1-9]|1[0-2])$/.test(period),
+  });
+}
+
+export function useRefunds() {
+  return useQuery({
+    queryKey: ['refunds'],
+    queryFn: () => api<Refund[]>('/v1/admin/payments/refunds'),
+    refetchInterval: 60_000,
+  });
+}
+
+// Intercity ---------------------------------------------------------------------------------
+
+export function useIntercityPoints() {
+  return useQuery({
+    queryKey: ['intercity', 'points'],
+    queryFn: () => api<IntercityPoint[]>('/v1/intercity/points'),
+    staleTime: 10 * 60_000,
+  });
+}
+
+export interface TripFilters {
+  status?: TripStatus | '';
+  date?: string;
+  from?: string;
+  to?: string;
+}
+
+export function useTrips(f: TripFilters) {
+  return useQuery({
+    queryKey: ['intercity', 'trips', f],
+    queryFn: () => {
+      const p = new URLSearchParams();
+      if (f.status) p.set('status', f.status);
+      if (f.date) p.set('date', f.date);
+      if (f.from) p.set('from', f.from);
+      if (f.to) p.set('to', f.to);
+      const qs = p.toString();
+      return api<AdminTrip[]>(`/v1/admin/intercity/trips${qs ? `?${qs}` : ''}`);
+    },
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function useTrip(id: string | null | undefined) {
+  return useQuery({
+    queryKey: ['intercity', 'trip', id],
+    queryFn: () => api<AdminTrip>(`/v1/admin/intercity/trips/${id}`),
+    enabled: Boolean(id),
+  });
+}
+
+export function useRoutePrices() {
+  return useQuery({
+    queryKey: ['intercity', 'fares'],
+    queryFn: () => api<RoutePrice[]>('/v1/admin/intercity/fares'),
+  });
+}
+
+// Support -------------------------------------------------------------------------------------
+
+export interface ComplaintFilters {
+  status: 'unresolved' | 'open' | 'in_progress' | 'resolved';
+  type?: string;
+  driverId?: string;
+}
+
+export function useComplaints(f: ComplaintFilters, intervalMs?: number) {
+  return useInfiniteQuery({
+    queryKey: ['complaints', f],
+    queryFn: ({ pageParam }) => {
+      const p = new URLSearchParams({ status: f.status });
+      if (f.type) p.set('type', f.type);
+      if (f.driverId) p.set('driverId', f.driverId);
+      if (pageParam) p.set('cursor', pageParam);
+      return api<Paged<ComplaintItem>>(`/v1/admin/complaints?${p}`);
+    },
+    initialPageParam: '',
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    placeholderData: (prev) => prev,
+    refetchInterval: intervalMs,
+  });
+}
+
+export function useComplaint(id: string | null) {
+  return useQuery({
+    queryKey: ['complaint', id],
+    queryFn: () => api<Complaint>(`/v1/admin/complaints/${id}`),
+    enabled: Boolean(id),
+  });
+}
+
+export interface RatingFilters {
+  of: 'driver' | 'rider' | '';
+  maxStars: number | null;
+  subjectId?: string;
+}
+
+export function useRatings(f: RatingFilters) {
+  return useInfiniteQuery({
+    queryKey: ['ratings', f],
+    queryFn: ({ pageParam }) => {
+      const p = new URLSearchParams();
+      if (f.of) p.set('of', f.of);
+      if (f.maxStars) p.set('maxStars', String(f.maxStars));
+      if (f.subjectId) p.set('subjectId', f.subjectId);
+      if (pageParam) p.set('cursor', pageParam);
+      const qs = p.toString();
+      return api<Paged<Rating>>(`/v1/admin/ratings${qs ? `?${qs}` : ''}`);
+    },
+    initialPageParam: '',
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    placeholderData: (prev) => prev,
+  });
+}
+
+// Operations ----------------------------------------------------------------------------------
+
+export const RECEIPTS_PAGE = 100;
+
+export function useReceipts(status: FiscalReceipt['status'] | '') {
+  return useInfiniteQuery({
+    queryKey: ['fiscal', 'receipts', status],
+    queryFn: ({ pageParam }) => {
+      const p = new URLSearchParams();
+      if (status) p.set('status', status);
+      if (pageParam) p.set('cursor', pageParam);
+      const qs = p.toString();
+      return api<FiscalReceipt[]>(`/v1/admin/fiscal/receipts${qs ? `?${qs}` : ''}`);
+    },
+    initialPageParam: '',
+    getNextPageParam: (last) => nextCursorOf(last, RECEIPTS_PAGE),
+    placeholderData: (prev) => prev,
+  });
+}
+
+export const OUTBOX_PAGE = 100;
+
+export function useOutbox(state: 'dead' | 'failing', intervalMs?: number) {
+  return useInfiniteQuery({
+    queryKey: ['outbox', state],
+    queryFn: ({ pageParam }) =>
+      api<OutboxEvent[]>(
+        `/v1/admin/outbox?state=${state}${pageParam ? `&cursor=${pageParam}` : ''}`,
+      ),
+    initialPageParam: '',
+    getNextPageParam: (last) => nextCursorOf(last, OUTBOX_PAGE),
+    refetchInterval: intervalMs,
   });
 }

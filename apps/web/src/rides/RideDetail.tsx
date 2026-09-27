@@ -19,6 +19,7 @@ import {
   CHANNELS,
   CLASSES,
   dateTime,
+  DECLINE_REASONS,
   distance,
   duration,
   EVENTS,
@@ -28,11 +29,19 @@ import {
   RIDE_STATUS,
   RIDE_STATUS_TONE,
   som,
+  PAYMENT_STATUS,
   STAGES,
   time,
   timeSec,
 } from '../lib/format';
-import { canAssign, eventDetail, isOpen, needsDriver, optionsText, placeLine } from '../lib/rides';
+import {
+  canAssign,
+  canCancel,
+  eventDetail,
+  needsDriver,
+  optionsText,
+  placeLine,
+} from '../lib/rides';
 import type { MapLayers, MarkerSpec } from '../map/adapter';
 import { GeoMap, useGeoConfig } from '../map/GeoMap';
 import { cityLayers } from '../map/places';
@@ -238,7 +247,20 @@ export function RideDetail({
         </span>
       </div>
 
-      {isOpen(r.status) && (
+      {r.scheduledFor && (
+        <div className="alert alert-info">
+          Keyinroqqa buyurtma: <strong>{dateTime(r.scheduledFor)}</strong> ga. Haydovchi qidiruvi 15
+          daqiqa oldin boshlanadi.
+        </div>
+      )}
+      {r.paymentMethod === 'card' && (
+        <p className="muted small">
+          Karta orqali oldindan to‘lov:{' '}
+          <strong>{PAYMENT_STATUS[r.paymentStatus] ?? r.paymentStatus}</strong>
+        </p>
+      )}
+
+      {canCancel(r.status) && (
         <div className="ride-actions">
           <Button variant="danger" icon={<Ban size={16} />} onClick={() => setCancelling(true)}>
             Bekor qilish
@@ -387,6 +409,11 @@ export function RideDetail({
                     <td>{o.kind === 'broadcast' ? 'E’lon' : 'To‘g‘ridan'}</td>
                     <td>
                       <Badge tone={OFFER_TONE[o.status]}>{OFFER_STATUS[o.status]}</Badge>
+                      {o.declineReason && (
+                        <div className="muted small">
+                          {DECLINE_REASONS[o.declineReason] ?? o.declineReason}
+                        </div>
+                      )}
                     </td>
                     <td className="num">{duration(o.etaS)}</td>
                     <td className="num">{timeSec(o.createdAt)}</td>

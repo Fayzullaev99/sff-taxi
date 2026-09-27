@@ -2,6 +2,7 @@ import { AlertTriangle, Car, Clock, Crosshair, PhoneCall, X } from 'lucide-react
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useLive, useRide } from '../api/queries';
+import { useStreamState } from '../api/realtime';
 import type {
   AdminRideItem,
   LatLng,
@@ -155,10 +156,13 @@ function DriverCard({
 /**
  * The dispatcher's live map: online drivers coloured by state, open rides, filters; a ride
  * opens a drawer with its timeline, offers, candidates, manual assignment and cancellation.
- * Positions are polled (the API does not push them to operators); SSE nudges refetch at once.
+ * Positions arrive in the stream's positions batch and offers as events (applied to the board);
+ * other changes refetch at once. A slow poll backs the stream up; while it is down, the old
+ * 5-second poll takes over.
  */
 export default function LiveDispatch() {
-  const live = useLive(5000);
+  const live = useLive();
+  const stream = useStreamState();
   const geo = useGeoConfig();
   const [params, setParams] = useSearchParams();
   const rideId = params.get('ride');
@@ -225,7 +229,11 @@ export default function LiveDispatch() {
         title="Jonli xarita"
         subtitle={
           live.dataUpdatedAt
-            ? `Yangilandi ${timeSec(new Date(live.dataUpdatedAt).toISOString())} · har 5 soniyada`
+            ? `Yangilandi ${timeSec(new Date(live.dataUpdatedAt).toISOString())} · ${
+                stream === 'open'
+                  ? 'joylashuvlar jonli (har 5 soniyada)'
+                  : 'jonli aloqa yo‘q: har 5 soniyada so‘raladi'
+              }`
             : 'Haydovchilar va ochiq buyurtmalar'
         }
         actions={

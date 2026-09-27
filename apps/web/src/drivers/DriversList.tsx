@@ -2,14 +2,29 @@ import { Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useDrivers } from '../api/queries';
-import type { DriverStatus } from '../api/types';
-import { ago, CLASSES, date, DRIVER_STATUS, DRIVER_STATUS_TONE } from '../lib/format';
+import type { DriverStatus, LicenceStatus } from '../api/types';
+import {
+  ago,
+  CLASSES,
+  date,
+  DRIVER_STATUS,
+  DRIVER_STATUS_TONE,
+  LICENCE_TONE,
+  rating,
+  som,
+} from '../lib/format';
 import { formatPhone } from '../lib/phone';
 import { useDebounced } from '../map/places';
 import { Badge, PageHeader, Segmented } from '../ui/controls';
 import { Empty, ErrorBox, Loading } from '../ui/feedback';
 
 type Tab = DriverStatus | 'all';
+
+const LICENCE_SHORT: Record<LicenceStatus, string> = {
+  unverified: 'Tekshirilmagan',
+  valid: 'Tasdiqlangan',
+  invalid: 'Yaroqsiz',
+};
 const TABS: { value: Tab; label: string }[] = [
   { value: 'pending', label: 'Tekshiruv navbati' },
   { value: 'active', label: 'Faol' },
@@ -85,7 +100,11 @@ export default function DriversList() {
                 <th>Haydovchi</th>
                 <th>Avtomobil</th>
                 <th>Holat</th>
+                <th>Litsenziya</th>
                 <th>Liniyada</th>
+                <th className="num">Reyting</th>
+                <th className="num">Ustuvorlik</th>
+                <th className="num">Balans</th>
                 <th>{tab === 'pending' ? 'Ariza' : 'Ro‘yxatdan o‘tgan'}</th>
               </tr>
             </thead>
@@ -116,12 +135,27 @@ export default function DriversList() {
                     {d.statusReason && <div className="muted small clamp-2">{d.statusReason}</div>}
                   </td>
                   <td>
+                    <Badge tone={LICENCE_TONE[d.licenceStatus]}>
+                      {LICENCE_SHORT[d.licenceStatus]}
+                    </Badge>
+                  </td>
+                  <td>
                     {d.isOnline ? (
-                      <Badge tone="green">Onlayn</Badge>
+                      <>
+                        <Badge tone="green">Onlayn</Badge>
+                        <div className="muted small">
+                          {d.locatedAt ? `GPS ${ago(d.locatedAt)}` : 'GPS yo‘q'}
+                        </div>
+                      </>
                     ) : (
                       <span className="muted">—</span>
                     )}
                   </td>
+                  <td className="num">
+                    {rating(d.rating)} ★<div className="muted small">{d.ridesCompleted} safar</div>
+                  </td>
+                  <td className="num">{d.priority}</td>
+                  <td className={`num${d.balance < 0 ? ' negative' : ''}`}>{som(d.balance)}</td>
                   <td className="nowrap">
                     {date(d.createdAt)}
                     {tab === 'pending' && <div className="muted small">{ago(d.createdAt)}</div>}
@@ -132,7 +166,6 @@ export default function DriversList() {
           </table>
         </div>
       )}
-      <p className="muted small">Reyting, ustuvorlik bali va balans — haydovchi sahifasida.</p>
     </div>
   );
 }

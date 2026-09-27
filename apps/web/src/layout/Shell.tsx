@@ -1,28 +1,35 @@
 import {
   Bell,
   BellOff,
+  BusFront,
   Calculator,
   CircleUserRound,
   ClipboardList,
   LogOut,
   Map as MapIcon,
   Menu as MenuIcon,
+  MessageSquareWarning,
   PhoneCall,
   Radar,
   Receipt,
+  Scale,
+  ScrollText,
   Settings,
   ShieldCheck,
   Siren,
+  Star,
   Users,
   Volume2,
   VolumeX,
+  Wallet,
   Wifi,
   WifiOff,
+  Workflow,
   X,
 } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router';
-import { useDrivers } from '../api/queries';
+import { useAppeals, useComplaints, useDrivers, useRefunds } from '../api/queries';
 import { type StreamState, useRealtime } from '../api/realtime';
 import type { Me } from '../api/types';
 import { useSignOut } from '../auth/session';
@@ -37,17 +44,53 @@ interface NavItem {
   icon: ReactNode;
 }
 
-const NAV: NavItem[] = [
-  { to: '/dispatch', label: 'Jonli xarita', icon: <Radar size={18} /> },
-  { to: '/phone-order', label: 'Telefon buyurtma', icon: <PhoneCall size={18} /> },
-  { to: '/rides', label: 'Safarlar', icon: <ClipboardList size={18} /> },
-  { to: '/drivers', label: 'Haydovchilar', icon: <Users size={18} /> },
-  { to: '/sos', label: 'SOS', icon: <Siren size={18} /> },
-  { to: '/taxes', label: 'Soliq hisoboti', icon: <Receipt size={18} /> },
-  { to: '/tariffs', label: 'Tariflar', icon: <Calculator size={18} /> },
-  { to: '/cities', label: 'Shaharlar', icon: <MapIcon size={18} /> },
-  { to: '/settings', label: 'Sozlamalar', icon: <Settings size={18} /> },
+/** The sections of the panel, grouped the way a dispatch shift uses them. */
+const NAV: { title: string; items: NavItem[] }[] = [
+  {
+    title: 'Dispetcherlik',
+    items: [
+      { to: '/dispatch', label: 'Jonli xarita', icon: <Radar size={18} /> },
+      { to: '/phone-order', label: 'Telefon buyurtma', icon: <PhoneCall size={18} /> },
+      { to: '/rides', label: 'Safarlar', icon: <ClipboardList size={18} /> },
+      { to: '/intercity', label: 'Shaharlararo', icon: <BusFront size={18} /> },
+    ],
+  },
+  {
+    title: 'Xavfsizlik va yordam',
+    items: [
+      { to: '/sos', label: 'SOS', icon: <Siren size={18} /> },
+      { to: '/complaints', label: 'Shikoyatlar', icon: <MessageSquareWarning size={18} /> },
+      { to: '/ratings', label: 'Baholar', icon: <Star size={18} /> },
+    ],
+  },
+  {
+    title: 'Haydovchilar',
+    items: [
+      { to: '/drivers', label: 'Haydovchilar', icon: <Users size={18} /> },
+      { to: '/appeals', label: 'Murojaatlar', icon: <Scale size={18} /> },
+    ],
+  },
+  {
+    title: 'Moliya',
+    items: [
+      { to: '/payments', label: 'To‘lovlar', icon: <Wallet size={18} /> },
+      { to: '/taxes', label: 'Soliq hisoboti', icon: <Receipt size={18} /> },
+      { to: '/fiscal', label: 'Fiskal cheklar', icon: <ScrollText size={18} /> },
+    ],
+  },
+  {
+    title: 'Tizim',
+    items: [
+      { to: '/tariffs', label: 'Tariflar', icon: <Calculator size={18} /> },
+      { to: '/cities', label: 'Shaharlar', icon: <MapIcon size={18} /> },
+      { to: '/settings', label: 'Sozlamalar', icon: <Settings size={18} /> },
+      { to: '/outbox', label: 'Bajarilmagan amallar', icon: <Workflow size={18} /> },
+    ],
+  },
 ];
+
+/** Counts next to the sections: red ones need someone now, blue ones are queues. */
+const INFO_COUNTS = new Set(['/drivers', '/appeals', '/complaints', '/payments']);
 
 function NotificationButton() {
   const [permission, setPermission] = useState(() =>
@@ -98,6 +141,9 @@ export function Shell({ me }: { me: Me }) {
   const stream = useRealtime(true);
   const alarms = useDispatchAlarms();
   const pending = useDrivers('pending', '', 60_000);
+  const appeals = useAppeals('open', 60_000);
+  const complaints = useComplaints({ status: 'open' }, 60_000);
+  const refunds = useRefunds();
 
   useEffect(() => setNavOpen(false), [location.pathname]);
 
@@ -105,6 +151,10 @@ export function Shell({ me }: { me: Me }) {
     '/dispatch': alarms.waiting.length,
     '/sos': alarms.openSos.length,
     '/drivers': pending.data?.length ?? 0,
+    '/appeals': appeals.data?.length ?? 0,
+    // new complaints nobody answered yet (a full page reads as 100+)
+    '/complaints': complaints.data?.pages[0]?.items.length ?? 0,
+    '/payments': refunds.data?.length ?? 0,
   };
   const firstWaiting = alarms.waiting[0];
 
@@ -140,19 +190,24 @@ export function Shell({ me }: { me: Me }) {
           </div>
         </Link>
         <nav aria-label="Bo‘limlar">
-          {NAV.map((item) => (
-            <NavLink key={item.to} to={item.to} className="nav-link">
-              {item.icon}
-              <span>{item.label}</span>
-              {(counts[item.to] ?? 0) > 0 && (
-                <span
-                  className={`nav-count${item.to === '/drivers' ? ' is-info' : ''}`}
-                  aria-label={`${counts[item.to]} ta kutmoqda`}
-                >
-                  {counts[item.to]}
-                </span>
-              )}
-            </NavLink>
+          {NAV.map((group) => (
+            <div key={group.title} className="nav-group">
+              <span className="nav-group-title">{group.title}</span>
+              {group.items.map((item) => (
+                <NavLink key={item.to} to={item.to} className="nav-link">
+                  {item.icon}
+                  <span>{item.label}</span>
+                  {(counts[item.to] ?? 0) > 0 && (
+                    <span
+                      className={`nav-count${INFO_COUNTS.has(item.to) ? ' is-info' : ''}`}
+                      aria-label={`${counts[item.to]} ta kutmoqda`}
+                    >
+                      {counts[item.to]! >= 100 ? '99+' : counts[item.to]}
+                    </span>
+                  )}
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="sidebar-foot">

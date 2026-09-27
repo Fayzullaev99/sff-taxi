@@ -2,8 +2,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Save } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { api } from '../api/client';
-import { useBillingRules, useDispatchRules } from '../api/queries';
-import type { BillingRules, DispatchRules } from '../api/types';
+import { useBillingRules, useDispatchRules, useIntercityRules } from '../api/queries';
+import type { BillingRules, DispatchRules, IntercityRules } from '../api/types';
 import { date, som, tashkentToday } from '../lib/format';
 import { Button, Field, MoneyInput, NumberInput, PageHeader, Toggle } from '../ui/controls';
 import { ErrorBox, Loading, useConfirm, useToast } from '../ui/feedback';
@@ -255,10 +255,60 @@ const BILLING_SPECS: NumSpec<BillingRules>[] = [
   { key: 'pass_week_price', label: 'Haftalik abonement', money: true, min: 0, max: 10_000_000 },
 ];
 
+const INTERCITY_SPECS: NumSpec<IntercityRules>[] = [
+  {
+    key: 'price_band_percent',
+    label: 'Haydovchi narx oralig‘i',
+    hint: 'Tavsiya narxidan ± shuncha foiz',
+    suffix: '%',
+    min: 0,
+    max: 50,
+  },
+  {
+    key: 'publish_max_days_ahead',
+    label: 'Qancha kun oldin e’lon qilish mumkin',
+    suffix: 'kun',
+    min: 1,
+    max: 30,
+  },
+  {
+    key: 'publish_min_minutes_ahead',
+    label: 'Jo‘nashdan kamida qancha oldin e’lon',
+    suffix: 'daq',
+    min: 0,
+    max: 720,
+  },
+  {
+    key: 'free_cancel_minutes',
+    label: 'Bepul bekor qilish',
+    hint: 'Jo‘nashdan shuncha daqiqa oldingacha',
+    suffix: 'daq',
+    min: 0,
+    max: 1440,
+  },
+  {
+    key: 'late_cancel_fee_percent',
+    label: 'Kech bekor qilish jarimasi',
+    hint: 'Bron narxidan (yoziladi, hozircha undirilmaydi)',
+    suffix: '%',
+    min: 0,
+    max: 100,
+  },
+  {
+    key: 'boarding_opens_minutes',
+    label: 'Yo‘lovchilarni chiqarish boshlanadi',
+    hint: 'Jo‘nashdan shuncha daqiqa oldin',
+    suffix: 'daq',
+    min: 0,
+    max: 240,
+  },
+];
+
 /** Dispatch parameters and driver billing (commission promo, caps, passes, tax, minimum). */
 export default function Settings() {
   const dispatch = useDispatchRules();
   const billing = useBillingRules();
+  const intercity = useIntercityRules();
   return (
     <div>
       <PageHeader
@@ -269,6 +319,9 @@ export default function Settings() {
         <ErrorBox error={dispatch.error} onRetry={() => void dispatch.refetch()} />
       )}
       {billing.error && <ErrorBox error={billing.error} onRetry={() => void billing.refetch()} />}
+      {intercity.error && (
+        <ErrorBox error={intercity.error} onRetry={() => void intercity.refetch()} />
+      )}
       {dispatch.isPending || billing.isPending ? (
         <Loading />
       ) : (
@@ -364,6 +417,16 @@ export default function Settings() {
                     ? { promo_until: 'Sana' }
                     : {}
               }
+            />
+          )}
+          {intercity.data && (
+            <SettingsCard<IntercityRules>
+              title="Shaharlararo qatnovlar"
+              intro="Haydovchilar qatnov e’lon qilish, yo‘lovchilar bron va bekor qilish qoidalari. O‘rindiq narxlari — Shaharlararo bo‘limida."
+              path="/v1/admin/settings/intercity"
+              queryKey={['settings', 'intercity']}
+              data={intercity.data}
+              specs={INTERCITY_SPECS}
             />
           )}
         </div>

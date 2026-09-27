@@ -1,5 +1,12 @@
 import type {
+  BookingStatus,
+  ComplaintResolution,
+  ComplaintStatus,
+  ComplaintType,
   DispatchStage,
+  LicenceStatus,
+  ReceiptStatus,
+  TripStatus,
   DocumentKind,
   DriverStatus,
   LedgerKind,
@@ -149,6 +156,8 @@ export function percent(value: number): string {
 // Labels ------------------------------------------------------------------------------------
 
 export const RIDE_STATUS: Record<RideStatus, string> = {
+  scheduled: 'Keyinroqqa buyurtma',
+  awaiting_payment: 'To‘lov kutilmoqda',
   searching: 'Haydovchi qidirilmoqda',
   driver_assigned: 'Haydovchi yo‘lda',
   driver_arrived: 'Haydovchi yetib keldi',
@@ -158,6 +167,8 @@ export const RIDE_STATUS: Record<RideStatus, string> = {
 };
 
 export const RIDE_STATUS_SHORT: Record<RideStatus, string> = {
+  scheduled: 'Keyinroqqa',
+  awaiting_payment: 'To‘lov kutilmoqda',
   searching: 'Qidiruv',
   driver_assigned: 'Tayinlangan',
   driver_arrived: 'Yetib keldi',
@@ -169,6 +180,8 @@ export const RIDE_STATUS_SHORT: Record<RideStatus, string> = {
 export type Tone = 'neutral' | 'green' | 'red' | 'amber' | 'blue' | 'brand';
 
 export const RIDE_STATUS_TONE: Record<RideStatus, Tone> = {
+  scheduled: 'brand',
+  awaiting_payment: 'neutral',
   searching: 'amber',
   driver_assigned: 'blue',
   driver_arrived: 'blue',
@@ -244,6 +257,8 @@ export const LEDGER_KINDS: Record<LedgerKind, string> = {
   tax: 'Soliq (1%)',
   pass: 'Abonement',
   adjustment: 'Tuzatish',
+  card_fare: 'Karta safari puli',
+  payout: 'Pul o‘tkazildi',
 };
 
 export const OFFER_STATUS: Record<RideOffer['status'], string> = {
@@ -277,4 +292,147 @@ export const EVENTS: Record<string, string> = {
   cancelled: 'Bekor qilindi',
   rated: 'Baho qo‘yildi',
   sos: 'SOS signali',
+};
+
+export const LICENCE_STATUS: Record<LicenceStatus, string> = {
+  unverified: 'Reyestrda tekshirilmagan',
+  valid: 'Reyestrda tasdiqlangan',
+  invalid: 'Reyestrda tasdiqlanmadi',
+};
+
+export const LICENCE_TONE: Record<LicenceStatus, Tone> = {
+  unverified: 'amber',
+  valid: 'green',
+  invalid: 'red',
+};
+
+export const TRIP_STATUS: Record<TripStatus, string> = {
+  scheduled: 'Jo‘nashni kutmoqda',
+  boarding: 'Yo‘lovchilar chiqmoqda',
+  departed: 'Yo‘lda',
+  arrived: 'Yetib keldi',
+  cancelled: 'Bekor qilingan',
+};
+
+export const TRIP_TONE: Record<TripStatus, Tone> = {
+  scheduled: 'blue',
+  boarding: 'amber',
+  departed: 'green',
+  arrived: 'neutral',
+  cancelled: 'red',
+};
+
+export const BOOKING_STATUS: Record<BookingStatus, string> = {
+  booked: 'Bron qilingan',
+  boarded: 'Mashinada',
+  completed: 'Yakunlangan',
+  cancelled: 'Bekor qilingan',
+  no_show: 'Kelmadi',
+};
+
+export const BOOKING_TONE: Record<BookingStatus, Tone> = {
+  booked: 'blue',
+  boarded: 'green',
+  completed: 'neutral',
+  cancelled: 'red',
+  no_show: 'amber',
+};
+
+export const COMPLAINT_TYPE: Record<ComplaintType, string> = {
+  lost_item: 'Mashinada narsa qoldi',
+  driver_behaviour: 'Haydovchining xulqi',
+  route: 'Yo‘l / manzil',
+  price: 'Narx',
+  car_condition: 'Mashina holati',
+  safety: 'Xavfsizlik',
+  other: 'Boshqa',
+};
+
+export const COMPLAINT_STATUS: Record<ComplaintStatus, string> = {
+  open: 'Yangi',
+  in_progress: 'Ko‘rib chiqilmoqda',
+  resolved: 'Yopilgan',
+};
+
+export const COMPLAINT_TONE: Record<ComplaintStatus, Tone> = {
+  open: 'red',
+  in_progress: 'amber',
+  resolved: 'neutral',
+};
+
+export const RESOLUTIONS: Record<ComplaintResolution, string> = {
+  item_returned: 'Narsa egasiga qaytarildi',
+  refund: 'Pul qaytarildi',
+  driver_warned: 'Haydovchiga ogohlantirish',
+  driver_blocked: 'Haydovchi bloklandi',
+  rejected: 'Asossiz deb topildi',
+  no_action: 'Chora ko‘rilmadi',
+};
+
+export const RECEIPT_STATUS: Record<ReceiptStatus, string> = {
+  pending: 'Yuborilmoqda',
+  sent: 'Yuborilgan',
+  skipped: 'Saqlangan (yuborilmagan)',
+};
+
+export const RECEIPT_TONE: Record<ReceiptStatus, Tone> = {
+  pending: 'amber',
+  sent: 'green',
+  skipped: 'neutral',
+};
+
+export const PROVIDERS: Record<string, string> = { payme: 'Payme', click: 'Click' };
+
+/** Outbox topics (side effects) as operators read them. */
+export const OUTBOX_TOPICS: Record<string, string> = {
+  'ride.requested': 'Yangi buyurtma',
+  'ride.status_changed': 'Buyurtma holati',
+  'ride.offer_created': 'Haydovchiga taklif',
+  'ride.offer_closed': 'Taklif yopildi',
+  'ride.attention': 'Operatorga signal',
+  'ride.sos': 'SOS',
+  'driver.status_changed': 'Haydovchi holati',
+  'driver.appeal': 'Haydovchi murojaati',
+  'driver.licence_check_requested': 'Litsenziyani tekshirish',
+  'fiscal.receipt_due': 'Fiskal chek',
+  'complaint.changed': 'Shikoyat',
+  'intercity.trip_changed': 'Shaharlararo qatnov',
+  'intercity.booking_changed': 'Shaharlararo bron',
+};
+
+/** Bytes as "850 KB", "2,4 MB". */
+export function fileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1).replace('.', ',')} MB`;
+}
+
+/** A local "YYYY-MM-DDTHH:mm" (Tashkent wall clock, as a datetime-local input shows it) → ISO. */
+export function tashkentLocalToIso(local: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(local)) return null;
+  const t = Date.parse(`${local}:00+05:00`);
+  return Number.isNaN(t) ? null : new Date(t).toISOString();
+}
+
+/** An instant as the Tashkent wall clock "YYYY-MM-DDTHH:mm" for a datetime-local input. */
+export function isoToTashkentLocal(iso: string | number): string {
+  return tashkent(iso).toISOString().slice(0, 16);
+}
+
+export const PAYMENT_STATUS: Record<string, string> = {
+  pending: 'kutilmoqda',
+  paid: 'to‘langan',
+  not_charged: 'olinmagan',
+  failed: 'o‘tmadi',
+  refund_pending: 'qaytarilishi kerak',
+  refunded: 'qaytarilgan',
+};
+
+/** Why a driver passed on an offer (apps/api dispatch DECLINE_REASONS). */
+export const DECLINE_REASONS: Record<string, string> = {
+  too_far: 'Juda uzoq',
+  destination: 'Bu tomonga bormayman',
+  rider_rating: 'Yo‘lovchi reytingi past',
+  car_not_suitable: 'Avtomobil mos emas',
+  break: 'Dam olyapman',
+  other: 'Boshqa sabab',
 };

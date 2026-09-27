@@ -158,6 +158,10 @@ export interface BillingRules {
 // Rides ------------------------------------------------------------------------------------
 
 export const RIDE_STATUSES = [
+  /** Ordered for later: dispatch starts 15 minutes before scheduledFor. */
+  'scheduled',
+  /** A card ride waiting for its prepayment before dispatch. */
+  'awaiting_payment',
   'searching',
   'driver_assigned',
   'driver_arrived',
@@ -245,6 +249,8 @@ export interface RideBase {
   startedAt: string | null;
   completedAt: string | null;
   cancelledAt: string | null;
+  /** Rides ordered for later: when the rider wants to leave. */
+  scheduledFor: string | null;
 }
 
 /** GET /admin/rides items (also the rides of /admin/dispatch/live). */
@@ -268,6 +274,7 @@ export interface RideOffer {
   createdAt: string;
   expiresAt: string;
   respondedAt: string | null;
+  declineReason?: string | null;
 }
 
 export interface RideEvent {
@@ -364,6 +371,10 @@ export const DOCUMENT_KINDS = [
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
 export type DriverDecision = 'approve' | 'reject' | 'block' | 'unblock';
 
+/** Licence card check with the Ministry of Transport's registry (manual today). */
+export const LICENCE_STATUSES = ['unverified', 'valid', 'invalid'] as const;
+export type LicenceStatus = (typeof LICENCE_STATUSES)[number];
+
 /** GET /admin/drivers items */
 export interface DriverListItem {
   id: string;
@@ -378,6 +389,16 @@ export interface DriverListItem {
   make: string | null;
   model: string | null;
   class: RideClass | null;
+  lat: number | null;
+  lng: number | null;
+  locatedAt: string | null;
+  ridesCompleted: number;
+  licenceStatus: LicenceStatus;
+  balance: number;
+  /** Average stars with the prior (priority's rating part). */
+  rating: number;
+  /** Priority score 0..100. */
+  priority: number;
 }
 
 export interface Priority {
@@ -398,13 +419,28 @@ export interface Vehicle {
   seats: number;
   class: RideClass;
   features: VehicleFeature[];
+  cngInTrunk?: boolean;
+  /** The car as riders see it (a 15-minute read URL). */
+  photoUrl?: string | null;
 }
 
 export interface DriverDocument {
   kind: DocumentKind;
-  url: string;
+  /** Uploaded files: a 15-minute read URL (refresh through GET /uploads/:id); legacy: as sent. */
+  url: string | null;
+  uploadId?: string | null;
   expiresOn: string | null;
   uploadedAt: string;
+}
+
+export interface LicenceCheck {
+  source: 'manual' | 'mintrans';
+  licenceCardNumber: string;
+  result: 'valid' | 'invalid';
+  expiresOn: string | null;
+  note: string | null;
+  checkedBy: string | null;
+  at: string;
 }
 
 /** GET /admin/drivers/:id */
@@ -415,13 +451,19 @@ export interface AdminDriver {
   birthDate: string;
   pinfl: string;
   licence: { number: string; categories: string[]; issuedOn: string };
-  licenceCard: { number: string; expiresOn: string };
+  licenceCard: {
+    number: string;
+    expiresOn: string;
+    verification: LicenceStatus;
+    checkedAt: string | null;
+  };
   status: DriverStatus;
   statusReason: string | null;
   approvedAt: string | null;
   isOnline: boolean;
   onlineSince: string | null;
   location: { lat: number; lng: number; heading: number | null; at: string | null } | null;
+  photoUrl?: string | null;
   vehicle: Vehicle | null;
   documents: DriverDocument[];
   missingDocuments: DocumentKind[];
@@ -441,12 +483,84 @@ export interface AdminDriver {
     actorId: string | null;
     at: string;
   }[];
+  licenceChecks: LicenceCheck[];
   balance: number;
+}
+
+/** GET /admin/drivers/appeals items */
+export interface DriverAppeal {
+  id: string;
+  driverId: string;
+  fullName: string;
+  phone: string;
+  driverStatus: DriverStatus;
+  statusReason: string | null;
+  /** The status the driver appealed against. */
+  statusAt: 'rejected' | 'blocked';
+  text: string;
+  status: 'open' | 'resolved';
+  resolution: string | null;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+}
+
+// Uploads ----------------------------------------------------------------------------------
+
+/** GET /uploads/:id */
+export interface Upload {
+  id: string;
+  purpose: 'document' | 'profile_photo' | 'vehicle_photo';
+  contentType: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';
+  sizeBytes: number;
+  status: 'pending' | 'ready';
+  url: string | null;
+  createdAt: string;
+}
+
+// Callers ----------------------------------------------------------------------------------
+
+export interface SavedPlace {
+  id: string;
+  kind: 'home' | 'work' | 'other';
+  label: string | null;
+  address: string | null;
+  landmark: string | null;
+  lat: number;
+  lng: number;
+}
+
+/** POST /admin/customers/lookup */
+export type CustomerLookup =
+  | { found: false; phone: string }
+  | {
+      found: true;
+      phone: string;
+      user: {
+        id: string;
+        name: string | null;
+        status: string;
+        rating: number;
+        noShows: number;
+        since: string;
+      };
+      openRide: AdminRide | null;
+      recentRides: RideBase[];
+      recentPlaces: Place[];
+      savedPlaces: SavedPlace[];
+    };
+
+/** GET /config */
+export interface AppConfig {
+  support: { phone: string | null; telegram: string | null; officeAddress: string | null };
+  features: Record<string, boolean>;
+  cardProviders: string[];
 }
 
 // Money ------------------------------------------------------------------------------------
 
-export type LedgerKind = 'topup' | 'commission' | 'tax' | 'pass' | 'adjustment';
+export type LedgerKind =
+  'topup' | 'commission' | 'tax' | 'pass' | 'adjustment' | 'card_fare' | 'payout';
 
 export interface LedgerEntry {
   id: string;
@@ -480,6 +594,256 @@ export interface TaxReport {
     remitted: boolean;
   }[];
   totals: { rides: number; base: number; amount: number };
+}
+
+/** GET /admin/payments/refunds items: cancelled card rides paid in advance. */
+export interface Refund {
+  id: string;
+  amount: number;
+  provider: 'payme' | 'click' | null;
+  paidAt: string | null;
+  refundRequestedAt: string | null;
+  rideId: string;
+  rideNumber: number;
+  riderPhone: string;
+  cancelReason: string | null;
+}
+
+// Intercity --------------------------------------------------------------------------------
+
+export const TRIP_STATUSES = ['scheduled', 'boarding', 'departed', 'arrived', 'cancelled'] as const;
+export type TripStatus = (typeof TRIP_STATUSES)[number];
+export const BOOKING_STATUSES = ['booked', 'boarded', 'completed', 'cancelled', 'no_show'] as const;
+export type BookingStatus = (typeof BOOKING_STATUSES)[number];
+
+export interface IntercityPoint {
+  id: string;
+  slug: string;
+  nameUz: string;
+  nameRu: string;
+  lat: number;
+  lng: number;
+  meetingPoint: string;
+}
+
+export interface SeatPrices {
+  rear: number;
+  front: number;
+}
+
+/** A departure as the board shows it (GET /admin/intercity/search). */
+export interface PublicTrip {
+  id: string;
+  number: number;
+  status: TripStatus;
+  from: IntercityPoint;
+  to: IntercityPoint;
+  departureAt: string;
+  meetingPoint: string;
+  comment: string | null;
+  class: RideClass;
+  distanceM: number;
+  seats: { total: number; free: number; frontOffered: boolean; frontFree: boolean };
+  price: SeatPrices;
+  driver: { name: string; rating: number; ridesCompleted: number; photoUrl: string | null };
+  vehicle: {
+    make: string;
+    model: string;
+    colour: string;
+    class: RideClass;
+    photoUrl: string | null;
+  };
+}
+
+export interface TripBooking {
+  id: string;
+  number: number;
+  tripId: string;
+  status: BookingStatus;
+  channel: 'app' | 'phone';
+  seats: number;
+  front: boolean;
+  price: number;
+  pickupNote: string | null;
+  cancelledBy: string | null;
+  cancelReason: string | null;
+  cancellationFee: number;
+  createdAt: string;
+  boardedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  riderId: string;
+  riderName: string | null;
+  riderPhone: string;
+  commission?: number | null;
+  tax?: number | null;
+}
+
+/** GET /admin/intercity/trips[/:id]: a departure with its driver and bookings. */
+export interface AdminTrip extends Omit<PublicTrip, 'driver' | 'vehicle'> {
+  driver: PublicTrip['driver'] & { id: string; phone: string };
+  vehicle: PublicTrip['vehicle'] & { plate: string; plateFormatted: string };
+  referenceRear: number | null;
+  cancelledBy: 'driver' | 'operator' | null;
+  cancelReason: string | null;
+  boardingAt: string | null;
+  departedAt: string | null;
+  arrivedAt: string | null;
+  cancelledAt: string | null;
+  bookings: TripBooking[];
+}
+
+/** GET /admin/intercity/fares items: operators' fixed route prices. */
+export interface RoutePrice {
+  from: string;
+  to: string;
+  rear: number;
+  front: number;
+  updatedAt: string;
+}
+
+/** GET /intercity/fares: a route's reference prices. */
+export interface IntercityFare {
+  from: IntercityPoint;
+  to: IntercityPoint;
+  class: RideClass;
+  distanceM: number;
+  durationS: number | null;
+  source: 'route' | 'tariff';
+  reference: SeatPrices;
+  band: { min: number; max: number };
+}
+
+export interface IntercityRules {
+  price_band_percent: number;
+  publish_max_days_ahead: number;
+  publish_min_minutes_ahead: number;
+  free_cancel_minutes: number;
+  late_cancel_fee_percent: number;
+  boarding_opens_minutes: number;
+}
+
+// Support ----------------------------------------------------------------------------------
+
+export const COMPLAINT_TYPES = [
+  'lost_item',
+  'driver_behaviour',
+  'route',
+  'price',
+  'car_condition',
+  'safety',
+  'other',
+] as const;
+export type ComplaintType = (typeof COMPLAINT_TYPES)[number];
+export const COMPLAINT_RESOLUTIONS = [
+  'item_returned',
+  'refund',
+  'driver_warned',
+  'driver_blocked',
+  'rejected',
+  'no_action',
+] as const;
+export type ComplaintResolution = (typeof COMPLAINT_RESOLUTIONS)[number];
+export type ComplaintStatus = 'open' | 'in_progress' | 'resolved';
+
+export interface ComplaintItem {
+  id: string;
+  rideId: string;
+  rideNumber: number;
+  riderPhone: string;
+  driverId: string | null;
+  type: ComplaintType;
+  typeLabel: string;
+  status: ComplaintStatus;
+  text: string;
+  resolution: ComplaintResolution | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Complaint {
+  id: string;
+  rideId: string;
+  rideNumber: number;
+  riderId: string;
+  driverId: string | null;
+  type: ComplaintType;
+  typeLabel: string;
+  status: ComplaintStatus;
+  text: string;
+  resolution: ComplaintResolution | null;
+  resolutionNote: string | null;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  messages: { id: string; authorRole: 'rider' | 'admin'; text: string; at: string }[];
+}
+
+export interface Rating {
+  id: string;
+  rideId: string;
+  rideNumber: number;
+  authorRole: 'rider' | 'driver';
+  authorId: string;
+  authorName: string | null;
+  subjectId: string;
+  subjectName: string | null;
+  subjectPhone: string;
+  stars: number;
+  tags: string[];
+  comment: string | null;
+  createdAt: string;
+}
+
+export interface Paged<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+// Fiscal receipts and the outbox -----------------------------------------------------------
+
+export type ReceiptStatus = 'pending' | 'sent' | 'skipped';
+
+export interface FiscalReceipt {
+  id: string;
+  rideId: string | null;
+  bookingId: string | null;
+  provider: string;
+  status: ReceiptStatus;
+  amount: number;
+  receiptId: string | null;
+  url: string | null;
+  attempts: number;
+  lastError: string | null;
+  payload: {
+    receiptNumber?: string;
+    kind?: 'ride' | 'intercity';
+    orderNumber?: number;
+    items?: { name: string; mxik: string; packageCode: string; price: number }[];
+    receivedCash?: number;
+    receivedCard?: number;
+  } | null;
+  createdAt: string;
+  sentAt: string | null;
+}
+
+export interface FiscalRules {
+  city_item_name: string;
+  intercity_item_name: string;
+  mxik_code: string;
+  package_code: string;
+  vat_percent: number;
+}
+
+export interface OutboxEvent {
+  id: string;
+  topic: string;
+  payload: Record<string, unknown>;
+  attempts: number;
+  maxAttempts: number;
+  lastError: string | null;
+  nextAttemptAt: string | null;
+  createdAt: string;
 }
 
 // Safety -----------------------------------------------------------------------------------
