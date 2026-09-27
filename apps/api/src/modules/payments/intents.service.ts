@@ -11,6 +11,7 @@ import { ENV, type Env } from '../../config/env.js';
 import type { AuthUser } from '../../core/auth/auth-context.js';
 import { Database, type Tx } from '../../core/db/database.js';
 import type {
+  PaymentIntentStatus,
   PaymentIntentsTable,
   PaymentProvider,
   RidePaymentStatus,
@@ -30,6 +31,19 @@ type Intent = Selectable<PaymentIntentsTable>;
 
 /** Payme/Click cancel reason 4: the transaction timed out. */
 export const REASON_TIMEOUT = 4;
+
+export interface IntentFilter {
+  purpose?: 'ride' | 'topup';
+  /** An intent status, or "failed": expired or cancelled without a payment. */
+  status?: PaymentIntentStatus | 'failed';
+  provider?: PaymentProvider;
+  driverId?: string;
+  rideId?: string;
+  phone?: string;
+  from?: string;
+  to?: string;
+  cursor?: string;
+}
 
 /** Why an intent cannot take a payment right now. */
 export type Unpayable = 'missing' | 'paid' | 'closed';
@@ -145,7 +159,7 @@ export class IntentsService {
       refundRequestedAt: i.refund_requested_at,
       refundedAt: i.refunded_at,
       // where to pay, while it can still be paid
-      checkout: i.status === 'pending' ? checkoutUrls(this.env, i.id, i.amount) : null,
+      checkout: i.status === 'pending' ? checkoutUrls(this.env, i.id, i.amount, i.purpose) : null,
       createdAt: i.created_at,
     };
   }
@@ -241,6 +255,13 @@ export class IntentsService {
         note: `${PROVIDER_NAME[provider]} orqali to‘ldirildi`,
         paymentIntentId: intent.id,
       });
+      // the driver app hears at once (push and stream) instead of polling the top-up
+      await emit(trx, 'driver.topup_paid', {
+        intentId: intent.id,
+        driverId: intent.driverId,
+        amount: intent.amount,
+        provider,
+      });
       return;
     }
     // the search starts now, not when the rider opened the payment page
@@ -313,6 +334,12 @@ export class IntentsService {
           data: JSON.stringify({ provider, amount: i.amount }),
         })
         .execute();
+      await emit(trx, 'ride.refund_changed', {
+        rideId: i.ride_id,
+        intentId: i.id,
+        status: 'refunded',
+        amount: i.amount,
+      });
     } else {
       await this.ledger.post(trx, {
         driverId: i.driver_id!,
@@ -332,7 +359,7 @@ export class IntentsService {
   async onRideCancelled(trx: Tx, rideId: string): Promise<RidePaymentStatus> {
     const i = await trx
       .selectFrom('payment_intents')
-      .select(['id', 'status'])
+      .select(['id', 'status', 'amount'])
       .where('ride_id', '=', rideId)
       .forUpdate()
       .executeTakeFirst();
@@ -351,6 +378,12 @@ export class IntentsService {
         .set({ status: 'refund_pending', refund_requested_at: new Date() })
         .where('id', '=', i.id)
         .execute();
+      await emit(trx, 'ride.refund_changed', {
+        rideId,
+        intentId: i.id,
+        status: 'refund_pending',
+        amount: i.amount,
+      });
       return 'refund_pending';
     }
     return i.status === 'refunded' ? 'refunded' : 'not_charged';
@@ -406,6 +439,84 @@ export class IntentsService {
   }
 
   // Operators --------------------------------------------------------------------------
+
+  /**
+   * Every card payment for the panel: ride prepayments and driver top-ups, newest first,
+   * filtered by purpose, status, provider, Tashkent days, a driver or a phone; paged by
+   * `cursor` = the last id seen (100 per page).
+   */
+  async adminList(f: IntentFilter) {
+    const dayStart = (d: string) => new Date(`${d}T00:00:00+05:00`);
+    const rows = await this.db.kysely
+      .selectFrom('payment_intents as i')
+      .innerJoin('users as u', 'u.id', 'i.user_id')
+      .leftJoin('rides as r', 'r.id', 'i.ride_id')
+      .leftJoin('drivers as d', 'd.user_id', 'i.driver_id')
+      .select([
+        'i.id',
+        'i.purpose',
+        'i.status',
+        'i.amount',
+        'i.provider',
+        'i.ride_id as rideId',
+        'r.number as rideNumber',
+        'i.driver_id as driverId',
+        'd.full_name as driverName',
+        'i.user_id as userId',
+        'u.phone',
+        'i.expires_at as expiresAt',
+        'i.paid_at as paidAt',
+        'i.refund_requested_at as refundRequestedAt',
+        'i.refunded_at as refundedAt',
+        'i.refund_reference as refundReference',
+        'i.created_at as createdAt',
+      ])
+      .$if(Boolean(f.purpose), (q) => q.where('i.purpose', '=', f.purpose!))
+      .$if(Boolean(f.status), (q) =>
+        q.where(
+          'i.status',
+          'in',
+          f.status === 'failed' ? ['expired', 'cancelled'] : [f.status as PaymentIntentStatus],
+        ),
+      )
+      .$if(Boolean(f.provider), (q) => q.where('i.provider', '=', f.provider!))
+      .$if(Boolean(f.driverId), (q) => q.where('i.driver_id', '=', f.driverId!))
+      .$if(Boolean(f.rideId), (q) => q.where('i.ride_id', '=', f.rideId!))
+      .$if(Boolean(f.phone), (q) => q.where('u.phone', '=', f.phone!))
+      .$if(Boolean(f.from), (q) => q.where('i.created_at', '>=', dayStart(f.from!)))
+      .$if(Boolean(f.to), (q) =>
+        q.where('i.created_at', '<', new Date(dayStart(f.to!).getTime() + 86_400_000)),
+      )
+      .$if(Boolean(f.cursor), (q) => q.where('i.id', '<', f.cursor!))
+      .orderBy('i.id', 'desc')
+      .limit(100)
+      .execute();
+    return { items: rows, nextCursor: rows.length === 100 ? rows.at(-1)!.id : null };
+  }
+
+  /** Totals per purpose and status for the same filters' period (the panel's header). */
+  async adminSummary(f: Pick<IntentFilter, 'from' | 'to'>) {
+    const dayStart = (d: string) => new Date(`${d}T00:00:00+05:00`);
+    return this.db.kysely
+      .selectFrom('payment_intents')
+      .select([
+        'purpose',
+        'status',
+        (eb) => eb.fn.countAll<string>().as('count'),
+        (eb) => eb.fn.sum<string>('amount').as('amount'),
+      ])
+      .$if(Boolean(f.from), (q) => q.where('created_at', '>=', dayStart(f.from!)))
+      .$if(Boolean(f.to), (q) =>
+        q.where('created_at', '<', new Date(dayStart(f.to!).getTime() + 86_400_000)),
+      )
+      .groupBy(['purpose', 'status'])
+      .orderBy('purpose')
+      .orderBy('status')
+      .execute()
+      .then((rows) =>
+        rows.map((r) => ({ ...r, count: Number(r.count), amount: Number(r.amount ?? 0) })),
+      );
+  }
 
   /** Paid rides that were cancelled: the money must go back to the rider's card. */
   async refundQueue() {

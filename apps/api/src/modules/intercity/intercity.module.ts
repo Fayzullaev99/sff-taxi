@@ -7,6 +7,7 @@ import {
   Module,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Put,
   Query,
@@ -63,7 +64,25 @@ const PhoneBookBody = z.object({
   seats: z.number().int().min(1).max(4).default(1),
   front: z.boolean().default(false),
   pickupNote: z.string().trim().min(1).max(300).nullable().default(null),
+  /** The panel's idempotency key: a repeated request returns the same booking (200). */
+  clientRequestId: z.uuid().nullable().default(null),
 });
+const DriverTripsQuery = Cursor.extend({
+  /** upcoming: not arrived or cancelled, soonest first; all: latest departure first. */
+  scope: z.enum(['all', 'upcoming']).default('all'),
+});
+// no defaults: a field left out stays as it is
+const EditTripBody = z
+  .object({
+    departureAt: z.iso.datetime({ offset: true }).transform((v) => new Date(v)),
+    seats: z.number().int().min(1).max(4),
+    frontSeat: z.boolean(),
+    priceRear: z.number().int().min(1000).max(2_000_000).nullable(),
+    meetingPoint: z.string().trim().min(3).max(200).nullable(),
+    comment: z.string().trim().min(1).max(500).nullable(),
+  })
+  .partial()
+  .refine((b) => Object.keys(b).length > 0, 'O‘zgartirish uchun kamida bitta maydon yuboring');
 const CancelBody = z.object({ reason: Reason.nullable().default(null) });
 const OperatorCancelBody = z.object({ reason: Reason });
 const AdminTripsQuery = z.object({
@@ -165,9 +184,23 @@ export class DriverIntercityController {
     return this.intercity.publish(user, body);
   }
 
+  /** By departure: ?scope=upcoming (soonest first) or all (latest first, paged). */
   @Get('trips')
-  trips(@CurrentUser() user: AuthUser, @Query(new ZodPipe(Cursor)) q: z.output<typeof Cursor>) {
-    return this.intercity.driverTrips(user, q.cursor);
+  trips(
+    @CurrentUser() user: AuthUser,
+    @Query(new ZodPipe(DriverTripsQuery)) q: z.output<typeof DriverTripsQuery>,
+  ) {
+    return this.intercity.driverTrips(user, q.cursor, q.scope);
+  }
+
+  /** Changes time, seats, price (within the band) and so on while nobody has booked. */
+  @Patch('trips/:id')
+  edit(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(EditTripBody)) body: z.output<typeof EditTripBody>,
+  ) {
+    return this.intercity.editTrip(user, id, body);
   }
 
   /** The trip with the passenger list: names, phones, seats, pickup notes. */
@@ -239,14 +272,20 @@ export class AdminIntercityController {
     return this.intercity.adminTrip(id);
   }
 
-  /** Books seats for a caller without the app; the caller gets the car and the driver by SMS. */
+  /**
+   * Books seats for a caller without the app; the caller gets the car and the driver by SMS.
+   * 201 for a new booking, 200 when the clientRequestId was seen before.
+   */
   @Post('trips/:id/bookings')
-  bookByPhone(
+  async bookByPhone(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodPipe(PhoneBookBody)) body: z.output<typeof PhoneBookBody>,
+    @Res({ passthrough: true }) res: Response,
   ) {
-    return this.intercity.bookByPhone(user, id, body);
+    const result = await this.intercity.bookByPhone(user, id, body);
+    res.status(result.created ? HttpStatus.CREATED : HttpStatus.OK);
+    return result.booking;
   }
 
   @Post('trips/:id/cancel')

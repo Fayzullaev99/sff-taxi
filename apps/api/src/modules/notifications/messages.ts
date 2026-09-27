@@ -97,6 +97,45 @@ export const push = {
     l === 'ru'
       ? { title: 'Аккаунт заблокирован', body: reason ?? 'Свяжитесь с оператором.' }
       : { title: 'Hisob bloklandi', body: reason ?? 'Operator bilan bog‘laning.' },
+  refundQueued: (l: Locale, number: number, amount: number): PushText =>
+    l === 'ru'
+      ? {
+          title: 'Возврат оформлен',
+          body: `Заказ #${number}: ${soum(amount)} вернутся на вашу карту.`,
+        }
+      : {
+          title: 'Pul qaytarilmoqda',
+          body: `#${number} buyurtma: ${soum(amount)} kartangizga qaytariladi.`,
+        },
+  refunded: (l: Locale, number: number, amount: number): PushText =>
+    l === 'ru'
+      ? {
+          title: 'Деньги возвращены',
+          body: `Заказ #${number}: ${soum(amount)} возвращены на карту.`,
+        }
+      : {
+          title: 'Pul qaytarildi',
+          body: `#${number} buyurtma: ${soum(amount)} kartangizga qaytarildi.`,
+        },
+  complaintAnswered: (l: Locale, number: number): PushText =>
+    l === 'ru'
+      ? { title: 'Ответ на обращение', body: `Оператор ответил по заказу #${number}.` }
+      : {
+          title: 'Murojaatingizga javob',
+          body: `Operator #${number} buyurtma bo‘yicha javob berdi.`,
+        },
+  complaintResolved: (l: Locale, number: number): PushText =>
+    l === 'ru'
+      ? { title: 'Обращение рассмотрено', body: `Решение по заказу #${number} в приложении.` }
+      : { title: 'Murojaat ko‘rib chiqildi', body: `#${number} buyurtma bo‘yicha qaror ilovada.` },
+  topupPaid: (l: Locale, amount: number): PushText =>
+    l === 'ru'
+      ? { title: 'Баланс пополнен', body: `Зачислено ${soum(amount)}.` }
+      : { title: 'Balans to‘ldirildi', body: `${soum(amount)} hisobingizga tushdi.` },
+  appealAnswered: (l: Locale): PushText =>
+    l === 'ru'
+      ? { title: 'Ответ на обращение', body: 'Оператор ответил на вашу апелляцию.' }
+      : { title: 'Murojaatingizga javob', body: 'Operator murojaatingizga javob berdi.' },
   driverUnblocked: (l: Locale): PushText =>
     l === 'ru'
       ? { title: 'Аккаунт разблокирован', body: 'Можно снова выходить на линию.' }

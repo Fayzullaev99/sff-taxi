@@ -28,7 +28,15 @@ export type OutboxTopic =
   /** A driver's licence card must be checked with the registry. { driverId } */
   | 'driver.licence_check_requested'
   /** A complaint was opened, answered or resolved. { complaintId, rideId, riderId, status, by } */
-  | 'complaint.changed';
+  | 'complaint.changed'
+  /** A ride changed without a status change (e.g. a waived owed fee): screens refetch. { rideId } */
+  | 'ride.changed'
+  /** A cancelled card ride's refund was queued or made. { rideId, intentId, status, amount } */
+  | 'ride.refund_changed'
+  /** A driver's card top-up was paid. { intentId, driverId, amount, provider } */
+  | 'driver.topup_paid'
+  /** An operator answered a driver's appeal. { appealId, driverId } */
+  | 'driver.appeal_resolved';
 
 /**
  * Records an event in the caller's transaction: it is delivered by the worker

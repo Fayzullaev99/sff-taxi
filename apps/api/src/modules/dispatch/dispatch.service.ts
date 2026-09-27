@@ -419,6 +419,8 @@ export class DispatchService {
         'r.options',
         'r.comment',
         'r.payment_method as paymentMethod',
+        'r.scheduled_for as scheduledFor',
+        'r.owed_fee as owedFee',
         'u.rider_rating_sum',
         'u.rider_rating_count',
       ])
@@ -445,6 +447,10 @@ export class DispatchService {
         options: r.options,
         comment: r.comment,
         paymentMethod: r.paymentMethod,
+        // a ride ordered for later: when the rider wants the car (null = now)
+        scheduledFor: r.scheduledFor,
+        // fees the rider owes from earlier rides, collected in cash with this fare
+        owedFee: r.owedFee,
         riderRating: Math.round(((r.rider_rating_sum + 24) / (r.rider_rating_count + 5)) * 10) / 10,
       },
     }));

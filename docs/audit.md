@@ -30,16 +30,16 @@ Re-run it before launch and after any change to ordering, payments, the outbox o
 
 ## Idempotency, races and duplicates
 
-| #   | Bug class                                 | SFF Taxi                                                                                                                                                                                    | Status                                       |
-| --- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| 10  | Double submits                            | Rider orders and seat bookings: `clientRequestId` + unique index + advisory lock; phone orders: the panel's `clientRequestId` per operator (201 then 200)                                   | ok / fixed (`rider-operator-gaps.test.ts`)   |
-| 11  | Single-use tokens consumed non-atomically | SSE tickets `GETDEL`; OTP rows locked                                                                                                                                                       | ok                                           |
-| 12  | Double claims                             | Offers: ride → offer → driver locked in one order, exactly one accept wins; seats counted under the trip lock with DB checks (never oversold, front seat once)                              | ok (`dispatch.test.ts`, `intercity.test.ts`) |
-| 13  | DB errors as 500                          | 23505/23503/23514/23P01/22P02 → 4xx; deadlock, serialization failure, **lock timeout** → 409 "try again"; statement timeout and **pool timeout** → 503                                      | fixed (`audit-infra.test.ts`)                |
-| 14  | Uniqueness left to the client             | Partial unique indexes: one open ride per rider (awaiting payment included), one active ride per driver, one pending offer per driver, one live booking per rider per trip, one open appeal | ok                                           |
-| 15  | Duplicate side effects                    | Outbox events in the change's transaction; notifications dedupe per (event, recipient, channel). The dispatcher ran 50 events in one transaction: a crash replayed the batch                | fixed (per-event claims; `audit.test.ts`)    |
-| 16  | Retried non-idempotent POSTs              | No retry wrappers; the fiscal receipt number is stable across retries                                                                                                                       | ok                                           |
-| 17  | Refresh-token stampede                    | Reuse detection stays strict: the apps must refresh one at a time                                                                                                                           | open (apps)                                  |
+| #   | Bug class                                 | SFF Taxi                                                                                                                                                                                    | Status                                                  |
+| --- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| 10  | Double submits                            | Rider orders and seat bookings: `clientRequestId` + unique index + advisory lock; phone orders and phone seat bookings: the panel's `clientRequestId` per operator (201 then 200)           | ok / fixed (`rider-operator-gaps`, `wave3-panel-rider`) |
+| 11  | Single-use tokens consumed non-atomically | SSE tickets `GETDEL`; OTP rows locked                                                                                                                                                       | ok                                                      |
+| 12  | Double claims                             | Offers: ride → offer → driver locked in one order, exactly one accept wins; seats counted under the trip lock with DB checks (never oversold, front seat once)                              | ok (`dispatch.test.ts`, `intercity.test.ts`)            |
+| 13  | DB errors as 500                          | 23505/23503/23514/23P01/22P02 → 4xx; deadlock, serialization failure, **lock timeout** → 409 "try again"; statement timeout and **pool timeout** → 503                                      | fixed (`audit-infra.test.ts`)                           |
+| 14  | Uniqueness left to the client             | Partial unique indexes: one open ride per rider (awaiting payment included), one active ride per driver, one pending offer per driver, one live booking per rider per trip, one open appeal | ok                                                      |
+| 15  | Duplicate side effects                    | Outbox events in the change's transaction; notifications dedupe per (event, recipient, channel). The dispatcher ran 50 events in one transaction: a crash replayed the batch                | fixed (per-event claims; `audit.test.ts`)               |
+| 16  | Retried non-idempotent POSTs              | No retry wrappers; the fiscal receipt number is stable across retries                                                                                                                       | ok                                                      |
+| 17  | Refresh-token stampede                    | Reuse detection stays strict: the apps must refresh one at a time                                                                                                                           | open (apps)                                             |
 
 ## Offline, realtime
 
@@ -97,8 +97,9 @@ Re-run it before launch and after any change to ordering, payments, the outbox o
 ## Open items
 
 - **Refresh stampede (17)**: the apps must single-flight refreshes.
-- **Collecting owed fees**: cancellation fees (rides and late seat cancellations) are recorded,
-  not collected; card riders' fees are not kept from refunds.
+- **Collecting owed fees**: cash rides' cancellation fees are collected by the rider's next cash
+  ride (a separate quote line, once per ride in the ledger, waivable; `wave3-driver-fees.test.ts`).
+  Late seat cancellations are recorded only; card riders' fees are not kept from refunds.
 - **Load test**: not run for taxi yet; SFF Eats' numbers (same core) are in its checklist.
   Run one against a throwaway database before launch (quote, order, location updates, dispatch
   tick with 100 online drivers).

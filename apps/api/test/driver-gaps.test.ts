@@ -58,7 +58,8 @@ describe('driver app gaps', () => {
   it('publishes the apps’ configuration and the rules a driver works under', async () => {
     const config = await api(app).get('/v1/config').expect(200);
     expect(config.body).toMatchObject({
-      minAppVersion: { rider: '1.0.0', driver: '1.0.0' },
+      // unset: no forced update (a default would lock builds out)
+      minAppVersion: { rider: null, driver: null },
       features: { cardPayments: true, intercity: true, maskedCalls: false },
       cardProviders: ['payme', 'click'],
     });

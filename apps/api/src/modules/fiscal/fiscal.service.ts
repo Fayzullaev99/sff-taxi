@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { sql } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import { Database } from '../../core/db/database.js';
@@ -175,6 +175,15 @@ export class FiscalService {
   }
 
   async list(filter: { status?: 'pending' | 'sent' | 'skipped'; cursor?: string }) {
+    return this.listQuery()
+      .$if(Boolean(filter.status), (q) => q.where('status', '=', filter.status!))
+      .$if(Boolean(filter.cursor), (q) => q.where('id', '<', filter.cursor!))
+      .orderBy('id', 'desc')
+      .limit(100)
+      .execute();
+  }
+
+  private listQuery() {
     return this.db.kysely
       .selectFrom('fiscal_receipts')
       .select([
@@ -191,12 +200,41 @@ export class FiscalService {
         'payload',
         'created_at as createdAt',
         'sent_at as sentAt',
-      ])
-      .$if(Boolean(filter.status), (q) => q.where('status', '=', filter.status!))
-      .$if(Boolean(filter.cursor), (q) => q.where('id', '<', filter.cursor!))
-      .orderBy('id', 'desc')
-      .limit(100)
-      .execute();
+      ]);
+  }
+
+  /**
+   * Sends one receipt again (a skipped one once a provider is on, a pending one whose
+   * provider problem was fixed): queued for the worker at once. A sent receipt is final.
+   */
+  async retryOne(id: string) {
+    await this.db.transaction(async (trx) => {
+      const row = await trx
+        .selectFrom('fiscal_receipts')
+        .select(['id', 'status', 'ride_id', 'booking_id'])
+        .where('id', '=', id)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!row) throw new NotFoundException('Chek topilmadi');
+      if (row.status === 'sent') throw new ConflictException('Chek allaqachon yuborilgan');
+      await trx
+        .updateTable('fiscal_receipts')
+        .set({ status: 'pending', last_error: null })
+        .where('id', '=', id)
+        .execute();
+      await emit(
+        trx,
+        'fiscal.receipt_due',
+        row.ride_id ? { rideId: row.ride_id } : { bookingId: row.booking_id },
+      );
+    });
+    return this.one(id);
+  }
+
+  async one(id: string) {
+    const row = await this.listQuery().where('id', '=', id).executeTakeFirst();
+    if (!row) throw new NotFoundException('Chek topilmadi');
+    return row;
   }
 
   /**

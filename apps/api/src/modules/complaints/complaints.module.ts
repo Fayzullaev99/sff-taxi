@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   ConflictException,
   Controller,
@@ -28,9 +29,12 @@ import {
 import { RateLimit } from '../../core/http/rate-limit.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
 import { emit } from '../../core/outbox/outbox.js';
+import { UploadsService } from '../uploads/uploads.service.js';
 
 /** How long after a ride ended the rider may still complain about it. */
 export const COMPLAINT_WINDOW_DAYS = 7;
+/** Photos per complaint (a lost bag, a dirty seat). */
+export const MAX_COMPLAINT_PHOTOS = 3;
 
 export const COMPLAINT_LABELS: Record<ComplaintType, string> = {
   lost_item: 'Mashinada narsa qoldi',
@@ -43,11 +47,18 @@ export const COMPLAINT_LABELS: Record<ComplaintType, string> = {
 };
 
 const Cursor = z.object({ cursor: z.uuid().optional() });
+/** Uploads with the purpose complaint_photo (POST /uploads, then complete). */
+const PhotoIds = z
+  .array(z.uuid())
+  .max(MAX_COMPLAINT_PHOTOS, `Ko‘pi bilan ${MAX_COMPLAINT_PHOTOS} ta rasm`)
+  .default([]);
 const ComplaintBody = z.object({
   type: z.enum(COMPLAINT_TYPES),
   text: z.string().trim().min(3).max(2000),
+  photoUploadIds: PhotoIds,
 });
 const MessageBody = z.object({ text: z.string().trim().min(1).max(2000) });
+const RiderMessageBody = MessageBody.extend({ photoUploadIds: PhotoIds });
 const AdminQuery = Cursor.extend({
   status: z.enum(['open', 'in_progress', 'resolved', 'unresolved']).default('unresolved'),
   type: z.enum(COMPLAINT_TYPES).optional(),
@@ -67,11 +78,27 @@ const RatingsQuery = Cursor.extend({
 
 @Injectable()
 export class ComplaintsService {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly uploads: UploadsService,
+  ) {}
 
   // Riders ----------------------------------------------------------------------------
 
-  async create(user: AuthUser, rideId: string, input: { type: ComplaintType; text: string }) {
+  /** The rider's own ready complaint photos; anything else is refused. */
+  private async checkPhotos(trx: Tx, userId: string, ids: string[]): Promise<string[]> {
+    const unique = [...new Set(ids)];
+    for (const id of unique) {
+      await this.uploads.requireAttachable(userId, id, ['complaint_photo'], trx);
+    }
+    return unique;
+  }
+
+  async create(
+    user: AuthUser,
+    rideId: string,
+    input: { type: ComplaintType; text: string; photoUploadIds?: string[] },
+  ) {
     const id = await this.db.transaction(async (trx) => {
       const ride = await trx
         .selectFrom('rides')
@@ -95,6 +122,7 @@ export class ComplaintsService {
         .where('status', '!=', 'resolved')
         .executeTakeFirst();
       if (same) throw new ConflictException('Bu masala bo‘yicha murojaatingiz ko‘rib chiqilmoqda');
+      const photos = await this.checkPhotos(trx, user.userId, input.photoUploadIds ?? []);
       const complaintId = uuidv7();
       await trx
         .insertInto('complaints')
@@ -105,6 +133,7 @@ export class ComplaintsService {
           driver_id: ride.driver_id,
           type: input.type,
           text: input.text,
+          photo_upload_ids: photos,
           updated_at: new Date(),
         })
         .execute();
@@ -147,11 +176,26 @@ export class ComplaintsService {
     return mine;
   }
 
-  async riderReply(user: AuthUser, id: string, text: string) {
+  /** The rider writes in the thread, optionally adding photos (up to three in all). */
+  async riderReply(user: AuthUser, id: string, text: string, photoUploadIds: string[] = []) {
     await this.db.transaction(async (trx) => {
       const c = await this.lock(trx, id);
       if (c.rider_id !== user.userId) throw new NotFoundException('Murojaat topilmadi');
       if (c.status === 'resolved') throw new ConflictException('Murojaat yopilgan');
+      if (photoUploadIds.length) {
+        const added = await this.checkPhotos(trx, user.userId, photoUploadIds);
+        const all = [...new Set([...c.photo_upload_ids, ...added])];
+        if (all.length > MAX_COMPLAINT_PHOTOS) {
+          throw new BadRequestException(
+            `Bitta murojaatga ko‘pi bilan ${MAX_COMPLAINT_PHOTOS} ta rasm qo‘shiladi`,
+          );
+        }
+        await trx
+          .updateTable('complaints')
+          .set({ photo_upload_ids: all })
+          .where('id', '=', id)
+          .execute();
+      }
       await this.message(trx, id, user.userId, 'rider', text);
       await this.changed(trx, id, c.ride_id, c.rider_id, c.status, 'rider');
     });
@@ -287,11 +331,13 @@ export class ComplaintsService {
         'c.resolution_note',
         'c.resolved_by',
         'c.resolved_at',
+        'c.photo_upload_ids',
         'c.created_at',
       ])
       .where('c.id', '=', id)
       .executeTakeFirst();
     if (!c) throw new NotFoundException('Murojaat topilmadi');
+    const urls = await this.uploads.readUrls(c.photo_upload_ids);
     const messages = await this.db.kysely
       .selectFrom('complaint_messages')
       .select(['id', 'author_role as authorRole', 'text', 'created_at as at'])
@@ -314,6 +360,8 @@ export class ComplaintsService {
       resolvedBy: c.resolved_by,
       resolvedAt: c.resolved_at,
       createdAt: c.created_at,
+      // short-lived read URLs (private bucket) for the rider and operators
+      photos: c.photo_upload_ids.map((uploadId) => ({ uploadId, url: urls.get(uploadId) ?? null })),
       messages,
     };
   }
@@ -321,7 +369,7 @@ export class ComplaintsService {
   private async lock(trx: Tx, id: string) {
     const c = await trx
       .selectFrom('complaints')
-      .select(['id', 'ride_id', 'rider_id', 'status'])
+      .select(['id', 'ride_id', 'rider_id', 'status', 'photo_upload_ids'])
       .where('id', '=', id)
       .forUpdate()
       .executeTakeFirst();
@@ -395,9 +443,9 @@ export class RiderComplaintsController {
   reply(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodPipe(MessageBody)) body: z.output<typeof MessageBody>,
+    @Body(new ZodPipe(RiderMessageBody)) body: z.output<typeof RiderMessageBody>,
   ) {
-    return this.complaints.riderReply(user, id, body.text);
+    return this.complaints.riderReply(user, id, body.text, body.photoUploadIds);
   }
 }
 

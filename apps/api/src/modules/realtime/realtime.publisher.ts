@@ -18,7 +18,15 @@ export interface Audience {
  */
 export type RealtimeEvent =
   | { type: 'ride.updated'; rideId: string; status: string }
-  | { type: 'offer.new'; offerId: string; rideId: string; driverId: string; expiresAt: string }
+  | {
+      type: 'offer.new';
+      offerId: string;
+      rideId: string;
+      driverId: string;
+      expiresAt: string;
+      /** A ride ordered for later: when the rider wants the car (null = now). */
+      scheduledFor: string | null;
+    }
   | { type: 'offer.closed'; offerId: string; rideId: string; driverId: string; status: string }
   | { type: 'ride.attention'; rideId: string; reason: string }
   | { type: 'sos'; sosId: string; rideId: string }
@@ -26,6 +34,12 @@ export type RealtimeEvent =
   | { type: 'driver.appeal'; appealId: string; driverId: string }
   | { type: 'intercity.updated'; tripId: string; bookingId: string | null; status: string }
   | { type: 'complaint.updated'; complaintId: string; rideId: string; status: string }
+  /** A cancelled card ride's refund: queued (refund_pending), then done (refunded). */
+  | { type: 'ride.refund'; rideId: string; status: string; amount: number }
+  /** A driver's card top-up was paid: the balance grew. */
+  | { type: 'topup.updated'; intentId: string; status: 'paid'; amount: number }
+  /** An operator answered the driver's appeal. */
+  | { type: 'appeal.updated'; appealId: string; driverId: string; status: 'resolved' }
   | {
       /** Operators' live map: every online driver's last position, every few seconds. */
       type: 'drivers.positions';
@@ -37,6 +51,8 @@ export type RealtimeEvent =
         at: string;
         busy: boolean;
       }[];
+      /** Drivers on the previous batch who went off shift or lost signal: drop them. */
+      offline: string[];
     }
   | {
       type: 'driver.location';
@@ -47,6 +63,8 @@ export type RealtimeEvent =
       at: string;
       /** Road ETA to the pickup while the driver is on the way (refreshed every ~15 s). */
       etaS: number | null;
+      /** Road ETA to the destination during the trip (in_progress; refreshed likewise). */
+      destinationEtaS: number | null;
     };
 
 export interface RealtimeMessage {
@@ -92,8 +110,16 @@ export class RealtimePublisher implements OutboxHandler {
       case 'ride.offer_created': {
         const offer = await this.db.kysely
           .selectFrom('ride_offers')
-          .select(['id', 'ride_id', 'driver_id', 'status', 'expires_at'])
-          .where('id', '=', String(p.offerId))
+          .innerJoin('rides as r', 'r.id', 'ride_offers.ride_id')
+          .select([
+            'ride_offers.id',
+            'ride_offers.ride_id',
+            'ride_offers.driver_id',
+            'ride_offers.status',
+            'ride_offers.expires_at',
+            'r.scheduled_for',
+          ])
+          .where('ride_offers.id', '=', String(p.offerId))
           .executeTakeFirst();
         // an offer already answered or withdrawn is not news any more
         if (!offer || offer.status !== 'pending') return;
@@ -105,6 +131,7 @@ export class RealtimePublisher implements OutboxHandler {
             rideId: offer.ride_id,
             driverId: offer.driver_id,
             expiresAt: offer.expires_at.toISOString(),
+            scheduledFor: offer.scheduled_for?.toISOString() ?? null,
           },
         });
       }
@@ -134,6 +161,43 @@ export class RealtimePublisher implements OutboxHandler {
           to: { userIds: [String(p.driverId)], admins: true },
           event: { type: 'driver.updated', driverId: String(p.driverId), status: String(p.to) },
         });
+      case 'driver.appeal_resolved':
+        return this.bus.publish({
+          to: { userIds: [String(p.driverId)], admins: true },
+          event: {
+            type: 'appeal.updated',
+            appealId: String(p.appealId),
+            driverId: String(p.driverId),
+            status: 'resolved',
+          },
+        });
+      case 'driver.topup_paid':
+        return this.bus.publish({
+          to: { userIds: [String(p.driverId)] },
+          event: {
+            type: 'topup.updated',
+            intentId: String(p.intentId),
+            status: 'paid',
+            amount: Number(p.amount),
+          },
+        });
+      case 'ride.refund_changed': {
+        const ride = await this.db.kysely
+          .selectFrom('rides')
+          .select(['id', 'rider_id'])
+          .where('id', '=', String(p.rideId))
+          .executeTakeFirst();
+        if (!ride) return;
+        return this.bus.publish({
+          to: { userIds: [ride.rider_id], admins: true },
+          event: {
+            type: 'ride.refund',
+            rideId: ride.id,
+            status: String(p.status),
+            amount: Number(p.amount),
+          },
+        });
+      }
       case 'driver.appeal':
         return this.bus.publish({
           to: { admins: true },
@@ -144,6 +208,7 @@ export class RealtimePublisher implements OutboxHandler {
           },
         });
       case 'ride.requested':
+      case 'ride.changed':
       case 'ride.status_changed':
         return this.rideUpdated(String(p.rideId), p.previousDriverId);
       case 'complaint.changed':

@@ -41,7 +41,8 @@ integrations are one class each once the contracts exist.
   does nothing.
 - Receipts kept while `FISCAL_PROVIDER=none` can be sent later:
   `POST admin/fiscal/receipts/resend {"status":"skipped"}` (and `"pending"` to retry stuck ones).
-  `GET admin/fiscal/receipts?status=` lists them with their payloads.
+  `GET admin/fiscal/receipts?status=` lists them with their payloads; one receipt is sent again
+  with `POST admin/fiscal/receipts/:id/retry` (a skipped or pending one; a sent one is final, 409).
 
 ### The receipt
 

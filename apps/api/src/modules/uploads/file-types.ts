@@ -13,6 +13,7 @@ export const PURPOSE_TYPES: Record<UploadPurpose, readonly UploadContentType[]> 
   document: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
   profile_photo: ['image/jpeg', 'image/png', 'image/webp'],
   vehicle_photo: ['image/jpeg', 'image/png', 'image/webp'],
+  complaint_photo: ['image/jpeg', 'image/png', 'image/webp'],
 };
 
 /** Phone photos of a document are 2-6 MB; PDFs of scans similar. */
@@ -20,6 +21,7 @@ export const MAX_BYTES: Record<UploadPurpose, number> = {
   document: 10 * 1024 * 1024,
   profile_photo: 5 * 1024 * 1024,
   vehicle_photo: 5 * 1024 * 1024,
+  complaint_photo: 5 * 1024 * 1024,
 };
 
 /** Bytes needed to recognise every accepted type. */

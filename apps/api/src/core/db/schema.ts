@@ -109,7 +109,17 @@ export const DOCUMENT_KINDS = [
 ] as const;
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
 export type LedgerKind =
-  'topup' | 'commission' | 'tax' | 'pass' | 'adjustment' | 'card_fare' | 'payout';
+  | 'topup'
+  | 'commission'
+  | 'tax'
+  | 'pass'
+  | 'adjustment'
+  | 'card_fare'
+  | 'payout'
+  /** A cash ride's owed cancellation fee, credited to the driver it is owed to. */
+  | 'cancel_fee'
+  /** The owed fees a driver collected in cash on top of a fare (debited: not theirs). */
+  | 'cancel_fee_collected';
 export type RideClassColumn = 'economy' | 'comfort';
 
 /** Dates (Postgres `date`) are read as "YYYY-MM-DD" strings: see database.ts. */
@@ -316,6 +326,13 @@ export interface RidesTable {
   cancel_reason: string | null;
   share_token: string | null;
   scheduled_for: Timestamp | null;
+  /** A cash ride's cancellation fee: owed until a later ride collects it, or waived. */
+  fee_status: 'owed' | 'collected' | 'waived' | null;
+  fee_collect_ride_id: string | null;
+  fee_waived_by: string | null;
+  fee_waive_note: string | null;
+  /** Owed fees of earlier rides this ride collects in cash on top of its fare. */
+  owed_fee: Generated<number>;
   requested_at: Generated<Date>;
   assigned_at: Timestamp | null;
   arrived_at: Timestamp | null;
@@ -419,7 +436,12 @@ export interface NotificationsTable {
   created_at: CreatedAt;
 }
 
-export const UPLOAD_PURPOSES = ['document', 'profile_photo', 'vehicle_photo'] as const;
+export const UPLOAD_PURPOSES = [
+  'document',
+  'profile_photo',
+  'vehicle_photo',
+  'complaint_photo',
+] as const;
 export type UploadPurpose = (typeof UPLOAD_PURPOSES)[number];
 export type UploadContentType = 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';
 
@@ -646,6 +668,8 @@ export interface ComplaintsTable {
   resolution_note: string | null;
   resolved_by: string | null;
   resolved_at: Timestamp | null;
+  /** Up to three photos (uploads with the purpose complaint_photo). */
+  photo_upload_ids: Generated<string[]>;
   created_at: CreatedAt;
   updated_at: Timestamp;
 }
@@ -657,6 +681,14 @@ export interface ComplaintMessagesTable {
   author_role: 'rider' | 'admin';
   text: string;
   created_at: CreatedAt;
+}
+
+export interface RiderHiddenPlacesTable {
+  user_id: string;
+  /** lat,lng rounded to 4 decimals: how recent destinations are grouped. */
+  place_key: string;
+  /** When it was hidden: a later ride there shows it again. */
+  created_at: Timestamp;
 }
 
 export interface DB {
@@ -696,4 +728,5 @@ export interface DB {
   rider_places: RiderPlacesTable;
   complaints: ComplaintsTable;
   complaint_messages: ComplaintMessagesTable;
+  rider_hidden_places: RiderHiddenPlacesTable;
 }

@@ -19,14 +19,7 @@ import { DispatchJob } from './dispatch.job.js';
 import { DispatchService } from './dispatch.service.js';
 
 /** Reasons the driver app offers when letting a ride pass (free text is fine too). */
-export const DECLINE_REASONS = {
-  too_far: 'Juda uzoq',
-  destination: 'Bu tomonga bormayman',
-  rider_rating: 'Yo‘lovchi reytingi past',
-  car_not_suitable: 'Avtomobil mos emas',
-  break: 'Dam olyapman',
-  other: 'Boshqa sabab',
-} as const;
+export { DECLINE_REASONS } from '../../lib/reasons.js';
 const DeclineBody = z
   .object({ reason: z.string().trim().min(1).max(200).nullable().default(null) })
   .default({ reason: null });
