@@ -8,10 +8,14 @@ export interface SessionTokens {
   refreshToken: string;
 }
 
-/** Holds the current tokens in memory; persistence is the implementer's business. */
+/**
+ * Holds the current tokens in memory. `set` may return a promise that settles once the
+ * tokens are persisted: a rotated refresh token is waited for, because the old one is dead
+ * on the server the moment it was used (reusing it revokes the whole session).
+ */
 export interface TokenStore {
   get(): SessionTokens | null;
-  set(tokens: SessionTokens | null): void;
+  set(tokens: SessionTokens | null): void | Promise<void>;
 }
 
 export class ApiError extends Error {
@@ -57,6 +61,13 @@ export interface ApiClientConfig {
   timeoutMs?: number;
   /** Told after every request whether the server answered (drives the offline banner). */
   onReachability?: (online: boolean) => void;
+  /**
+   * Awaited before a refresh is sent, e.g. until the app is in the foreground: a refresh
+   * cut off by the OS after the server rotated the token would sign the rider out.
+   */
+  refreshGate?: () => Promise<void>;
+  /** The refresh request gets longer than ordinary requests before it is given up. */
+  refreshTimeoutMs?: number;
 }
 
 type RefreshOutcome = 'ok' | 'rejected' | 'offline';
@@ -70,6 +81,8 @@ export interface ApiClient {
   ): Promise<{ status: number; data: T }>;
   /** Rotates the tokens; concurrent callers share one in-flight refresh. */
   refresh(): Promise<RefreshOutcome>;
+  /** Resolves once no refresh is in flight (e.g. before signing out with the latest token). */
+  settled(): Promise<void>;
   baseUrl: string;
 }
 
@@ -98,11 +111,17 @@ export function errorMessage(status: number, body: unknown): string {
 export function createApiClient(config: ApiClientConfig): ApiClient {
   const doFetch = config.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
   const timeoutMs = config.timeoutMs ?? 20_000;
+  const refreshTimeoutMs = config.refreshTimeoutMs ?? 60_000;
   let refreshing: Promise<RefreshOutcome> | null = null;
 
-  async function send(url: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
+  async function send(
+    url: string,
+    init: RequestInit,
+    signal?: AbortSignal,
+    limitMs = timeoutMs,
+  ): Promise<Response> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), limitMs);
     const onAbort = () => controller.abort();
     signal?.addEventListener('abort', onAbort);
     try {
@@ -119,40 +138,67 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     }
   }
 
+  /**
+   * One refresh at a time, strictly: the API rotates the refresh token on every use and
+   * treats a second use of the old one as theft (the whole session is revoked). So every
+   * caller (401s of parallel requests, SSE tickets, explicit calls) shares the one in
+   * flight; it waits for the gate (the app in the foreground) before it is sent; the new
+   * pair is persisted before anyone goes on; and an answer for a session that was replaced
+   * meanwhile (sign-out, another sign-in) is dropped instead of overwriting it.
+   */
   function refresh(): Promise<RefreshOutcome> {
     refreshing ??= (async (): Promise<RefreshOutcome> => {
+      if (config.refreshGate) await config.refreshGate().catch(() => undefined);
+      // read after the gate: the tokens may have changed while waiting
       const current = config.tokens.get();
       if (!current) return 'rejected';
+      const replaced = () => config.tokens.get()?.refreshToken !== current.refreshToken;
       let res: Response;
       try {
-        res = await send(buildUrl(config.baseUrl, '/v1/auth/refresh'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken: current.refreshToken }),
-        });
+        res = await send(
+          buildUrl(config.baseUrl, '/v1/auth/refresh'),
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken: current.refreshToken }),
+          },
+          undefined,
+          refreshTimeoutMs,
+        );
       } catch {
         return 'offline';
       }
       if (res.status === 401 || res.status === 400) {
         // the refresh token is dead (expired, revoked or reused): the session is over
-        if (config.tokens.get()?.refreshToken === current.refreshToken) {
-          config.tokens.set(null);
+        if (!replaced()) {
+          await config.tokens.set(null);
           config.onSignedOut?.();
+          return 'rejected';
         }
-        return 'rejected';
+        return config.tokens.get() ? 'ok' : 'rejected';
       }
       if (!res.ok) return 'offline';
+      let pair: SessionTokens;
       try {
-        const pair = (await res.json()) as SessionTokens;
-        config.tokens.set({ accessToken: pair.accessToken, refreshToken: pair.refreshToken });
-        return 'ok';
+        pair = (await res.json()) as SessionTokens;
       } catch {
         return 'offline';
       }
+      if (typeof pair?.accessToken !== 'string' || typeof pair.refreshToken !== 'string') {
+        return 'offline';
+      }
+      // signed out or signed in again while this was in flight: that session wins
+      if (replaced()) return config.tokens.get() ? 'ok' : 'rejected';
+      await config.tokens.set({ accessToken: pair.accessToken, refreshToken: pair.refreshToken });
+      return 'ok';
     })().finally(() => {
       refreshing = null;
     });
     return refreshing;
+  }
+
+  async function settled(): Promise<void> {
+    while (refreshing) await refreshing.catch(() => undefined);
   }
 
   async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -214,7 +260,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     return { status: res.status, data: data as T };
   }
 
-  return { request, requestWithStatus, refresh, baseUrl: config.baseUrl };
+  return { request, requestWithStatus, refresh, settled, baseUrl: config.baseUrl };
 }
 
 /** Human-readable text for any error thrown by the client or a screen. */

@@ -14,7 +14,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, describeError, isOffline } from '../api/client';
 import { endpoints } from '../api/endpoints';
-import { keys, useQuote, useTariffAt } from '../api/queries';
+import { keys, useAppConfig, useQuote, useTariffAt } from '../api/queries';
+import { useFeature } from '../api/support';
 import type { Quote, RideClass } from '../api/types';
 import {
   CLASS_LABELS,
@@ -25,12 +26,15 @@ import {
   RIDE_OPTIONS,
   seatShareText,
 } from '../lib/fare';
-import { formatDistance, formatMinutes, formatMoney } from '../lib/format';
+import { formatDateTime, formatDistance, formatMinutes, formatMoney } from '../lib/format';
 import { OrderAttempts, orderKey } from '../lib/order-attempt';
+import { cardLabel } from '../lib/payment';
+import { availabilityText } from '../lib/ride-state';
+import { schedulable, SCHEDULE_DISPATCH_BEFORE_MIN } from '../lib/schedule';
 import { askForPushAfterOrder } from '../notifications/push';
+import { ScheduleSheet } from '../ride/ScheduleSheet';
 import { resetAfterOrder, toggleOption, updateDraft, useDraft } from '../trip/draft';
-import { rememberDestination } from '../trip/places-store';
-import { rememberRules } from '../trip/ride-rules';
+import { refreshRecentPlaces } from '../trip/places-store';
 import { markRideShown } from '../trip/shown-rides';
 import { Banner, Button, Card, Icon, Segmented, T, TextField } from '../ui/primitives';
 import { ErrorView, Skeleton } from '../ui/states';
@@ -48,11 +52,15 @@ export default function OrderScreen() {
   const queryClient = useQueryClient();
   const draft = useDraft();
   const { pickup, dropoff } = draft;
-  const quote = useQuote(pickup, dropoff, draft.options);
+  const later = draft.scheduledFor;
+  const quote = useQuote(pickup, dropoff, draft.options, later);
   const tariff = useTariffAt(pickup);
+  const config = useAppConfig().data;
+  const schedulingOn = useFeature('scheduledRides');
   const attempts = useRef(new OrderAttempts(() => Crypto.randomUUID())).current;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pickingTime, setPickingTime] = useState(false);
   /** Set once the order went through: the draft is reset while this screen leaves. */
   const leaving = useRef(false);
 
@@ -62,8 +70,13 @@ export default function OrderScreen() {
   }, [pickup, dropoff]);
 
   const q = quote.data;
+  // the previous quote stays on screen while a new one loads (other options, another
+  // time): it must not be ordered, the API would take its options and its time
+  const stale = quote.isPlaceholderData;
   const fare = q?.fares[draft.rideClass];
-  const cardAvailable = q?.paymentMethods.includes('card') ?? false;
+  // rides for later are cash only (for now)
+  const cardAvailable = !later && (q?.paymentMethods.includes('card') ?? false);
+  const providers = config?.cardProviders ?? tariff.data?.cardProviders ?? null;
   useEffect(() => {
     if (q && draft.paymentMethod === 'card' && !cardAvailable) {
       updateDraft({ paymentMethod: 'cash' });
@@ -72,6 +85,10 @@ export default function OrderScreen() {
 
   const submit = async (current: Quote) => {
     if (!pickup || !dropoff || busy) return;
+    if (later && !schedulable(later, new Date())) {
+      setError('Tanlangan vaqt juda yaqin qoldi. Boshqa vaqtni tanlang.');
+      return;
+    }
     const input = {
       quoteId: current.quoteId,
       class: draft.rideClass,
@@ -86,17 +103,14 @@ export default function OrderScreen() {
     try {
       const { data: ride } = await endpoints.order({ ...input, clientRequestId });
       attempts.settle('created');
-      rememberRules(ride.id, current);
-      if (dropoff.address) {
-        rememberDestination({
-          lat: dropoff.lat,
-          lng: dropoff.lng,
-          title: dropoff.address,
-          subtitle: null,
-        });
-      }
+      refreshRecentPlaces();
       queryClient.setQueryData(keys.ride(ride.id), ride);
-      queryClient.setQueryData(keys.currentRide, ride);
+      // a ride for later does not block riding now: it is not the current ride
+      if (ride.status === 'scheduled') {
+        void queryClient.invalidateQueries({ queryKey: keys.scheduled });
+      } else {
+        queryClient.setQueryData(keys.currentRide, ride);
+      }
       void queryClient.invalidateQueries({ queryKey: keys.history });
       leaving.current = true;
       markRideShown(ride.id);
@@ -169,6 +183,39 @@ export default function OrderScreen() {
           ) : null}
         </Card>
 
+        {schedulingOn ? (
+          <View style={styles.when}>
+            <Segmented
+              value={later ? 'later' : 'now'}
+              onChange={(v) => {
+                if (v === 'now') updateDraft({ scheduledFor: null });
+                else setPickingTime(true);
+              }}
+              options={[
+                { value: 'now', label: 'Hozir', icon: 'flash-outline' },
+                { value: 'later', label: 'Keyinroq', icon: 'calendar-outline' },
+              ]}
+            />
+            {later ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Olib ketish vaqti: ${formatDateTime(later)}. O‘zgartirish`}
+                onPress={() => setPickingTime(true)}
+                style={({ pressed }) => [styles.whenRow, pressed ? { opacity: 0.6 } : null]}
+              >
+                <Icon name="time-outline" size={20} color={colors.ink} />
+                <View style={styles.flex}>
+                  <T variant="bodyStrong">{formatDateTime(later)}</T>
+                  <T variant="small" color={colors.textMuted}>
+                    Qidiruv {SCHEDULE_DISPATCH_BEFORE_MIN} daqiqa oldin boshlanadi · naqd to‘lov
+                  </T>
+                </View>
+                <Icon name="create-outline" size={18} color={colors.textMuted} />
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
         {quote.isPending && !q ? (
           <View style={styles.gap}>
             <Skeleton height={86} />
@@ -231,10 +278,24 @@ export default function OrderScreen() {
                 o‘zgarmaydi).
               </T>
             ) : null}
-            {quote.isFetching ? (
+            {stale ? (
               <T variant="small" color={colors.textMuted}>
                 Narx yangilanmoqda…
               </T>
+            ) : null}
+            {quote.isError ? (
+              <Banner
+                tone="warning"
+                message={describeError(quote.error)}
+                action={
+                  <Button
+                    title="Qayta hisoblash"
+                    size="sm"
+                    variant="secondary"
+                    onPress={() => void quote.refetch()}
+                  />
+                }
+              />
             ) : null}
           </>
         ) : null}
@@ -308,16 +369,28 @@ export default function OrderScreen() {
             { value: 'cash', label: 'Naqd', icon: 'cash-outline' },
             {
               value: 'card',
-              label: cardAvailable ? 'Karta' : 'Karta (tez orada)',
+              label: cardAvailable ? cardLabel(providers) : later ? 'Karta' : 'Karta (tez orada)',
               icon: 'card-outline',
               disabled: !cardAvailable,
             },
           ]}
         />
+        {draft.paymentMethod === 'card' && cardAvailable ? (
+          <T variant="small" color={colors.textMuted}>
+            Buyurtmadan keyin {formatMoney(fare?.total ?? 0)} ni 10 daqiqa ichida to‘laysiz, shundan
+            so‘ng haydovchi qidiriladi. Bekor qilsangiz, pul to‘liq qaytariladi.
+          </T>
+        ) : null}
+        {later ? (
+          <T variant="small" color={colors.textMuted}>
+            Oldindan buyurtma hozircha faqat naqd to‘lov bilan.
+          </T>
+        ) : null}
         {waiting ? (
           <T variant="small" color={colors.textMuted}>
             Haydovchi yetib kelgach {waiting.free_minutes} daqiqa kutish bepul, keyin har daqiqa{' '}
             {formatMoney(waiting.per_minute)}.
+            {q ? ` Kutish tugagach bekor qilish ${formatMoney(q.cancellationFee)}.` : ''}
           </T>
         ) : null}
       </ScrollView>
@@ -325,14 +398,31 @@ export default function OrderScreen() {
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, space(3)) }]}>
         {error ? <Banner tone="danger" message={error} style={styles.footerError} /> : null}
         <Button
-          title="Buyurtma berish"
+          title={
+            later
+              ? 'Oldindan buyurtma berish'
+              : draft.paymentMethod === 'card' && cardAvailable
+                ? 'Buyurtma va to‘lov'
+                : 'Buyurtma berish'
+          }
           size="lg"
           trailing={fare ? formatMoney(fare.total) : undefined}
           loading={busy}
-          disabled={!q || quote.isError}
-          onPress={() => q && void submit(q)}
+          disabled={!q || stale || quote.isError}
+          onPress={() => q && !stale && void submit(q)}
         />
       </View>
+
+      <ScheduleSheet
+        visible={pickingTime}
+        value={later}
+        onClose={() => setPickingTime(false)}
+        onPick={(iso) => {
+          setPickingTime(false);
+          setError(null);
+          updateDraft({ scheduledFor: iso, paymentMethod: 'cash' });
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -381,11 +471,13 @@ function ClassCard({
   onPress: () => void;
 }) {
   const fare = quote.fares[rideClass];
+  const availability = availabilityText(quote.availability?.[rideClass]);
+  const noCar = quote.availability?.[rideClass]?.etaS === null;
   return (
     <Pressable
       accessibilityRole="radio"
       accessibilityState={{ checked: selected }}
-      accessibilityLabel={`${CLASS_LABELS[rideClass]}, ${formatMoney(fare.total)}, narx o‘zgarmaydi`}
+      accessibilityLabel={`${CLASS_LABELS[rideClass]}, ${formatMoney(fare.total)}, narx o‘zgarmaydi${availability ? `. ${availability}` : ''}`}
       onPress={onPress}
       style={[styles.classCard, selected ? styles.classCardOn : null]}
     >
@@ -397,6 +489,15 @@ function ClassCard({
         <T variant="small" color={colors.textMuted} numberOfLines={2}>
           {CLASS_NOTES[rideClass]}
         </T>
+        {availability ? (
+          <T
+            variant="smallStrong"
+            color={noCar ? colors.warning : colors.success}
+            numberOfLines={1}
+          >
+            {availability}
+          </T>
+        ) : null}
       </View>
       <View style={styles.priceCol}>
         <T variant="price">{formatMoney(fare.total)}</T>
@@ -420,6 +521,17 @@ const styles = StyleSheet.create({
   content: { padding: space(4), gap: space(3), paddingBottom: space(8) },
   gap: { gap: space(2.5) },
   errorBox: { minHeight: 200 },
+  when: { gap: space(2) },
+  whenRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space(3),
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    paddingHorizontal: space(3.5),
+    paddingVertical: space(2.5),
+    minHeight: 56,
+  },
   route: { gap: 0, paddingVertical: space(2) },
   routePoint: {
     flexDirection: 'row',

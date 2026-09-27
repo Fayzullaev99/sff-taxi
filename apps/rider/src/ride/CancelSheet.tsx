@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import type { Ride } from '../api/types';
-import { cancelTerms } from '../lib/fare';
+import { cancelTerms, type RideRules } from '../lib/fare';
 import { useNow } from '../lib/hooks';
-import type { RideRules } from '../trip/ride-rules';
 import { Banner, Button, Chip, T } from '../ui/primitives';
 import { Sheet } from '../ui/Sheet';
 import { colors, space } from '../ui/theme';
@@ -54,7 +53,12 @@ export function CancelSheet({
             loading={busy}
             onPress={() => onConfirm(reason)}
           />
-          <Button title="Kutishda davom etish" variant="secondary" size="lg" onPress={onClose} />
+          <Button
+            title={ride.status === 'scheduled' ? 'Buyurtmani qoldirish' : 'Kutishda davom etish'}
+            variant="secondary"
+            size="lg"
+            onPress={onClose}
+          />
         </View>
       }
     >

@@ -35,7 +35,26 @@ export function parseRealtimeEvent(raw: string): RealtimeEvent | null {
         lng: d.lng,
         heading: isNum(d.heading) ? d.heading : null,
         at: isStr(d.at) ? d.at : new Date().toISOString(),
+        etaS: isNum(d.etaS) && d.etaS >= 0 ? d.etaS : null,
       };
+    case 'intercity.updated':
+      return isStr(d.tripId) && isStr(d.status)
+        ? {
+            type: 'intercity.updated',
+            tripId: d.tripId,
+            bookingId: isStr(d.bookingId) ? d.bookingId : null,
+            status: d.status,
+          }
+        : null;
+    case 'complaint.updated':
+      return isStr(d.complaintId) && isStr(d.status)
+        ? {
+            type: 'complaint.updated',
+            complaintId: d.complaintId,
+            rideId: isStr(d.rideId) ? d.rideId : '',
+            status: d.status,
+          }
+        : null;
     default:
       return null;
   }
@@ -72,6 +91,29 @@ export function appendTrack(track: readonly TrackPoint[], fix: TrackPoint): Trac
   }
   const next = [...track, fix];
   return next.length > TRAIL_LENGTH ? next.slice(next.length - TRAIL_LENGTH) : next;
+}
+
+/**
+ * The car's track to draw: the API's trail since the assignment (fetched with the ride)
+ * followed by the fixes streamed since, oldest first, without duplicates.
+ */
+export function mergeTrail(
+  fetched: readonly TrackPoint[] | undefined,
+  live: readonly TrackPoint[],
+): TrackPoint[] {
+  let track: TrackPoint[] = [];
+  const all = [...(fetched ?? []), ...live].sort(
+    (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime(),
+  );
+  for (const fix of all) {
+    track = appendTrack(track, {
+      lat: fix.lat,
+      lng: fix.lng,
+      heading: fix.heading ?? null,
+      at: fix.at,
+    });
+  }
+  return track;
 }
 
 /**

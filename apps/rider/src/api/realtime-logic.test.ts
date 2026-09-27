@@ -4,6 +4,7 @@ import {
   backoffMs,
   carPosition,
   MAX_BACKOFF_MS,
+  mergeTrail,
   parseRealtimeEvent,
   TRAIL_LENGTH,
   type TrackPoint,
@@ -25,6 +26,7 @@ describe('reading stream events', () => {
           lng: 68.78,
           heading: 90,
           at: '2026-09-26T10:00:00Z',
+          etaS: 240,
         }),
       ),
     ).toEqual({
@@ -34,6 +36,22 @@ describe('reading stream events', () => {
       lng: 68.78,
       heading: 90,
       at: '2026-09-26T10:00:00Z',
+      etaS: 240,
+    });
+    expect(
+      parseRealtimeEvent(
+        '{"type":"intercity.updated","tripId":"t1","bookingId":"b1","status":"departed"}',
+      ),
+    ).toEqual({ type: 'intercity.updated', tripId: 't1', bookingId: 'b1', status: 'departed' });
+    expect(
+      parseRealtimeEvent(
+        '{"type":"complaint.updated","complaintId":"c1","rideId":"r1","status":"in_progress"}',
+      ),
+    ).toEqual({
+      type: 'complaint.updated',
+      complaintId: 'c1',
+      rideId: 'r1',
+      status: 'in_progress',
     });
   });
 
@@ -54,7 +72,7 @@ describe('reading stream events', () => {
     const e = parseRealtimeEvent(
       '{"type":"driver.location","rideId":"r1","lat":40,"lng":68,"at":"x"}',
     );
-    expect(e).toMatchObject({ heading: null, at: 'x' });
+    expect(e).toMatchObject({ heading: null, at: 'x', etaS: null });
   });
 });
 
@@ -90,6 +108,17 @@ describe('the car track', () => {
     const repeat = appendTrack(track, { ...fix(5), at: fix(6).at, heading: 45 });
     expect(repeat).toHaveLength(2);
     expect(repeat.at(-1)).toMatchObject({ heading: 45, at: fix(6).at });
+  });
+
+  it('continues the fetched trail with the streamed fixes', () => {
+    const fetched = [
+      { ...fix(1), speed: 10 },
+      { ...fix(2), speed: 10 },
+    ];
+    const merged = mergeTrail(fetched, [fix(2), fix(4), fix(3)]);
+    expect(merged.map((p) => p.at)).toEqual([fix(1).at, fix(2).at, fix(3).at, fix(4).at]);
+    expect(merged[0]).toEqual(fix(1));
+    expect(mergeTrail(undefined, [])).toEqual([]);
   });
 
   it('prefers the newer of the live fix and the fetched position', () => {

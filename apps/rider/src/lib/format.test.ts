@@ -3,6 +3,7 @@ import {
   firstName,
   formatClock,
   formatDateTime,
+  formatDay,
   formatDelta,
   formatDistance,
   formatLocalPhoneInput,
@@ -12,6 +13,7 @@ import {
   formatTime,
   normalizePhone,
   placeLine,
+  tashkentDay,
 } from './format';
 
 const s = (text: string) => text.replace(/\u00a0/g, ' ');
@@ -42,6 +44,10 @@ describe('format', () => {
     const now = new Date('2026-03-03T12:00:00Z');
     expect(formatDateTime('2026-03-03T09:05:00Z', now)).toBe('Bugun, 14:05');
     expect(formatDateTime('2026-03-02T09:05:00Z', now)).toBe('Kecha, 14:05');
+    expect(formatDateTime('2026-03-04T02:30:00Z', now)).toBe('Ertaga, 07:30');
+    // 20:00 UTC is already the next day in Tashkent
+    expect(tashkentDay(new Date('2026-03-03T20:00:00Z'))).toBe('2026-03-04');
+    expect(formatDay('2026-03-04')).toBe('4 mart');
     expect(formatDateTime('2026-01-10T20:00:00Z', now)).toBe('11 yanvar, 01:00');
   });
 

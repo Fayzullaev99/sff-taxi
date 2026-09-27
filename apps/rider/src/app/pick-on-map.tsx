@@ -3,11 +3,11 @@ import { useRef, useState } from 'react';
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useGeoConfig } from '../api/queries';
-import { SAVED_LABELS, type SavedKind } from '../lib/places';
+import { parseSaveTarget, saveTitle } from '../lib/places';
 import { coordinatesLabel, DEFAULT_CENTER, describePoint } from '../location/geo';
 import { PointPicker } from '../location/PointPicker';
 import { choosePickup, updateDraft, useDraft } from '../trip/draft';
-import { savePlace } from '../trip/places-store';
+import { savePicked } from '../trip/places-store';
 import { Button, T } from '../ui/primitives';
 import { colors, space } from '../ui/theme';
 
@@ -15,8 +15,7 @@ import { colors, space } from '../ui/theme';
 export default function PickOnMapScreen() {
   const params = useLocalSearchParams<{ field?: string; save?: string }>();
   const field = params.field === 'pickup' ? 'pickup' : 'dropoff';
-  const save: SavedKind | null =
-    params.save === 'home' || params.save === 'work' ? params.save : null;
+  const save = parseSaveTarget(params.save);
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const config = useGeoConfig().data;
@@ -44,12 +43,16 @@ export default function PickOnMapScreen() {
     setBusy(false);
   };
 
-  const done = () => {
+  const [saving, setSaving] = useState(false);
+
+  const done = async () => {
     const title = address ?? coordinatesLabel(point.lat, point.lng);
     if (save) {
-      savePlace(save, { ...point, title, subtitle: null });
+      setSaving(true);
+      const ok = await savePicked(save, { ...point, title, subtitle: null });
+      setSaving(false);
       // back past the search screen to wherever the rider came from
-      router.dismiss(2);
+      if (ok) router.dismiss(2);
       return;
     }
     if (field === 'pickup') {
@@ -61,11 +64,7 @@ export default function PickOnMapScreen() {
     router.replace('/order');
   };
 
-  const title = save
-    ? `${SAVED_LABELS[save]} manzili`
-    : field === 'pickup'
-      ? 'Olib ketish joyi'
-      : 'Borish manzili';
+  const title = save ? saveTitle(save) : field === 'pickup' ? 'Olib ketish joyi' : 'Borish manzili';
 
   return (
     <View style={styles.root}>
@@ -83,7 +82,13 @@ export default function PickOnMapScreen() {
         <T variant="h3" numberOfLines={3}>
           {busy ? 'Manzil aniqlanmoqda…' : (address ?? coordinatesLabel(point.lat, point.lng))}
         </T>
-        <Button title="Tayyor" size="lg" disabled={busy} onPress={done} />
+        <Button
+          title={save ? 'Saqlash' : 'Tayyor'}
+          size="lg"
+          disabled={busy}
+          loading={saving}
+          onPress={() => void done()}
+        />
       </View>
     </View>
   );

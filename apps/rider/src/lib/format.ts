@@ -77,10 +77,23 @@ export function formatDateTime(iso: string | Date, now: Date = new Date()): stri
   const time = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
   if (diff === 0) return `Bugun, ${time}`;
   if (diff === 1) return `Kecha, ${time}`;
+  if (diff === -1) return `Ertaga, ${time}`;
   const date = `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
   return d.getUTCFullYear() === today.getUTCFullYear()
     ? `${date}, ${time}`
     : `${date} ${d.getUTCFullYear()}, ${time}`;
+}
+
+/** The Tashkent calendar day of a moment: "2026-03-03". */
+export function tashkentDay(date: Date): string {
+  const d = tashkent(date);
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+
+/** "2026-03-03" -> "3 mart". */
+export function formatDay(day: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}` : day;
 }
 
 /** "+998901234567" -> "+998 90 123 45 67" */

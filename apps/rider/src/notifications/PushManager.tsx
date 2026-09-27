@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Linking } from 'react-native';
 import { beforeSignOut, useIsSignedIn } from '../api/session';
-import { rideIdFromData } from './data';
+import { bookingIdFromData, rideIdFromData } from './data';
 import {
   configureNotifications,
   getPushPermission,
@@ -54,12 +54,17 @@ export function PushManager() {
     const key = response.notification.request.identifier;
     if (handled.current === key) return;
     handled.current = key;
-    const rideId = rideIdFromData(response.notification.request.content.data);
+    const data = response.notification.request.content.data;
+    const rideId = rideIdFromData(data);
+    const bookingId = rideId ? null : bookingIdFromData(data);
     void Notifications.clearLastNotificationResponseAsync().catch(() => undefined);
-    if (!rideId) return;
+    if (!rideId && !bookingId) return;
     // on a cold start the first screen redirects to the map first: open the ride on top
     // (not cancelled on re-render: clearing the response above re-renders at once)
-    setTimeout(() => router.push({ pathname: '/ride/[id]', params: { id: rideId } }), 250);
+    setTimeout(() => {
+      if (rideId) router.push({ pathname: '/ride/[id]', params: { id: rideId } });
+      else router.push({ pathname: '/intercity/booking/[id]', params: { id: bookingId! } });
+    }, 250);
   }, [response]);
 
   return null;

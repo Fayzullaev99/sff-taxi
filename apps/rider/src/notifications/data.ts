@@ -13,6 +13,14 @@ export function rideIdFromData(data: unknown): string | null {
   return UUID.test(d.rideId) ? d.rideId : null;
 }
 
+/** The intercity booking a tapped notification is about (`data: { tripId, bookingId }`). */
+export function bookingIdFromData(data: unknown): string | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const d = data as Record<string, unknown>;
+  if (typeof d.bookingId !== 'string') return null;
+  return UUID.test(d.bookingId) ? d.bookingId : null;
+}
+
 /** The locale the API should write pushes in; Russian phones get Russian, the rest Uzbek. */
 export function pushLocale(languageTag: string | null | undefined): 'uz' | 'ru' {
   return languageTag?.toLowerCase().startsWith('ru') ? 'ru' : 'uz';

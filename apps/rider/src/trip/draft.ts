@@ -19,6 +19,8 @@ export interface TripDraft {
   options: RideOption[];
   rideClass: RideClass;
   paymentMethod: PaymentMethod;
+  /** A ride for later: when the car should come (ISO), else null (now). Cash only. */
+  scheduledFor: string | null;
   /** Asks the home map to move (a pickup chosen by search); the key repeats a move. */
   moveMap: { lat: number; lng: number; key: number } | null;
 }
@@ -31,6 +33,7 @@ const INITIAL: TripDraft = {
   options: [],
   rideClass: 'economy',
   paymentMethod: 'cash',
+  scheduledFor: null,
   moveMap: null,
 };
 
@@ -65,6 +68,7 @@ export function resetAfterOrder(): void {
     landmark: '',
     comment: '',
     options: [],
+    scheduledFor: null,
     moveMap: null,
   });
 }

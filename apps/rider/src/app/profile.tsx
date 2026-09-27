@@ -1,5 +1,4 @@
 import { useQueryClient } from '@tanstack/react-query';
-import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
@@ -8,19 +7,18 @@ import { describeError } from '../api/client';
 import { endpoints } from '../api/endpoints';
 import { keys, useMe } from '../api/queries';
 import { signOut } from '../api/session';
+import { APP_VERSION, useFeature, useSupport } from '../api/support';
 import { confirm } from '../lib/dialogs';
 import { formatPhone } from '../lib/format';
-import { callPhone, OPERATOR_PHONE } from '../lib/links';
-import { SAVED_LABELS, type SavedKind } from '../lib/places';
+import { callPhone, openLink } from '../lib/links';
 import { usePushPermission } from '../notifications/PushManager';
-import { removePlace, usePlaces } from '../trip/places-store';
 import {
   Banner,
   Button,
   Card,
   Divider,
   Icon,
-  IconButton,
+  type IconName,
   PressableRow,
   SectionTitle,
   T,
@@ -28,13 +26,15 @@ import {
 } from '../ui/primitives';
 import { colors, space } from '../ui/theme';
 
-/** Name, saved places, notifications, the office's number, sign-out. */
+/** Name, the rider's places and lists, notifications, support contacts, sign-out. */
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const me = useMe();
-  const places = usePlaces();
   const push = usePushPermission();
+  const support = useSupport();
+  const intercityOn = useFeature('intercity');
+  const scheduledOn = useFeature('scheduledRides');
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
@@ -62,7 +62,7 @@ export default function ProfileScreen() {
   const doSignOut = async () => {
     const ok = await confirm({
       title: 'Hisobdan chiqasizmi?',
-      message: 'Saqlangan manzillar shu telefondan o‘chiriladi.',
+      message: 'Saqlangan manzillar va safarlar hisobingizda qoladi: qayta kirganda ko‘rasiz.',
       confirmText: 'Chiqish',
       destructive: true,
     });
@@ -70,9 +70,6 @@ export default function ProfileScreen() {
     // the session guard in the root layout takes the rider to the sign-in
     await signOut();
   };
-
-  const editPlace = (kind: SavedKind) =>
-    router.push({ pathname: '/search', params: { field: 'dropoff', save: kind } });
 
   const pushText =
     push.permission === 'granted'
@@ -115,36 +112,45 @@ export default function ProfileScreen() {
         />
       </Card>
 
-      <SectionTitle>Saqlangan manzillar</SectionTitle>
-      <Card style={styles.card}>
-        {(['home', 'work'] as const).map((kind, i) => (
-          <View key={kind}>
-            {i > 0 ? <Divider style={styles.divider} /> : null}
-            <View style={styles.placeRow}>
-              <PressableRow
-                style={styles.placeMain}
-                onPress={() => editPlace(kind)}
-                accessibilityLabel={`${SAVED_LABELS[kind]}: ${places[kind]?.title ?? 'qo‘shilmagan'}. O‘zgartirish`}
-              >
-                <Icon name={kind === 'home' ? 'home-outline' : 'briefcase-outline'} size={20} />
-                <View style={styles.flex}>
-                  <T variant="bodyStrong">{SAVED_LABELS[kind]}</T>
-                  <T variant="small" color={colors.textMuted} numberOfLines={2}>
-                    {places[kind]?.title ?? 'Qo‘shish uchun bosing'}
-                  </T>
-                </View>
-              </PressableRow>
-              {places[kind] ? (
-                <IconButton
-                  name="trash-outline"
-                  label={`${SAVED_LABELS[kind]} manzilini o‘chirish`}
-                  color={colors.danger}
-                  onPress={() => removePlace(kind)}
-                />
-              ) : null}
-            </View>
-          </View>
-        ))}
+      <Card style={styles.menu}>
+        <MenuRow
+          icon="location-outline"
+          title="Saqlangan manzillar"
+          onPress={() => router.push('/places')}
+        />
+        <Divider />
+        <MenuRow
+          icon="time-outline"
+          title="Safarlar tarixi"
+          onPress={() => router.push('/history')}
+        />
+        {scheduledOn ? (
+          <>
+            <Divider />
+            <MenuRow
+              icon="calendar-outline"
+              title="Oldindan buyurtmalar"
+              onPress={() => router.push('/scheduled')}
+            />
+          </>
+        ) : null}
+        {intercityOn ? (
+          <>
+            <Divider />
+            <MenuRow
+              icon="bus-outline"
+              title="Shaharlararo bronlarim"
+              onPress={() => router.push('/intercity/bookings')}
+            />
+          </>
+        ) : null}
+        <Divider />
+        <MenuRow
+          icon="chatbubbles-outline"
+          title="Murojaatlarim"
+          subtitle="Shikoyatlar va unutilgan narsalar"
+          onPress={() => router.push('/support')}
+        />
       </Card>
 
       <SectionTitle>Bildirishnomalar</SectionTitle>
@@ -166,20 +172,27 @@ export default function ProfileScreen() {
           Narxlar oldindan belgilanadi va yo‘lda o‘zgarmaydi. Haydovchi yetib kelgach bir necha
           daqiqa kutish bepul.
         </T>
-        {OPERATOR_PHONE ? (
+        {support.phone ? (
           <Button
-            title={`Operator: ${OPERATOR_PHONE}`}
+            title={`Operator: ${formatPhone(support.phone)}`}
             variant="secondary"
             icon="call-outline"
-            onPress={() => void callPhone(OPERATOR_PHONE!)}
+            onPress={() => void callPhone(support.phone!)}
           />
         ) : null}
-        <Button
-          title="Safarlar tarixi"
-          variant="secondary"
-          icon="time-outline"
-          onPress={() => router.push('/history')}
-        />
+        {support.telegramUrl ? (
+          <Button
+            title={`Telegram: ${support.telegramHandle ?? 'yordam'}`}
+            variant="secondary"
+            icon="paper-plane-outline"
+            onPress={() => void openLink(support.telegramUrl!)}
+          />
+        ) : null}
+        {support.officeAddress ? (
+          <T variant="small" color={colors.textMuted}>
+            Ofis: {support.officeAddress}
+          </T>
+        ) : null}
       </Card>
 
       <Button
@@ -189,9 +202,36 @@ export default function ProfileScreen() {
         onPress={() => void doSignOut()}
       />
       <T variant="caption" color={colors.textFaint} align="center">
-        SFF Taxi {Constants.expoConfig?.version ?? ''}
+        SFF Taxi {APP_VERSION ?? ''}
       </T>
     </ScrollView>
+  );
+}
+
+function MenuRow({
+  icon,
+  title,
+  subtitle,
+  onPress,
+}: {
+  icon: IconName;
+  title: string;
+  subtitle?: string;
+  onPress: () => void;
+}) {
+  return (
+    <PressableRow style={styles.menuRow} onPress={onPress} accessibilityLabel={title}>
+      <Icon name={icon} size={20} />
+      <View style={styles.flex}>
+        <T variant="bodyStrong">{title}</T>
+        {subtitle ? (
+          <T variant="small" color={colors.textMuted}>
+            {subtitle}
+          </T>
+        ) : null}
+      </View>
+      <Icon name="chevron-forward" size={18} color={colors.textMuted} />
+    </PressableRow>
   );
 }
 
@@ -199,8 +239,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { padding: space(4), gap: space(3) },
   card: { gap: space(3) },
+  menu: { gap: 0, paddingVertical: space(1) },
+  menuRow: { gap: space(3), minHeight: 52 },
   flex: { flex: 1, minWidth: 0 },
-  divider: { marginVertical: space(1) },
-  placeRow: { flexDirection: 'row', alignItems: 'center', gap: space(2) },
-  placeMain: { flex: 1, gap: space(3), minHeight: 48 },
 });

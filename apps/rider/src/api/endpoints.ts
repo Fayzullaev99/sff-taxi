@@ -1,19 +1,32 @@
 import { api, setSession } from './session';
 import type {
+  AppConfig,
+  BookInput,
   CodeRequested,
+  Complaint,
+  ComplaintListItem,
+  ComplaintType,
   GeoConfig,
   GeoResolve,
   GeoReverse,
   GeoSuggestion,
+  IntercityBooking,
+  IntercityPoint,
+  IntercityTrip,
   LatLng,
   Me,
   OrderInput,
+  Page,
+  PlaceInput,
   PushDeviceInput,
   Quote,
   RatingInput,
+  RecentPlace,
   Ride,
   RideHistoryPage,
   RideOption,
+  RideSummary,
+  SavedPlace,
   ShareLink,
   SosResult,
   TariffInfo,
@@ -58,15 +71,22 @@ export const endpoints = {
     api.request<TariffInfo>('/v1/tariffs', { auth: 'none', query: { lat: p.lat, lng: p.lng } }),
 
   // Rides
-  quote: (pickup: LatLng, dropoff: LatLng, options: RideOption[]) =>
+  quote: (
+    pickup: LatLng,
+    dropoff: LatLng,
+    options: RideOption[],
+    scheduledFor: string | null = null,
+  ) =>
     api.request<Quote>('/v1/rides/quote', {
       method: 'POST',
       body: {
         pickup: { lat: pickup.lat, lng: pickup.lng },
         dropoff: { lat: dropoff.lat, lng: dropoff.lng },
         options,
+        scheduledFor,
       },
     }),
+  scheduledRides: () => api.request<RideSummary[]>('/v1/rides/scheduled'),
   order: (input: OrderInput) =>
     api.requestWithStatus<Ride>('/v1/rides', { method: 'POST', body: input }),
   currentRide: () => api.request<{ ride: Ride | null }>('/v1/rides/current'),
@@ -83,6 +103,53 @@ export const endpoints = {
     }),
   sos: (rideId: string, body: { lat: number | null; lng: number | null; note: string | null }) =>
     api.request<SosResult>(`/v1/rides/${id(rideId)}/sos`, { method: 'POST', body }),
+
+  // Configuration (public): support contacts, minimum app version, features
+  config: () => api.request<AppConfig>('/v1/config', { auth: 'none' }),
+
+  // Saved places and recent destinations
+  places: () => api.request<SavedPlace[]>('/v1/places'),
+  recentPlaces: () => api.request<RecentPlace[]>('/v1/places/recent'),
+  createPlace: (input: PlaceInput) =>
+    api.request<SavedPlace>('/v1/places', { method: 'POST', body: input }),
+  deletePlace: (placeId: string) =>
+    api.request<void>(`/v1/places/${id(placeId)}`, { method: 'DELETE' }),
+
+  // Complaints (support tickets), lost items included
+  complain: (rideId: string, type: ComplaintType, text: string) =>
+    api.request<Complaint>(`/v1/rides/${id(rideId)}/complaints`, {
+      method: 'POST',
+      body: { type, text },
+    }),
+  complaints: (cursor?: string) =>
+    api.request<Page<ComplaintListItem>>('/v1/complaints', { query: { cursor } }),
+  complaint: (complaintId: string) => api.request<Complaint>(`/v1/complaints/${id(complaintId)}`),
+  replyComplaint: (complaintId: string, text: string) =>
+    api.request<Complaint>(`/v1/complaints/${id(complaintId)}/messages`, {
+      method: 'POST',
+      body: { text },
+    }),
+
+  // Intercity trip board
+  intercityPoints: () => api.request<IntercityPoint[]>('/v1/intercity/points'),
+  intercityTrips: (q: { from: string; to: string; date: string; seats: number }) =>
+    api.request<IntercityTrip[]>('/v1/intercity/trips', { query: q }),
+  intercityTrip: (tripId: string) =>
+    api.request<IntercityTrip>(`/v1/intercity/trips/${id(tripId)}`),
+  book: (tripId: string, input: BookInput) =>
+    api.requestWithStatus<IntercityBooking>(`/v1/intercity/trips/${id(tripId)}/bookings`, {
+      method: 'POST',
+      body: input,
+    }),
+  bookings: (cursor?: string) =>
+    api.request<Page<IntercityBooking>>('/v1/intercity/bookings', { query: { cursor } }),
+  booking: (bookingId: string) =>
+    api.request<IntercityBooking>(`/v1/intercity/bookings/${id(bookingId)}`),
+  cancelBooking: (bookingId: string, reason: string | null) =>
+    api.request<IntercityBooking>(`/v1/intercity/bookings/${id(bookingId)}/cancel`, {
+      method: 'POST',
+      body: { reason },
+    }),
 
   // Realtime and push
   streamTicket: () =>
