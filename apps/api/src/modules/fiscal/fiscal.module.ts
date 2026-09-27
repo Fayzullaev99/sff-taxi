@@ -6,6 +6,8 @@ import {
   HttpStatus,
   Injectable,
   Module,
+  Param,
+  ParseUUIDPipe,
   Post,
   Query,
 } from '@nestjs/common';
@@ -58,6 +60,18 @@ export class AdminFiscalController {
   @HttpCode(HttpStatus.OK)
   async resend(@Body(new ZodPipe(ResendBody)) body: z.output<typeof ResendBody>) {
     return { queued: await this.fiscal.resend(body.status) };
+  }
+
+  @Get('receipts/:id')
+  one(@Param('id', ParseUUIDPipe) id: string) {
+    return this.fiscal.one(id);
+  }
+
+  /** Sends one skipped or pending receipt again (a sent one is final: 409). */
+  @Post('receipts/:id/retry')
+  @HttpCode(HttpStatus.OK)
+  retry(@Param('id', ParseUUIDPipe) id: string) {
+    return this.fiscal.retryOne(id);
   }
 }
 

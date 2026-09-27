@@ -224,6 +224,12 @@ export class AdminDriversController {
     return this.drivers.resolveAppeal(user, appealId, body.resolution);
   }
 
+  /** Card money owed per driver (card fares minus payouts), most owed first. */
+  @Get('payouts')
+  payouts() {
+    return this.drivers.payouts();
+  }
+
   @Get(':id')
   get(@Param('id', ParseUUIDPipe) id: string) {
     return this.drivers.adminView(id);

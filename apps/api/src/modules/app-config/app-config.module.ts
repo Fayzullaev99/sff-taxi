@@ -2,9 +2,9 @@ import { Controller, Get, Inject, Injectable, Module } from '@nestjs/common';
 import { ENV, type Env } from '../../config/env.js';
 import { Public } from '../../core/auth/auth-context.js';
 import { RateLimit } from '../../core/http/rate-limit.js';
-import { DECLINE_REASONS } from '../dispatch/dispatch.module.js';
+import { DECLINE_REASONS, DRIVER_CANCEL_REASONS } from '../../lib/reasons.js';
+import { TRIP_SPACING_HOURS } from '../intercity/intercity.service.js';
 import { enabledProviders, TOPUP_MAX, TOPUP_MIN } from '../payments/payment-config.js';
-import { DRIVER_CANCEL_REASONS } from '../rides/rides.service.js';
 import { SettingsService } from '../settings/settings.module.js';
 import { storageConfig } from '../uploads/object-storage.js';
 
@@ -24,13 +24,26 @@ export class AppConfigService {
   }
 
   /** What every app reads on start: contacts, required versions, what is switched on. */
-  public() {
+  async public() {
     const providers = enabledProviders(this.env);
+    const intercity = await this.settings.intercity();
     return {
       support: this.support(),
+      // null: no forced update (set MIN_*_APP_VERSION to require one)
       minAppVersion: {
-        rider: this.env.MIN_RIDER_APP_VERSION,
-        driver: this.env.MIN_DRIVER_APP_VERSION,
+        rider: this.env.MIN_RIDER_APP_VERSION ?? null,
+        driver: this.env.MIN_DRIVER_APP_VERSION ?? null,
+      },
+      // where the update screens send people; null: the apps use their own fallback
+      storeUrls: {
+        rider: {
+          android: this.env.STORE_URL_ANDROID_RIDER ?? null,
+          ios: this.env.STORE_URL_IOS_RIDER ?? null,
+        },
+        driver: {
+          android: this.env.STORE_URL_ANDROID_DRIVER ?? null,
+          ios: this.env.STORE_URL_IOS_DRIVER ?? null,
+        },
       },
       features: {
         cardPayments: providers.length > 0,
@@ -38,18 +51,28 @@ export class AppConfigService {
         intercity: true,
         maskedCalls: false,
         scheduledRides: true,
+        // operators can order a ride for later for a caller (a quote with scheduledFor)
+        scheduledPhoneOrders: true,
+        // a cash ride collects cancellation fees owed from earlier cash rides (a quote line)
+        owedCancellationFees: true,
       },
       cardProviders: providers,
+      // the seat board's cancellation rules riders agree to when booking
+      intercity: {
+        freeCancelMinutes: intercity.free_cancel_minutes,
+        lateCancelFeePercent: intercity.late_cancel_fee_percent,
+      },
       shareBaseUrl: this.env.SHARE_BASE_URL,
     };
   }
 
   /** The rules a driver works under, in one place for the app's "money" and help screens. */
   async driver() {
-    const [billing, dispatch, tariff] = await Promise.all([
+    const [billing, dispatch, tariff, intercity] = await Promise.all([
       this.settings.billing(),
       this.settings.dispatch(),
       this.settings.tariff(),
+      this.settings.intercity(),
     ]);
     return {
       billing: {
@@ -70,6 +93,16 @@ export class AppConfigService {
         freeWaitingMinutes: tariff.waiting.free_minutes,
         waitingPerMinute: tariff.waiting.per_minute,
         cancellationFee: tariff.cancellation_fee,
+      },
+      // the trip board's timing and price rules (the band itself comes per route with fares)
+      intercity: {
+        publishMinMinutesAhead: intercity.publish_min_minutes_ahead,
+        publishMaxDaysAhead: intercity.publish_max_days_ahead,
+        tripSpacingHours: TRIP_SPACING_HOURS,
+        boardingOpensMinutes: intercity.boarding_opens_minutes,
+        priceBandPercent: intercity.price_band_percent,
+        freeCancelMinutes: intercity.free_cancel_minutes,
+        lateCancelFeePercent: intercity.late_cancel_fee_percent,
       },
       declineReasons: DECLINE_REASONS,
       cancelReasons: DRIVER_CANCEL_REASONS,

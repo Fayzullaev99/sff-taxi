@@ -21,14 +21,28 @@ export function enabledProviders(env: Env): PaymentProvider[] {
   return out;
 }
 
+export type IntentPurpose = 'ride' | 'topup';
+
+/**
+ * Where the provider's page sends the payer back: the purpose's own URL (a ride payment to
+ * the rider app, a top-up to the driver app), else the shared PAYMENT_RETURN_URL, else none.
+ */
+export function returnUrl(env: Env, purpose: IntentPurpose, intentId: string): string | null {
+  const template =
+    (purpose === 'ride' ? env.PAYMENT_RETURN_URL_RIDE : env.PAYMENT_RETURN_URL_TOPUP) ??
+    env.PAYMENT_RETURN_URL;
+  return template?.replaceAll('{intentId}', intentId) ?? null;
+}
+
 /** The provider's hosted checkout page for paying `amount` so'm for a payment intent. */
 export function checkoutUrl(
   env: Env,
   provider: PaymentProvider,
   intentId: string,
   amount: number,
+  purpose: IntentPurpose = 'ride',
 ): string {
-  const back = env.PAYMENT_RETURN_URL?.replaceAll('{intentId}', intentId) ?? null;
+  const back = returnUrl(env, purpose, intentId);
   if (provider === 'payme') {
     const host = env.PAYME_TEST ? 'https://checkout.test.paycom.uz' : 'https://checkout.paycom.uz';
     // account field "order_id" in the Payme cashbox holds the intent id
@@ -47,8 +61,13 @@ export function checkoutUrl(
 }
 
 /** Checkout links for every configured provider. */
-export function checkoutUrls(env: Env, intentId: string, amount: number) {
+export function checkoutUrls(
+  env: Env,
+  intentId: string,
+  amount: number,
+  purpose: IntentPurpose = 'ride',
+) {
   return Object.fromEntries(
-    enabledProviders(env).map((p) => [p, checkoutUrl(env, p, intentId, amount)]),
+    enabledProviders(env).map((p) => [p, checkoutUrl(env, p, intentId, amount, purpose)]),
   ) as Partial<Record<PaymentProvider, string>>;
 }

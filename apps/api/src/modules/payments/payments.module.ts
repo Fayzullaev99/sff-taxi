@@ -9,9 +9,11 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
 } from '@nestjs/common';
 import { z } from 'zod';
 import { AdminOnly, type AuthUser, CurrentUser, Public } from '../../core/auth/auth-context.js';
+import { UzPhone } from '../../core/auth/phone.js';
 import { RateLimit } from '../../core/http/rate-limit.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
 import { BillingModule } from '../billing/billing.module.js';
@@ -29,6 +31,22 @@ const TopupBody = z.object({
     .max(TOPUP_MAX, `Ko‘pi bilan ${TOPUP_MAX} so‘m`),
 });
 const RefundBody = z.object({ reference: z.string().trim().min(3).max(200) });
+const DayString = z.iso.date('Sana YYYY-MM-DD ko‘rinishida');
+const IntentsQuery = z.object({
+  purpose: z.enum(['ride', 'topup']).optional(),
+  /** pending, paid, expired, cancelled, refund_pending, refunded, or failed (= expired or cancelled). */
+  status: z
+    .enum(['pending', 'paid', 'expired', 'cancelled', 'refund_pending', 'refunded', 'failed'])
+    .optional(),
+  provider: z.enum(['payme', 'click']).optional(),
+  driverId: z.uuid().optional(),
+  rideId: z.uuid().optional(),
+  phone: UzPhone.optional(),
+  from: DayString.optional(),
+  to: DayString.optional(),
+  cursor: z.uuid().optional(),
+});
+const SummaryQuery = z.object({ from: DayString.optional(), to: DayString.optional() });
 
 /**
  * Provider callbacks. They are public: Payme authenticates with Basic auth (our merchant
@@ -101,6 +119,18 @@ export class DriverTopupsController {
 @AdminOnly()
 export class AdminPaymentsController {
   constructor(private readonly intents: IntentsService) {}
+
+  /** Card payments (ride prepayments and top-ups), newest first, with filters. */
+  @Get('intents')
+  intentsList(@Query(new ZodPipe(IntentsQuery)) q: z.output<typeof IntentsQuery>) {
+    return this.intents.adminList(q);
+  }
+
+  /** Count and amount per purpose and status over Tashkent days. */
+  @Get('intents/summary')
+  intentsSummary(@Query(new ZodPipe(SummaryQuery)) q: z.output<typeof SummaryQuery>) {
+    return this.intents.adminSummary(q);
+  }
 
   /** Paid card rides that were cancelled: refund them in the provider's cabinet. */
   @Get('refunds')

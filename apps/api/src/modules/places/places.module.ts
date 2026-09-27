@@ -14,7 +14,7 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-import type { Selectable } from 'kysely';
+import { type Selectable, sql } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import { z } from 'zod';
 import { type AuthUser, CurrentUser } from '../../core/auth/auth-context.js';
@@ -139,15 +139,25 @@ export class PlacesService {
    * counts as the same), newest first.
    */
   async recent(userId: string) {
-    const rows = await this.db.kysely
-      .selectFrom('rides')
-      .select(['dropoff', 'dropoff_lat', 'dropoff_lng', 'requested_at'])
-      .where('rider_id', '=', userId)
-      .orderBy('requested_at', 'desc')
-      .limit(50)
-      .execute();
+    const [rows, hidden] = await Promise.all([
+      this.db.kysely
+        .selectFrom('rides')
+        .select(['dropoff', 'dropoff_lat', 'dropoff_lng', 'requested_at'])
+        .where('rider_id', '=', userId)
+        .orderBy('requested_at', 'desc')
+        .limit(50)
+        .execute(),
+      this.db.kysely
+        .selectFrom('rider_hidden_places')
+        .select(['place_key', 'created_at'])
+        .where('user_id', '=', userId)
+        .execute(),
+    ]);
+    // a hidden place stays hidden until the rider goes there again
+    const hiddenAt = new Map(hidden.map((h) => [h.place_key, h.created_at.getTime()]));
     const seen = new Set<string>();
     const out: {
+      key: string;
       address: string | null;
       landmark: string | null;
       lat: number;
@@ -155,10 +165,12 @@ export class PlacesService {
       lastUsedAt: Date;
     }[] = [];
     for (const r of rows) {
-      const k = `${r.dropoff_lat.toFixed(4)},${r.dropoff_lng.toFixed(4)}`;
+      const k = placeKey(r.dropoff_lat, r.dropoff_lng);
       if (seen.has(k)) continue;
       seen.add(k);
+      if ((hiddenAt.get(k) ?? -1) >= r.requested_at.getTime()) continue;
       out.push({
+        key: k,
         address: r.dropoff.address,
         landmark: r.dropoff.landmark,
         lat: r.dropoff_lat,
@@ -169,7 +181,46 @@ export class PlacesService {
     }
     return out;
   }
+
+  /**
+   * Removes a destination from the recent list (the ride history stays): by its `key` from
+   * the list, or by its coordinates. A later ride there brings it back.
+   */
+  async hideRecent(userId: string, at: { key?: string; lat?: number; lng?: number }) {
+    const key = at.key ?? placeKey(at.lat!, at.lng!);
+    await this.db.kysely
+      .insertInto('rider_hidden_places')
+      .values({ user_id: userId, place_key: key })
+      .onConflict((oc) =>
+        oc.columns(['user_id', 'place_key']).doUpdateSet({ created_at: sql`now()` }),
+      )
+      .execute();
+  }
+
+  /** Shows every hidden destination again. */
+  async unhideAll(userId: string) {
+    await this.db.kysely.deleteFrom('rider_hidden_places').where('user_id', '=', userId).execute();
+  }
 }
+
+/** Destinations about 11 m apart are the same place: "40.4960,68.7759". */
+export function placeKey(lat: number, lng: number): string {
+  return `${lat.toFixed(4)},${lng.toFixed(4)}`;
+}
+
+const HideBody = z
+  .object({
+    key: z
+      .string()
+      .regex(/^-?\d+\.\d{4},-?\d+\.\d{4}$/, 'key: GET places/recent dagi qiymat')
+      .optional(),
+    lat: Lat.optional(),
+    lng: Lng.optional(),
+  })
+  .refine((b) => b.key !== undefined || (b.lat !== undefined && b.lng !== undefined), {
+    message: 'key yoki lat va lng yuboring',
+    path: ['key'],
+  });
 
 /** Riders' saved places and recent destinations. */
 @Controller('places')
@@ -185,6 +236,23 @@ export class PlacesController {
   @Get('recent')
   recent(@CurrentUser() user: AuthUser) {
     return this.places.recent(user.userId);
+  }
+
+  /** Hides a recent destination: `{ key }` from the list, or `{ lat, lng }`. */
+  @Post('recent/hide')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async hideRecent(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodPipe(HideBody)) body: z.output<typeof HideBody>,
+  ) {
+    await this.places.hideRecent(user.userId, body);
+  }
+
+  /** Brings every hidden recent destination back. */
+  @Delete('recent/hidden')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async unhideAll(@CurrentUser() user: AuthUser) {
+    await this.places.unhideAll(user.userId);
   }
 
   @Post()

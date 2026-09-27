@@ -78,9 +78,12 @@ transaction per intent is enforced by a partial unique index.
 ## Setting up
 
 In `.env.prod`: `PAYME_MERCHANT_ID`, `PAYME_KEY` (and `PAYME_TEST=true` for the sandbox),
-`CLICK_SERVICE_ID`, `CLICK_MERCHANT_ID`, `CLICK_SECRET`, optionally `PAYMENT_RETURN_URL` (the
-page or deep link the checkout returns to; `{intentId}` is replaced). A provider is offered
-once all its values are set; with none, riders see cash only and top-ups are cash at the office.
+`CLICK_SERVICE_ID`, `CLICK_MERCHANT_ID`, `CLICK_SECRET`, optionally the page or deep link the
+checkout returns to (`{intentId}` is replaced): `PAYMENT_RETURN_URL_RIDE` for ride payments (the
+rider app, `sfftaxi://payments/{intentId}`), `PAYMENT_RETURN_URL_TOPUP` for driver top-ups (the
+driver app, `sff-taxi-driver://topup?id={intentId}`), `PAYMENT_RETURN_URL` as the fallback for
+both. A provider is offered once all its values are set; with none, riders see cash only and
+top-ups are cash at the office.
 
 Cabinets:
 
@@ -95,4 +98,15 @@ Test with the sandbox and a 5 000 top-up before switching card rides on for ride
 - Tips by card (an intent of purpose `tip` credited 100% to the driver's balance).
 - Card-on-file (Payme Subscribe / Click card tokens): one-tap payment and holds.
 - Automatic payouts to drivers' cards (today operators record transfers).
-- Collecting owed cancellation fees from card riders.
+- Collecting owed cancellation fees from card riders (cash rides collect them: architecture §5).
+
+## Operators
+
+- `GET admin/payments/intents?purpose&status&provider&driverId&rideId&phone&from&to&cursor`: every
+  ride prepayment and top-up, newest first (`status=failed` = expired or cancelled);
+  `GET admin/payments/intents/summary?from&to`: count and amount per purpose and status.
+- `GET admin/drivers/payouts`: card money owed per driver (card fares minus payouts), with
+  `payableNow` (a payout cannot exceed the balance); the driver list has `cardOwed`, the driver
+  view `cardMoney`.
+- Drivers get a push and `topup.updated` on their stream when a top-up is paid; riders a push and
+  `ride.refund` when a refund is queued and when it is made.

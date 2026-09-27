@@ -96,6 +96,10 @@ const EnvSchema = z
      * "{intentId}" is replaced with the payment's id. Unset = the providers' default page.
      */
     PAYMENT_RETURN_URL: z.string().min(8).max(500).optional(),
+    /** Per purpose, winning over PAYMENT_RETURN_URL: the rider app's ride payments... */
+    PAYMENT_RETURN_URL_RIDE: z.string().min(8).max(500).optional(),
+    /** ...and the driver app's balance top-ups ({intentId} replaced likewise). */
+    PAYMENT_RETURN_URL_TOPUP: z.string().min(8).max(500).optional(),
 
     // Uploads (S3-compatible, private bucket; all or none: uploads answer 503 until set) -------
     /** Omit for AWS S3; set for any other S3-compatible service (SeaweedFS, MinIO...). */
@@ -148,15 +152,23 @@ const EnvSchema = z
     SUPPORT_TELEGRAM: z.string().min(2).max(100).optional(),
     /** The office where drivers top up in cash and bring documents. */
     OFFICE_ADDRESS: z.string().min(5).max(300).optional(),
-    /** Older app versions are asked to update (semver). */
+    /**
+     * Older app versions are asked to update (semver). Unset (the default) = no forced
+     * update: a default would lock out every build below it.
+     */
     MIN_RIDER_APP_VERSION: z
       .string()
       .regex(/^\d+\.\d+\.\d+$/, 'x.y.z')
-      .default('1.0.0'),
+      .optional(),
     MIN_DRIVER_APP_VERSION: z
       .string()
       .regex(/^\d+\.\d+\.\d+$/, 'x.y.z')
-      .default('1.0.0'),
+      .optional(),
+    /** Store pages the update screens open (optional; the apps fall back to their own). */
+    STORE_URL_ANDROID_RIDER: z.url().optional(),
+    STORE_URL_ANDROID_DRIVER: z.url().optional(),
+    STORE_URL_IOS_RIDER: z.url().optional(),
+    STORE_URL_IOS_DRIVER: z.url().optional(),
 
     /** Public origin of the page that opens share-trip links: {origin}/t/{token}. */
     SHARE_BASE_URL: z.url().default('https://taxi.sff.uz'),

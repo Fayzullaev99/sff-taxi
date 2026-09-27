@@ -18,6 +18,7 @@ import { UzPhone } from '../../core/auth/phone.js';
 import { RIDE_STATUSES } from '../../core/db/schema.js';
 import { RateLimit } from '../../core/http/rate-limit.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
+import { REASON_LABELS } from '../../lib/reasons.js';
 import { RIDE_CLASSES, RIDE_OPTIONS } from '../../lib/tariff.js';
 import { BillingModule } from '../billing/billing.module.js';
 import { FiscalCoreModule } from '../fiscal/fiscal.module.js';
@@ -93,6 +94,7 @@ const DriverCancelBody = z.object({
 });
 const OperatorCancelBody = z.object({ reason: z.string().trim().min(3).max(300) });
 const AssignBody = z.object({ driverId: z.uuid() });
+const WaiveBody = z.object({ note: z.string().trim().min(3).max(300) });
 const AdminListQuery = z.object({
   status: z.enum([...RIDE_STATUSES, 'open', 'all']).optional(),
   q: z.string().trim().min(1).max(20).optional(),
@@ -258,14 +260,17 @@ export class DriverRidesController {
 export class AdminRidesController {
   constructor(private readonly rides: RidesService) {}
 
-  /** Prices a caller's trip before ordering it for them. */
+  /**
+   * Prices a caller's trip before ordering it for them; with scheduledFor (30 min to 24 h
+   * ahead) the phone order made with this quote is a ride for later.
+   */
   @Post('quote')
   @HttpCode(HttpStatus.OK)
   quote(
     @CurrentUser() user: AuthUser,
     @Body(new ZodPipe(QuoteBody)) body: z.output<typeof QuoteBody>,
   ) {
-    return this.rides.quote(user, body);
+    return this.rides.quote(user, body, new Date(), { forRider: false });
   }
 
   /** A phone order for a caller without the app: 201, or 200 for a repeated clientRequestId. */
@@ -310,6 +315,27 @@ export class AdminRidesController {
   ) {
     return this.rides.cancelByOperator(user, id, body.reason);
   }
+
+  /** Lets the rider off this ride's owed cancellation fee (a ride carrying it collects less). */
+  @Post(':id/fee/waive')
+  @HttpCode(HttpStatus.OK)
+  waiveFee(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(WaiveBody)) body: z.output<typeof WaiveBody>,
+  ) {
+    return this.rides.waiveFee(user, id, body.note);
+  }
+}
+
+/** Operators: the reason codes drivers send, with their Uzbek labels (the panel's mapping). */
+@Controller('admin/reasons')
+@AdminOnly()
+export class AdminReasonsController {
+  @Get()
+  list() {
+    return REASON_LABELS;
+  }
 }
 
 /** Operators: who is calling (phone orders). */
@@ -350,6 +376,7 @@ export class AdminDriverRidesController {
     AdminRidesController,
     AdminCustomersController,
     AdminDriverRidesController,
+    AdminReasonsController,
   ],
   providers: [RidesService, AvailabilityService],
   exports: [RidesService],

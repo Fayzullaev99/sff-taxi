@@ -11,7 +11,9 @@ import { Notifier } from './notifier.js';
  * - riders: driver found (car, plate, ETA), driver arrived, ride completed, cancelled by
  *   someone else, driver replaced; riders who ordered by phone get the same by SMS;
  * - drivers: a new offer (urgent, expires with the offer), the rider cancelled, the ride
- *   was given to someone else, the application was decided or the account blocked;
+ *   was given to someone else, the application was decided or the account blocked, a card
+ *   top-up was paid, an appeal was answered;
+ * - riders also: a card refund queued or made, an operator answered or closed a complaint;
  * - operators: an SMS for every SOS (the panel also shows it in realtime).
  */
 @Injectable()
@@ -29,7 +31,11 @@ export class NotificationsHandler implements OutboxHandler {
       topic === 'ride.status_changed' ||
       topic === 'ride.offer_created' ||
       topic === 'ride.sos' ||
-      topic === 'driver.status_changed'
+      topic === 'driver.status_changed' ||
+      topic === 'ride.refund_changed' ||
+      topic === 'complaint.changed' ||
+      topic === 'driver.topup_paid' ||
+      topic === 'driver.appeal_resolved'
     );
   }
 
@@ -42,6 +48,39 @@ export class NotificationsHandler implements OutboxHandler {
       return this.driverStatus(key, String(p.driverId), String(p.from), String(p.to), reason);
     }
     if (event.topic === 'ride.sos') return this.sos(key, String(p.sosId));
+    if (event.topic === 'ride.refund_changed') {
+      return this.refund(key, String(p.rideId), String(p.status), Number(p.amount));
+    }
+    if (event.topic === 'complaint.changed') {
+      // only an operator's answer or decision is news to the rider
+      if (p.by !== 'operator') return;
+      return this.complaint(key, String(p.complaintId), String(p.status));
+    }
+    if (event.topic === 'driver.topup_paid') {
+      const amount = Number(p.amount);
+      await this.notifier.push({
+        key,
+        kind: 'topup_paid',
+        rideId: null,
+        userId: String(p.driverId),
+        app: 'driver',
+        text: (l) => push.topupPaid(l, amount),
+        data: { intentId: String(p.intentId) },
+      });
+      return;
+    }
+    if (event.topic === 'driver.appeal_resolved') {
+      await this.notifier.push({
+        key,
+        kind: 'appeal_resolved',
+        rideId: null,
+        userId: String(p.driverId),
+        app: 'driver',
+        text: (l) => push.appealAnswered(l),
+        data: { appealId: String(p.appealId) },
+      });
+      return;
+    }
     return this.rideChanged(
       key,
       String(p.rideId),
@@ -125,7 +164,10 @@ export class NotificationsHandler implements OutboxHandler {
         }
         return;
       case 'completed':
-        await toRider('completed', (l) => push.completed(l, ride.fare_total ?? ride.fare_quoted));
+        // the cash asked for includes fees owed from earlier rides
+        await toRider('completed', (l) =>
+          push.completed(l, (ride.fare_total ?? ride.fare_quoted) + ride.owed_fee),
+        );
         return;
       case 'searching':
         // a card ride just paid starts its first search: nothing to tell
@@ -188,6 +230,48 @@ export class NotificationsHandler implements OutboxHandler {
       text: (l) => push.newOffer(l, offer.fare_quoted, minutes, pickup),
       data: { offerId },
       urgent: { ttlSeconds },
+    });
+  }
+
+  private async refund(key: string, rideId: string, status: string, amount: number) {
+    const ride = await this.db.kysely
+      .selectFrom('rides')
+      .select(['rider_id', 'number'])
+      .where('id', '=', rideId)
+      .executeTakeFirst();
+    if (!ride) return;
+    await this.notifier.push({
+      key,
+      kind: status === 'refunded' ? 'refunded' : 'refund_pending',
+      rideId,
+      userId: ride.rider_id,
+      app: 'rider',
+      text: (l) =>
+        status === 'refunded'
+          ? push.refunded(l, ride.number, amount)
+          : push.refundQueued(l, ride.number, amount),
+    });
+  }
+
+  private async complaint(key: string, complaintId: string, status: string) {
+    const c = await this.db.kysely
+      .selectFrom('complaints as c')
+      .innerJoin('rides as r', 'r.id', 'c.ride_id')
+      .select(['c.rider_id', 'c.ride_id', 'r.number'])
+      .where('c.id', '=', complaintId)
+      .executeTakeFirst();
+    if (!c) return;
+    await this.notifier.push({
+      key,
+      kind: status === 'resolved' ? 'complaint_resolved' : 'complaint_answered',
+      rideId: c.ride_id,
+      userId: c.rider_id,
+      app: 'rider',
+      text: (l) =>
+        status === 'resolved'
+          ? push.complaintResolved(l, c.number)
+          : push.complaintAnswered(l, c.number),
+      data: { complaintId },
     });
   }
 

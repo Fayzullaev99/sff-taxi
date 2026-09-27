@@ -33,7 +33,7 @@ import type { RideClass } from '../../lib/tariff.js';
 import { RideChargesService } from '../billing/charges.service.js';
 import { LedgerService } from '../billing/ledger.service.js';
 import { RoutingService } from '../geo/routing.service.js';
-import { SettingsService } from '../settings/settings.module.js';
+import { type IntercityRules, SettingsService } from '../settings/settings.module.js';
 import { UploadsService } from '../uploads/uploads.service.js';
 
 type Db = Tx | Database['kysely'];
@@ -42,7 +42,7 @@ type Booking = Selectable<IntercityBookingsTable>;
 type Point = Selectable<IntercityPointsTable>;
 
 /** Trips of one driver must be this far apart (a round trip Guliston-Tashkent is ~4 h). */
-const TRIP_SPACING_HOURS = 2;
+export const TRIP_SPACING_HOURS = 2;
 const OPEN_TRIP: TripStatus[] = ['scheduled', 'boarding'];
 const LIVE_BOOKING: BookingStatus[] = ['booked', 'boarded'];
 
@@ -58,6 +58,18 @@ export interface PublishInput {
   comment: string | null;
 }
 
+/** What a driver may change on a trip nobody booked yet (leave out what stays). */
+export interface EditTripInput {
+  departureAt?: Date;
+  seats?: number;
+  frontSeat?: boolean;
+  /** null = back to the reference price. */
+  priceRear?: number | null;
+  /** null = the town's meeting point. */
+  meetingPoint?: string | null;
+  comment?: string | null;
+}
+
 export interface BookInput {
   seats: number;
   front: boolean;
@@ -65,7 +77,7 @@ export interface BookInput {
   clientRequestId: string | null;
 }
 
-export interface PhoneBookInput extends Omit<BookInput, 'clientRequestId'> {
+export interface PhoneBookInput extends BookInput {
   riderPhone: string;
   riderName: string | null;
 }
@@ -406,7 +418,7 @@ export class IntercityService {
 
   async trip(user: AuthUser, tripId: string) {
     const trip = await this.findTrip(tripId);
-    const view = await this.publicTrip(trip);
+    const [view, rules] = await Promise.all([this.publicTrip(trip), this.settings.intercity()]);
     const mine = await this.db.kysely
       .selectFrom('intercity_bookings')
       .select('id')
@@ -414,7 +426,16 @@ export class IntercityService {
       .where('rider_id', '=', user.userId)
       .orderBy('created_at', 'desc')
       .executeTakeFirst();
-    return { ...view, myBookingId: mine?.id ?? null };
+    return {
+      ...view,
+      myBookingId: mine?.id ?? null,
+      // what cancelling a booking of this trip would cost, and until when it is free
+      cancelRules: {
+        freeCancelMinutes: rules.free_cancel_minutes,
+        lateCancelFeePercent: rules.late_cancel_fee_percent,
+        freeUntil: new Date(trip.departure_at.getTime() - rules.free_cancel_minutes * 60_000),
+      },
+    };
   }
 
   /** Books seats; the same clientRequestId returns the same booking (safe retries). */
@@ -433,22 +454,58 @@ export class IntercityService {
       .select(['phone', 'full_name'])
       .where('id', '=', user.userId)
       .executeTakeFirstOrThrow();
-    const id = await this.db.transaction((trx) =>
-      this.reserve(trx, tripId, {
+    const done = await this.db.transaction(async (trx) => {
+      // a double tap racing the check above waits here and gets the first booking
+      if (input.clientRequestId) {
+        await sql`select pg_advisory_xact_lock(hashtext(${'booking:' + user.userId + input.clientRequestId}))`.execute(
+          trx,
+        );
+        const again = await trx
+          .selectFrom('intercity_bookings')
+          .select('id')
+          .where('rider_id', '=', user.userId)
+          .where('client_request_id', '=', input.clientRequestId)
+          .executeTakeFirst();
+        if (again) return { id: again.id, created: false };
+      }
+      const id = await this.reserve(trx, tripId, {
         ...input,
         riderId: user.userId,
         riderPhone: rider.phone,
         riderName: rider.full_name,
         channel: 'app',
         createdBy: user.userId,
-      }),
-    );
-    return { created: true, booking: await this.riderBooking(user, id) };
+      });
+      return { id, created: true };
+    });
+    return { created: done.created, booking: await this.riderBooking(user, done.id) };
   }
 
-  /** An operator books seats for a caller without the app; the caller gets an SMS. */
+  /**
+   * An operator books seats for a caller without the app; the caller gets an SMS. The
+   * panel's clientRequestId makes a double click one booking (201, then 200 with it).
+   */
   async bookByPhone(operator: AuthUser, tripId: string, input: PhoneBookInput) {
-    const id = await this.db.transaction(async (trx) => {
+    const repeat = (db: Db) =>
+      input.clientRequestId
+        ? db
+            .selectFrom('intercity_bookings')
+            .select('id')
+            .where('created_by', '=', operator.userId)
+            .where('channel', '=', 'phone')
+            .where('client_request_id', '=', input.clientRequestId)
+            .executeTakeFirst()
+        : Promise.resolve(undefined);
+    const existing = await repeat(this.db.kysely);
+    if (existing) return { created: false, booking: await this.adminBooking(existing.id) };
+    const done = await this.db.transaction(async (trx) => {
+      if (input.clientRequestId) {
+        await sql`select pg_advisory_xact_lock(hashtext(${'booking:' + operator.userId + input.clientRequestId}))`.execute(
+          trx,
+        );
+        const again = await repeat(trx);
+        if (again) return { id: again.id, created: false };
+      }
       await trx
         .insertInto('users')
         .values({ id: uuidv7(), phone: input.riderPhone, full_name: input.riderName })
@@ -460,16 +517,16 @@ export class IntercityService {
         .where('phone', '=', input.riderPhone)
         .executeTakeFirstOrThrow();
       if (rider.status !== 'active') throw new ForbiddenException('Bu mijoz bloklangan');
-      return this.reserve(trx, tripId, {
+      const id = await this.reserve(trx, tripId, {
         ...input,
-        clientRequestId: null,
         riderId: rider.id,
         riderName: input.riderName ?? rider.full_name,
         channel: 'phone',
         createdBy: operator.userId,
       });
+      return { id, created: true };
     });
-    return this.adminBooking(id);
+    return { created: done.created, booking: await this.adminBooking(done.id) };
   }
 
   /**
@@ -564,10 +621,7 @@ export class IntercityService {
       if (b.status !== 'booked') throw new ConflictException('Bu bronni bekor qilib bo‘lmaydi');
       const trip = await this.lockTrip(trx, b.trip_id);
       if (!OPEN_TRIP.includes(trip.status)) throw new ConflictException('Mashina jo‘nab ketgan');
-      const late = trip.departure_at.getTime() - now.getTime() < rules.free_cancel_minutes * 60_000;
-      const fee = late
-        ? Math.round((b.price * rules.late_cancel_fee_percent) / 100 / 100) * 100
-        : 0;
+      const fee = lateCancelFee(b.price, trip.departure_at, rules, now);
       await this.release(trx, trip, b, 'rider', reason, fee);
     });
     return this.riderBooking(user, bookingId);
@@ -710,8 +764,17 @@ export class IntercityService {
       .where('d.user_id', '=', trip.driver_id)
       .executeTakeFirstOrThrow();
     const active = LIVE_BOOKING.includes(b.status) || b.status === 'completed';
+    const rules = await this.settings.intercity();
+    const canCancel = b.status === 'booked' && OPEN_TRIP.includes(trip.status);
     return {
       ...this.bookingBase(b),
+      // the cancellation rules this booking is under: free until then, later a share is owed
+      cancelRules: {
+        freeCancelMinutes: rules.free_cancel_minutes,
+        lateCancelFeePercent: rules.late_cancel_fee_percent,
+      },
+      cancelFreeUntil: new Date(trip.departure_at.getTime() - rules.free_cancel_minutes * 60_000),
+      cancelFeeNow: canCancel ? lateCancelFee(b.price, trip.departure_at, rules, new Date()) : 0,
       trip: await this.publicTrip(trip),
       contact: active
         ? {
@@ -721,7 +784,7 @@ export class IntercityService {
             plateFormatted: formatPlate(trip.vehicle.plate),
           }
         : null,
-      canCancel: b.status === 'booked' && OPEN_TRIP.includes(trip.status),
+      canCancel,
     };
   }
 
@@ -747,12 +810,40 @@ export class IntercityService {
     return this.fullTrip(trip);
   }
 
-  async driverTrips(user: AuthUser, cursor?: string) {
+  /**
+   * The driver's trips by departure: `upcoming` = not yet arrived or cancelled, soonest
+   * first (all of them); otherwise every trip, latest departure first, paged by `cursor`
+   * (the last trip id seen).
+   */
+  async driverTrips(user: AuthUser, cursor?: string, scope: 'all' | 'upcoming' = 'all') {
+    if (scope === 'upcoming') {
+      const rows = await this.db.kysely
+        .selectFrom('intercity_trips')
+        .selectAll()
+        .where('driver_id', '=', user.userId)
+        .where('status', 'in', ['scheduled', 'boarding', 'departed'])
+        .orderBy('departure_at')
+        .orderBy('id')
+        .limit(100)
+        .execute();
+      return { items: await Promise.all(rows.map((t) => this.fullTrip(t))), nextCursor: null };
+    }
+    const after = cursor
+      ? await this.db.kysely
+          .selectFrom('intercity_trips')
+          .select(['id', 'departure_at'])
+          .where('id', '=', cursor)
+          .where('driver_id', '=', user.userId)
+          .executeTakeFirst()
+      : undefined;
     const rows = await this.db.kysely
       .selectFrom('intercity_trips')
       .selectAll()
       .where('driver_id', '=', user.userId)
-      .$if(Boolean(cursor), (q) => q.where('id', '<', cursor!))
+      .$if(Boolean(after), (q) =>
+        q.where(sql<boolean>`(departure_at, id) < (${after!.departure_at}, ${after!.id}::uuid)`),
+      )
+      .orderBy('departure_at', 'desc')
       .orderBy('id', 'desc')
       .limit(30)
       .execute();
@@ -760,6 +851,111 @@ export class IntercityService {
       items: await Promise.all(rows.map((t) => this.fullTrip(t))),
       nextCursor: rows.length === 30 ? rows.at(-1)!.id : null,
     };
+  }
+
+  /**
+   * The driver changes a published trip (time, seats, price, front seat, meeting point,
+   * comment) while nobody has booked it: riders who booked rely on what they saw. The same
+   * rules as publishing apply (time window, spacing, the car's seats, the price band).
+   */
+  async editTrip(user: AuthUser, tripId: string, input: EditTripInput, now = new Date()) {
+    const rules = await this.settings.intercity();
+    const car = await this.db.kysely
+      .selectFrom('vehicles')
+      .select(['seats'])
+      .where('driver_id', '=', user.userId)
+      .executeTakeFirst();
+    await this.db.transaction(async (trx) => {
+      await sql`select pg_advisory_xact_lock(hashtext(${'intercity:' + user.userId}))`.execute(trx);
+      const trip = await this.lockOwnTrip(trx, user, tripId);
+      if (trip.status !== 'scheduled') throw this.wrongStatus(trip.status);
+      const booked = await trx
+        .selectFrom('intercity_bookings')
+        .select('id')
+        .where('trip_id', '=', trip.id)
+        .where('status', 'in', LIVE_BOOKING)
+        .executeTakeFirst();
+      if (booked || trip.seats_booked > 0) {
+        throw new ConflictException(
+          'Qatnovga bron bor: o‘zgartirib bo‘lmaydi (bekor qilish mumkin)',
+        );
+      }
+      const departureAt = input.departureAt ?? trip.departure_at;
+      if (input.departureAt) {
+        const minutesAhead = (departureAt.getTime() - now.getTime()) / 60_000;
+        if (minutesAhead < rules.publish_min_minutes_ahead) {
+          throw new BadRequestException(
+            msg(
+              'Jo‘nash vaqti kamida {0} daqiqadan keyin bo‘lsin',
+              rules.publish_min_minutes_ahead,
+            ),
+          );
+        }
+        if (minutesAhead > rules.publish_max_days_ahead * 1440) {
+          throw new BadRequestException(
+            msg('Qatnovni {0} kundan uzoqqa e’lon qilib bo‘lmaydi', rules.publish_max_days_ahead),
+          );
+        }
+        const spacing = TRIP_SPACING_HOURS * 3_600_000;
+        const clash = await trx
+          .selectFrom('intercity_trips')
+          .select('number')
+          .where('driver_id', '=', user.userId)
+          .where('id', '!=', trip.id)
+          .where('status', 'in', ['scheduled', 'boarding', 'departed'])
+          .where('departure_at', '>', new Date(departureAt.getTime() - spacing))
+          .where('departure_at', '<', new Date(departureAt.getTime() + spacing))
+          .executeTakeFirst();
+        if (clash) {
+          throw new ConflictException(msg('Shu vaqtga yaqin qatnovingiz bor: #{0}', clash.number));
+        }
+      }
+      if (input.seats !== undefined && car && input.seats > car.seats) {
+        throw new BadRequestException(msg('Avtomobilda {0} ta yo‘lovchi o‘rni bor', car.seats));
+      }
+      let prices: SeatPrices | null = null;
+      if (input.priceRear !== undefined) {
+        const fare = await this.fare(trip.from_point_id, trip.to_point_id, trip.class);
+        const rear = input.priceRear ?? fare.reference.rear;
+        if (rear < fare.band.min || rear > fare.band.max || rear % 100 !== 0) {
+          throw new UnprocessableEntityException({
+            message: msg(
+              'Narx {0}–{1} so‘m oralig‘ida, 100 so‘mga karrali bo‘lsin',
+              fare.band.min,
+              fare.band.max,
+            ).message,
+            band: fare.band,
+            reference: fare.reference,
+          });
+        }
+        prices = driverSeatPrices(fare.reference, rear);
+      }
+      await trx
+        .updateTable('intercity_trips')
+        .set({
+          departure_at: departureAt,
+          ...(input.seats !== undefined ? { seats_total: input.seats } : {}),
+          ...(input.frontSeat !== undefined ? { front_seat: input.frontSeat } : {}),
+          ...(prices ? { price_rear: prices.rear, price_front: prices.front } : {}),
+          ...(input.meetingPoint !== undefined
+            ? {
+                meeting_point:
+                  input.meetingPoint ?? (await this.pointById(trip.from_point_id)).meeting_point,
+              }
+            : {}),
+          ...(input.comment !== undefined ? { comment: input.comment } : {}),
+          updated_at: now,
+        })
+        .where('id', '=', trip.id)
+        .execute();
+      await emit(trx, 'intercity.trip_changed', {
+        tripId: trip.id,
+        from: trip.status,
+        to: trip.status,
+        edited: true,
+      });
+    });
+    return this.driverTrip(user, tripId);
   }
 
   async adminTrip(tripId: string) {
@@ -1008,6 +1204,17 @@ export class IntercityService {
   private wrongStatus(status: TripStatus) {
     return new ConflictException(msg('Qatnov holati mos emas: {0}', status));
   }
+}
+
+/** A rider's cancellation fee now: free until `free_cancel_minutes` before departure. */
+export function lateCancelFee(
+  price: number,
+  departureAt: Date,
+  rules: Pick<IntercityRules, 'free_cancel_minutes' | 'late_cancel_fee_percent'>,
+  now: Date,
+): number {
+  const late = departureAt.getTime() - now.getTime() < rules.free_cancel_minutes * 60_000;
+  return late ? Math.round((price * rules.late_cancel_fee_percent) / 100 / 100) * 100 : 0;
 }
 
 export function pointView(p: Point) {

@@ -114,15 +114,33 @@ searching ──> driver_assigned ──> driver_arrived ──> in_progress ─
   later state and a total for completed rides; offers allow one pending offer per driver.
 - Every change writes a `ride_events` row (who, when, data) and an outbox event.
 - **Cancellation**: the rider cancels free until the driver has arrived and the free waiting ran
-  out; after that the tariff's fee is recorded (cash rides: owed, collection is future work). A
-  driver may end the ride as a **no-show** only `no_show_after_minutes` (5) after arriving; it
-  counts on the rider (`no_show_count`, shown to drivers). Any other driver cancellation sends
-  the ride **back to dispatch** instead of cancelling it, and counts against the driver's
-  reliability. Operators can cancel anything open, including a ride in progress.
+  out; after that the tariff's fee is recorded (see owed fees below). A driver may end the ride
+  as a **no-show** only `no_show_after_minutes` (5) after arriving; it counts on the rider
+  (`no_show_count`, shown to drivers) and records the same fee. Any other driver cancellation
+  sends the ride **back to dispatch** instead of cancelling it, and counts against the driver's
+  reliability (the reason is stored as a code, labelled for operators: `src/lib/reasons.ts`,
+  `GET admin/reasons`). Operators can cancel anything open, including a ride in progress.
+- **Owed cancellation fees** (cash rides): the fee is `owed` (`rides.fee_status`) until the
+  rider's next **cash** ride collects it. The quote shows it as its own line (`owedFee`: amount,
+  the rides it comes from; the fares themselves are unchanged, the price promise stays); the
+  order attaches the owed rides to the new ride (`fee_collect_ride_id`, `rides.owed_fee`) and
+  the driver's screen says how much cash to take (`collectCash` = fare + waiting + owed). On
+  completion the fee is the waiting driver's money: the collecting driver is debited
+  (`cancel_fee_collected`) and the driver it is owed to credited (`cancel_fee`), both once per
+  ride (unique ledger index). A cancelled collecting ride leaves the fee owed for the next one; a
+  card ride never collects it (the prepayment stays the quoted fare); operators see owed fees in
+  the caller lookup and the ride view and can waive one (`POST admin/rides/:id/fee/waive
+{ note }`; a ride carrying it collects that much less). Phone orders collect them like app
+  orders. Not collected: fees of card rides (refunded in full) and late seat cancellations on the
+  trip board (recorded only).
 - **Completion**: fare = quote + paid waiting. Cash is collected by the driver (`paid`); the
   ride's tax and commission are debited from the driver's balance in the same transaction.
 - **Operators** order by phone for callers without the app (MA O1): the price is computed on the
-  spot, the caller gets SMS updates with the car, plate and driver's number.
+  spot, the caller gets SMS updates with the car, plate and driver's number. An operator's quote
+  with `scheduledFor` makes the phone order a ride for later (it may coexist with a ride now).
+- **ETAs for the rider**: the car's road ETA to the pickup while it comes (`driverEta`,
+  `driver.location.etaS`) and to the destination during the trip (`destinationEta`,
+  `driver.location.destinationEtaS`), each one router call per ride per 15 s, cached in Redis.
 
 ## 6. Dispatch (MA §6.4)
 
@@ -220,12 +238,16 @@ public, so it is only sanity-checked; verifying it against the Ministry of Trans
 ## 10. Realtime and notifications
 
 SSE events are nudges (refetch the resource), never more than the recipient may read; the
-payloads with data are the driver's position (with the road ETA to the pickup, recomputed at most
-every 15 s) sent to the rider of that ride straight from the location endpoint, and the
-operators' `drivers.positions` batch (every online driver, every 5 s, from the worker). Push (Expo) and SMS are sent by the worker from
-outbox events and logged per (event, recipient, channel), so retries never send twice; a push
-outage retries the event; dead tokens are removed. Offers are pushed as urgent messages that
-expire with the offer.
+payloads with data are the driver's position (with the road ETA to the pickup, or to the
+destination during the trip, recomputed at most every 15 s) sent to the rider of that ride
+straight from the location endpoint, and the operators' `drivers.positions` batch (every online
+driver, every 5 s, from the worker; `offline` names drivers on the previous batch who are gone,
+and with nobody online an empty batch still goes out, at least once a minute, so maps drop
+stale markers). Push (Expo) and SMS are sent by the worker from outbox events and logged per
+(event, recipient, channel), so retries never send twice; a push outage retries the event; dead
+tokens are removed. Offers are pushed as urgent messages that expire with the offer. Riders also
+hear about card refunds (queued, made) and operators' answers to complaints; drivers about a paid
+top-up and an answered appeal (push and stream).
 
 ## 11. Intercity trip board (MA §6.4)
 
@@ -238,13 +260,19 @@ for callers (SMS with the car and the driver's phone).
   70 000 / 80 000 seeded, MA §6.3 [H]); comfort cars in the tariff's comfort/economy ratio. A
   driver may ask within ±15% (`admin/settings/intercity`); the prices are fixed on the trip.
 - **Publishing**: active driver, licence card valid on the day, balance above the minimum,
-  seats ≤ the car's, 15 minutes to 7 days ahead, departures of one driver 2 hours apart.
+  seats ≤ the car's, 15 minutes to 7 days ahead, departures of one driver 2 hours apart (the
+  timing rules are in `GET driver/config` → `intercity`). Until the first live booking the driver
+  may change the time, seats, front seat, price (within the band), meeting point and comment
+  (`PATCH driver/intercity/trips/:id`, the same checks); after it only cancelling is possible.
 - **Booking**: seats counted **on the trip row under its lock**, backed by table checks and
   partial unique indexes (`seats_booked ≤ seats_total`, one front seat, one live booking per
   rider per trip): however many riders tap at once, never oversold (concurrency tests). Retries
-  are safe (`clientRequestId`). Riders see the driver's phone and the plate only once booked.
+  are safe (`clientRequestId`, riders' and the panel's, serialised by an advisory lock). Riders
+  see the driver's phone and the plate only once booked.
 - **Cancellation**: riders free until 60 minutes before departure, then 30% of the booking is
-  recorded as owed; a driver's cancellation of a booked trip counts against reliability.
+  recorded as owed (the rules are in `GET config` → `intercity`, the trip view's `cancelRules`
+  and the booking's `cancelFreeUntil` / `cancelFeeNow`); a driver's cancellation of a booked trip
+  counts against reliability.
 - **Running it**: boarding opens an hour before; the driver boards passengers; at departure the
   absent become no-shows; on arrival every booking is charged the 1% tax and the intercity
   commission (per booking, capped) and gets its fiscal receipt. Seats are paid in cash.
@@ -257,13 +285,18 @@ production profile) with a presigned PUT whose signature covers the type and the
 app then calls `complete`: the API checks the stored size and the file's signature bytes
 (JPEG, PNG, WebP, PDF for documents) and deletes anything else. Reads are presigned GETs valid
 15 minutes, handed out only to the owner and operators, and for the face and car photos to the
-rider of the ride. Uploads never completed are removed after a day.
+rider of the ride. Uploads never completed are removed after a day. Riders attach up to three
+complaint photos (purpose `complaint_photo`, images only, read by the rider and operators).
 
 ## 13. What is not built yet (next steps)
 
 Built since the first release: uploads, card payments and top-ups, the intercity board, the
 fiscal and licence adapters, the apps' and panel's gaps (config, ETAs, saved places, complaints,
-appeals, customer lookup, positions), the audit fixes and the production deployment.
+appeals, customer lookup, positions), the audit fixes and the production deployment; wave 3:
+scheduled phone orders, idempotent phone bookings, the payments list, card money owed, receipt
+retry, offline positions, per-app payment returns, refund/complaint/top-up/appeal pushes, the
+destination ETA, store links, complaint photos, hidden recent places, editable trips, reason
+labels, document types, collecting owed cancellation fees, and a load test (below).
 
 Backend backlog:
 
@@ -271,6 +304,8 @@ Backend backlog:
   (the adapters are ready; [fiscal-and-licence.md](fiscal-and-licence.md) lists what is needed).
 - Promo codes, masked calls
   (a telephony provider's number masking; today riders and drivers see each other's phones only
-  within a ride or a booking), tips by card, collecting owed cancellation fees, automatic payouts.
-- The shared driver pool with SFF Eats (A9); a load test before launch.
+  within a ride or a booking), tips by card, owed fees of card riders and late seat cancellations,
+  automatic payouts.
+- The shared driver pool with SFF Eats (A9); a load test on the production host with two API
+  replicas (the laptop run and its fixes: [audit.md](audit.md) "Load test").
 - Deployment in a UZ data centre: [deploy.md](deploy.md).

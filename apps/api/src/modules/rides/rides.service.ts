@@ -33,6 +33,14 @@ import { formatPlate } from '../../lib/driver-rules.js';
 import type { Point } from '../../lib/geo.js';
 import { priority } from '../../lib/priority.js';
 import {
+  DECLINE_REASONS,
+  DRIVER_CANCEL_REASONS,
+  type DriverCancelReason,
+  REASON_LABELS,
+  reasonLabel,
+  RELEASE_REASONS,
+} from '../../lib/reasons.js';
+import {
   computeFare,
   type Fare,
   freeWaitingOver,
@@ -57,6 +65,8 @@ import { AvailabilityService } from './availability.service.js';
 
 type Db = Tx | Database['kysely'];
 type Ride = Selectable<RidesTable>;
+/** A ride as lists read it (without the tariff snapshot). */
+type ListedRide = Omit<Ride, 'tariff'>;
 
 /** How long a quoted price may be ordered. */
 export const QUOTE_TTL_SECONDS = 10 * 60;
@@ -112,14 +122,7 @@ const placeText = (p: { address: string | null; landmark: string | null }) => ({
   landmark: p.landmark,
 });
 
-export const DRIVER_CANCEL_REASONS = {
-  rider_no_show: 'Yo‘lovchi chiqmadi',
-  car_problem: 'Avtomobil nosoz',
-  cannot_reach: 'Manzilga yetib borolmayman',
-  rider_asked: 'Yo‘lovchi bekor qilishni so‘radi',
-  other: 'Boshqa sabab',
-} as const;
-export type DriverCancelReason = keyof typeof DRIVER_CANCEL_REASONS;
+export { DRIVER_CANCEL_REASONS, type DriverCancelReason };
 
 const isActive = (s: RideStatus) => (ACTIVE_RIDE_STATUSES as readonly string[]).includes(s);
 const isOpen = (s: RideStatus) => (OPEN_RIDE_STATUSES as readonly string[]).includes(s);
@@ -161,8 +164,12 @@ export class RidesService {
 
   // Quotes -----------------------------------------------------------------------------
 
-  /** Prices a trip in every class. The quote is stored so the order uses exactly this price. */
-  async quote(user: AuthUser, input: QuoteInput, now = new Date()) {
+  /**
+   * Prices a trip in every class. The quote is stored so the order uses exactly this price.
+   * A rider's quote also shows cancellation fees they still owe from earlier cash rides: a
+   * separate line a cash ride collects on top of its fare (operators' quotes do not).
+   */
+  async quote(user: AuthUser, input: QuoteInput, now = new Date(), opts = { forRider: true }) {
     const scheduledFor = input.scheduledFor ?? null;
     if (scheduledFor) {
       const ahead = (scheduledFor.getTime() - now.getTime()) / 60_000;
@@ -218,6 +225,9 @@ export class RidesService {
       options: [...new Set(input.options)],
       fares: priced.fares,
       paymentMethods: this.payments.methods(),
+      // which card providers a card payment can go through (Payme, Click)
+      cardProviders: this.payments.providers(),
+      owedFee: opts.forRider ? await this.owedFeeLine(user.userId) : null,
       waiting: priced.tariff.waiting,
       cancellationFee: priced.tariff.cancellation_fee,
       // the nearest free car per class, by road: "~4 min" on the class buttons
@@ -301,22 +311,9 @@ export class RidesService {
         .where('client_request_id', '=', input.clientRequestId)
         .executeTakeFirst();
       if (again) return again.id;
-      if (quote.scheduled_for) {
-        // a ride for later does not block riding now; a few may wait at once
-        const waiting = await trx
-          .selectFrom('rides')
-          .select((eb) => eb.fn.countAll<string>().as('n'))
-          .where('rider_id', '=', user.userId)
-          .where('status', '=', 'scheduled')
-          .executeTakeFirstOrThrow();
-        if (Number(waiting.n) >= SCHEDULED_PER_RIDER) {
-          throw new ConflictException(
-            msg('Oldindan {0} tadan ortiq buyurtma berib bo‘lmaydi', SCHEDULED_PER_RIDER),
-          );
-        }
-      } else {
-        await this.assertNoOpenRide(trx, user.userId);
-      }
+      // a ride for later does not block riding now; a few may wait at once
+      if (quote.scheduled_for) await this.assertScheduledRoom(trx, user.userId);
+      else await this.assertNoOpenRide(trx, user.userId);
       return this.createRide(trx, {
         riderId: user.userId,
         riderPhone: rider.phone,
@@ -373,6 +370,8 @@ export class RidesService {
       fare: Fare;
       tariff: unknown;
       quoteId: string | null;
+      /** A quote for later (POST admin/rides/quote with scheduledFor): a scheduled ride. */
+      scheduledFor: Date | null;
     };
     if (input.quoteId) {
       const quote = await this.db.kysely
@@ -393,6 +392,7 @@ export class RidesService {
         fare: (quote.fares as unknown as Record<RideClass, Fare>)[input.class],
         tariff: quote.tariff,
         quoteId: quote.id,
+        scheduledFor: quote.scheduled_for,
       };
     } else {
       if (input.pickup.lat === undefined || input.dropoff.lat === undefined) {
@@ -411,6 +411,7 @@ export class RidesService {
         fare: p.fares[input.class],
         tariff: p.tariff,
         quoteId: null,
+        scheduledFor: null,
       };
     }
     const id = await this.db.transaction(async (trx) => {
@@ -439,7 +440,9 @@ export class RidesService {
         .executeTakeFirstOrThrow();
       if (rider.status !== 'active') throw new ForbiddenException('Bu mijoz bloklangan');
       await sql`select pg_advisory_xact_lock(hashtext(${rider.id}))`.execute(trx);
-      await this.assertNoOpenRide(trx, rider.id);
+      // a ride for later does not block a ride now (nor the other way round)
+      if (priced.scheduledFor) await this.assertScheduledRoom(trx, rider.id);
+      else await this.assertNoOpenRide(trx, rider.id);
       return this.createRide(trx, {
         riderId: rider.id,
         riderPhone: input.riderPhone,
@@ -460,6 +463,7 @@ export class RidesService {
         fare: priced.fare,
         tariff: priced.tariff,
         paymentMethod: 'cash',
+        scheduledFor: priced.scheduledFor,
       }).then((rideId) => ({ id: rideId, created: true }));
     });
     return { created: id.created, ride: await this.adminView(id.id) };
@@ -478,6 +482,172 @@ export class RidesService {
         rideId: open.id,
       });
     }
+  }
+
+  private async assertScheduledRoom(trx: Tx, riderId: string): Promise<void> {
+    const waiting = await trx
+      .selectFrom('rides')
+      .select((eb) => eb.fn.countAll<string>().as('n'))
+      .where('rider_id', '=', riderId)
+      .where('status', '=', 'scheduled')
+      .executeTakeFirstOrThrow();
+    if (Number(waiting.n) >= SCHEDULED_PER_RIDER) {
+      throw new ConflictException(
+        msg('Oldindan {0} tadan ortiq buyurtma berib bo‘lmaydi', SCHEDULED_PER_RIDER),
+      );
+    }
+  }
+
+  // Owed cancellation fees ------------------------------------------------------------
+
+  /**
+   * Cancellation fees the rider owes from earlier cash rides and no ride is collecting yet,
+   * oldest first: the quote's separate "owed" line (collected by the next cash ride).
+   */
+  async owedFeeLine(riderId: string, db: Db = this.db.kysely) {
+    const rows = await db
+      .selectFrom('rides')
+      .select(['id', 'number', 'cancellation_fee', 'cancelled_at'])
+      .where('rider_id', '=', riderId)
+      .where('fee_status', '=', 'owed')
+      .where('fee_collect_ride_id', 'is', null)
+      .orderBy('cancelled_at')
+      .execute();
+    if (!rows.length) return null;
+    return {
+      amount: rows.reduce((sum, r) => sum + r.cancellation_fee, 0),
+      /** Only a cash ride collects it; a card ride leaves it owed. */
+      collectedWith: 'cash' as const,
+      label: 'Oldingi bekor qilingan safar uchun to‘lov',
+      rides: rows.map((r) => ({
+        rideId: r.id,
+        number: r.number,
+        amount: r.cancellation_fee,
+        cancelledAt: r.cancelled_at,
+      })),
+    };
+  }
+
+  /** A new cash ride takes over the rider's owed fees (they are paid with its fare). */
+  private async attachOwedFees(trx: Tx, riderId: string, rideId: string): Promise<number> {
+    const attached = await trx
+      .updateTable('rides')
+      .set({ fee_collect_ride_id: rideId })
+      .where('rider_id', '=', riderId)
+      .where('fee_status', '=', 'owed')
+      .where('fee_collect_ride_id', 'is', null)
+      .where('id', '!=', rideId)
+      .returning(['id', 'cancellation_fee'])
+      .execute();
+    const total = attached.reduce((sum, r) => sum + r.cancellation_fee, 0);
+    if (total > 0) {
+      await trx.updateTable('rides').set({ owed_fee: total }).where('id', '=', rideId).execute();
+      await this.event(trx, rideId, 'owed_fee_added', 'system', null, {
+        amount: total,
+        rides: attached.map((r) => r.id),
+      });
+    }
+    return total;
+  }
+
+  /**
+   * The ride completed: the owed fees it carried were paid in cash to its driver. They are
+   * the other drivers' money: debited here, credited to each driver the fee is owed to.
+   */
+  private async collectOwedFees(trx: Tx, ride: Ride): Promise<number> {
+    const owed = await trx
+      .selectFrom('rides')
+      .select(['id', 'number', 'driver_id', 'cancellation_fee'])
+      .where('fee_collect_ride_id', '=', ride.id)
+      .where('fee_status', '=', 'owed')
+      .orderBy('id')
+      .forUpdate()
+      .execute();
+    let total = 0;
+    for (const o of owed) {
+      if (o.driver_id) {
+        await this.ledger.post(trx, {
+          driverId: o.driver_id,
+          kind: 'cancel_fee',
+          amount: o.cancellation_fee,
+          rideId: o.id,
+          note: `#${o.number} bekor qilish to‘lovi (#${ride.number} safarida olindi)`,
+        });
+      }
+      total += o.cancellation_fee;
+    }
+    if (owed.length) {
+      await trx
+        .updateTable('rides')
+        .set({ fee_status: 'collected', updated_at: new Date() })
+        .where(
+          'id',
+          'in',
+          owed.map((o) => o.id),
+        )
+        .execute();
+    }
+    if (total > 0) {
+      await this.ledger.post(trx, {
+        driverId: ride.driver_id!,
+        kind: 'cancel_fee_collected',
+        amount: -total,
+        rideId: ride.id,
+        note: `Oldingi safarlar uchun olingan bekor qilish to‘lovi`,
+      });
+    }
+    return total;
+  }
+
+  /**
+   * An operator lets the rider off an owed fee. A ride already carrying it collects that
+   * much less. The collecting ride is locked before the owed one, as completion does.
+   */
+  async waiveFee(operator: AuthUser, rideId: string, note: string) {
+    await this.db.transaction(async (trx) => {
+      const peek = await this.findRide(rideId, trx);
+      const collecting = peek.fee_collect_ride_id
+        ? await this.lockRide(trx, peek.fee_collect_ride_id)
+        : null;
+      const ride = await this.lockRide(trx, rideId);
+      if (ride.fee_status !== 'owed') {
+        throw new ConflictException('Bu safar uchun qarz yo‘q (to‘langan yoki kechirilgan)');
+      }
+      if (ride.fee_collect_ride_id !== (collecting?.id ?? null)) {
+        throw new ConflictException('Qayta urinib ko‘ring');
+      }
+      if (collecting?.status === 'completed') {
+        throw new ConflictException('To‘lov allaqachon olingan');
+      }
+      await trx
+        .updateTable('rides')
+        .set({
+          fee_status: 'waived',
+          fee_collect_ride_id: null,
+          fee_waived_by: operator.userId,
+          fee_waive_note: note,
+          updated_at: new Date(),
+        })
+        .where('id', '=', ride.id)
+        .execute();
+      await this.event(trx, ride.id, 'fee_waived', 'operator', operator.userId, {
+        amount: ride.cancellation_fee,
+        note,
+      });
+      if (collecting) {
+        await trx
+          .updateTable('rides')
+          .set({
+            owed_fee: Math.max(0, collecting.owed_fee - ride.cancellation_fee),
+            updated_at: new Date(),
+          })
+          .where('id', '=', collecting.id)
+          .execute();
+        // screens showing that ride refetch (no status change: nobody is notified)
+        await emit(trx, 'ride.changed', { rideId: collecting.id });
+      }
+    });
+    return this.adminView(rideId);
   }
 
   private async createRide(
@@ -553,6 +723,8 @@ export class RidesService {
       class: r.rideClass,
       paymentMethod: r.paymentMethod,
     });
+    // fees owed from cancelled cash rides are paid with this cash fare (a separate line)
+    if (r.paymentMethod === 'cash') await this.attachOwedFees(trx, r.riderId, id);
     if (status === 'awaiting_payment') {
       await this.intents.createForRide(trx, { id, riderId: r.riderId, amount: r.fare.total });
     } else if (status === 'scheduled') {
@@ -731,6 +903,8 @@ export class RidesService {
         .set((eb) => ({ rides_completed: eb('rides_completed', '+', 1) }))
         .where('user_id', '=', ride.driver_id!)
         .execute();
+      // earlier rides' owed cancellation fees, paid in cash with this fare
+      const owedCollected = ride.owed_fee > 0 ? await this.collectOwedFees(trx, ride) : 0;
       const charged = await this.charges.charge(trx, {
         id: ride.id,
         number: ride.number,
@@ -747,8 +921,15 @@ export class RidesService {
           fare_total: total,
           // cash went to the driver; a card fare was prepaid before dispatch
           payment_status: 'paid' as const,
+          // fees waived since the order are not collected
+          owed_fee: owedCollected,
         },
-        data: { fare: total, commission: charged.commission, tax: charged.tax },
+        data: {
+          fare: total,
+          commission: charged.commission,
+          tax: charged.tax,
+          ...(owedCollected ? { owedFee: owedCollected } : {}),
+        },
       };
     });
     return this.driverView(user, rideId);
@@ -804,7 +985,7 @@ export class RidesService {
         .set((eb) => ({ rides_cancelled: eb('rides_cancelled', '+', 1) }))
         .where('user_id', '=', user.userId)
         .execute();
-      await this.release(trx, ride, 'driver', user.userId, reason);
+      await this.release(trx, ride, 'driver', user.userId, reason, reasonCode);
     });
   }
 
@@ -862,9 +1043,21 @@ export class RidesService {
         payment_status: paymentStatus,
         cancelled_at: now,
         updated_at: now,
+        // a cash ride's fee is owed until the rider's next cash ride collects it
+        ...(fee > 0 && ride.payment_method === 'cash' ? { fee_status: 'owed' as const } : {}),
+        // fees this ride was to collect stay owed, for the next ride
+        owed_fee: 0,
       })
       .where('id', '=', ride.id)
       .execute();
+    if (ride.owed_fee > 0) {
+      await trx
+        .updateTable('rides')
+        .set({ fee_collect_ride_id: null })
+        .where('fee_collect_ride_id', '=', ride.id)
+        .where('fee_status', '=', 'owed')
+        .execute();
+    }
     const withdrawn = await trx
       .updateTable('ride_offers')
       .set({ status: 'withdrawn', responded_at: now })
@@ -888,6 +1081,7 @@ export class RidesService {
     by: RideActor,
     actorId: string | null,
     reason: string,
+    reasonCode: string | null = null,
   ): Promise<void> {
     const now = new Date();
     await trx
@@ -909,6 +1103,7 @@ export class RidesService {
     await this.event(trx, ride.id, 'driver_released', by, actorId, {
       driverId: ride.driver_id,
       reason,
+      ...(reasonCode ? { reasonCode } : {}),
     });
     await emit(trx, 'ride.status_changed', {
       rideId: ride.id,
@@ -1026,7 +1221,7 @@ export class RidesService {
         .executeTakeFirst(),
       this.db.kysely
         .selectFrom('rides')
-        .selectAll()
+        .select(LIST_COLUMNS)
         .where('rider_id', '=', user.id)
         .orderBy('id', 'desc')
         .limit(10)
@@ -1070,6 +1265,8 @@ export class RidesService {
         since: user.created_at,
       },
       openRide: open ? await this.adminView(open.id) : null,
+      // fees from cancelled cash rides the next cash ride collects (operators may waive them)
+      owedFee: await this.owedFeeLine(user.id),
       recentRides: recent.map((r) => this.baseView(r)),
       recentPlaces: recentPlaces.slice(0, 10),
       savedPlaces: places,
@@ -1082,7 +1279,7 @@ export class RidesService {
   async riderScheduled(user: AuthUser) {
     const rows = await this.db.kysely
       .selectFrom('rides')
-      .selectAll()
+      .select(LIST_COLUMNS)
       .where('rider_id', '=', user.userId)
       .where('status', '=', 'scheduled')
       .orderBy('scheduled_for')
@@ -1279,7 +1476,9 @@ export class RidesService {
    * marker (like SFF Eats' courier trail).
    */
   private async carProgress(ride: Ride) {
-    if (!ride.driver_id || !isActive(ride.status)) return { driverEta: null, trail: [] };
+    if (!ride.driver_id || !isActive(ride.status)) {
+      return { driverEta: null, destinationEta: null, trail: [] };
+    }
     const [trail, car] = await Promise.all([
       this.track.trail(ride.driver_id, ride.assigned_at),
       this.db.kysely
@@ -1296,7 +1495,18 @@ export class RidesService {
             { lat: ride.pickup_lat, lng: ride.pickup_lng },
           )
         : null;
-    return { driverEta, trail };
+    // on the trip: the road ETA from the car to the destination, refreshed the same way
+    const destinationEta =
+      ride.status === 'in_progress' && car?.lat != null && car.lng != null
+        ? await this.pickupEta.eta(
+            ride.id,
+            { lat: car.lat, lng: car.lng },
+            { lat: ride.dropoff_lat, lng: ride.dropoff_lng },
+            new Date(),
+            'dropoff',
+          )
+        : null;
+    return { driverEta, destinationEta, trail };
   }
 
   /** The driver's view: the rider's name, phone and rating, the fare and deductions. */
@@ -1307,6 +1517,10 @@ export class RidesService {
       ...this.baseView(ride),
       rider: await this.riderCard(ride),
       earnings: this.earnings(ride),
+      // what the driver takes from the rider in cash: the fare (card rides: prepaid, only
+      // paid waiting) plus fees the rider owed from earlier rides
+      collectCash:
+        (ride.payment_method === 'cash' ? ride.fare_quoted : 0) + ride.waiting_fee + ride.owed_fee,
     };
   }
 
@@ -1335,10 +1549,24 @@ export class RidesService {
         .where('o.ride_id', '=', ride.id)
         .orderBy('o.created_at')
         .orderBy('o.id')
-        .execute(),
-      this.events(ride.id),
+        .execute()
+        .then((rows) =>
+          rows.map((o) => ({
+            ...o,
+            declineReasonLabel: reasonLabel(DECLINE_REASONS, o.declineReason),
+          })),
+        ),
+      this.events(ride.id).then((rows) => rows.map(labelEvent)),
       this.riderCard(ride),
     ]);
+    // fees this ride carries from earlier rides, and this ride's own fee if it is owed
+    const collects = ride.owed_fee
+      ? await this.db.kysely
+          .selectFrom('rides')
+          .select(['id as rideId', 'number', 'cancellation_fee as amount', 'fee_status as status'])
+          .where('fee_collect_ride_id', '=', ride.id)
+          .execute()
+      : [];
     return {
       ...this.baseView(ride),
       rider,
@@ -1351,12 +1579,27 @@ export class RidesService {
         attentionAt: ride.attention_at,
       },
       earnings: this.earnings(ride),
+      owedFees: {
+        /** This ride's cancellation fee: owed, collected (by a later ride) or waived. */
+        own: ride.fee_status
+          ? {
+              amount: ride.cancellation_fee,
+              status: ride.fee_status,
+              collectingRideId: ride.fee_collect_ride_id,
+              waivedBy: ride.fee_waived_by,
+              waiveNote: ride.fee_waive_note,
+            }
+          : null,
+        /** Earlier rides' fees this ride collects in cash on top of its fare. */
+        collects,
+      },
       offers,
       events,
+      reasonLabels: REASON_LABELS,
     };
   }
 
-  baseView(ride: Ride) {
+  baseView(ride: ListedRide) {
     const vehicle = ride.vehicle
       ? { ...ride.vehicle, plateFormatted: formatPlate(ride.vehicle.plate) }
       : null;
@@ -1379,6 +1622,10 @@ export class RidesService {
         waiting: ride.waiting_fee,
         total: ride.fare_total,
         cancellationFee: ride.cancellation_fee,
+        /** A cash ride's cancellation fee: owed (paid with the next cash ride), collected, waived. */
+        cancellationFeeStatus: ride.fee_status,
+        /** Earlier rides' owed fees this ride collects in cash, a separate line from the fare. */
+        owedFee: ride.owed_fee,
         breakdown: ride.fare as unknown as Fare,
       },
       paymentMethod: ride.payment_method,
@@ -1396,7 +1643,7 @@ export class RidesService {
     };
   }
 
-  private earnings(ride: Ride) {
+  private earnings(ride: ListedRide) {
     return ride.status === 'completed'
       ? {
           fare: ride.fare_total,
@@ -1488,7 +1735,7 @@ export class RidesService {
   async riderHistory(user: AuthUser, cursor?: string) {
     const rows = await this.db.kysely
       .selectFrom('rides')
-      .selectAll()
+      .select(LIST_COLUMNS)
       .where('rider_id', '=', user.userId)
       .$if(Boolean(cursor), (q) => q.where('id', '<', cursor!))
       .orderBy('id', 'desc')
@@ -1523,7 +1770,7 @@ export class RidesService {
   async driverHistory(user: AuthUser, cursor?: string) {
     const rows = await this.db.kysely
       .selectFrom('rides')
-      .selectAll()
+      .select(LIST_COLUMNS)
       .where('driver_id', '=', user.userId)
       .where('status', 'in', ['completed', 'cancelled'])
       .$if(Boolean(cursor), (q) => q.where('id', '<', cursor!))
@@ -1561,14 +1808,23 @@ export class RidesService {
     const dayStart = (d: string) => new Date(`${d}T00:00:00+05:00`);
     const rows = await this.db.kysely
       .selectFrom('rides')
-      .selectAll()
+      .select(LIST_COLUMNS)
       .$if(statuses !== null, (q) => q.where('status', 'in', statuses!))
       .$if(Boolean(filter.driverId), (q) => q.where('driver_id', '=', filter.driverId!))
       .$if(Boolean(filter.riderId), (q) => q.where('rider_id', '=', filter.riderId!))
       .$if(Boolean(filter.class), (q) => q.where('class', '=', filter.class!))
-      .$if(Boolean(filter.from), (q) => q.where('requested_at', '>=', dayStart(filter.from!)))
+      // ids are time-ordered (uuid v7) and a ride's id never comes after its request time (a
+      // ride for later or a card ride is requested at most ~a day after it was created): the
+      // id bounds let the newest-first scan start and stop at the right days
+      .$if(Boolean(filter.from), (q) =>
+        q
+          .where('requested_at', '>=', dayStart(filter.from!))
+          .where('id', '>=', uuidFloor(new Date(dayStart(filter.from!).getTime() - 26 * 3600_000))),
+      )
       .$if(Boolean(filter.to), (q) =>
-        q.where('requested_at', '<', new Date(dayStart(filter.to!).getTime() + 86_400_000)),
+        q
+          .where('requested_at', '<', new Date(dayStart(filter.to!).getTime() + 86_400_000))
+          .where('id', '<', uuidFloor(new Date(dayStart(filter.to!).getTime() + 86_400_000))),
       )
       .$if(Boolean(filter.cursor), (q) => q.where('id', '<', filter.cursor!))
       .$if(Boolean(filter.q), (q) =>
@@ -1591,6 +1847,85 @@ export class RidesService {
       attentionAt: r.attention_at,
     }));
   }
+}
+
+/** The smallest uuid v7 of a moment: ids of rides created from then on are >= it. */
+export function uuidFloor(at: Date): string {
+  const hex = Math.max(0, at.getTime()).toString(16).padStart(12, '0');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-0000-0000-000000000000`;
+}
+
+/** Every ride column but the tariff snapshot (2 KB of JSON): lists never show it. */
+const LIST_COLUMNS = [
+  'id',
+  'number',
+  'rider_id',
+  'rider_phone',
+  'rider_name',
+  'channel',
+  'created_by',
+  'client_request_id',
+  'quote_id',
+  'city_id',
+  'kind',
+  'class',
+  'pickup',
+  'pickup_lat',
+  'pickup_lng',
+  'dropoff',
+  'dropoff_lat',
+  'dropoff_lng',
+  'options',
+  'comment',
+  'distance_m',
+  'duration_s',
+  'fare',
+  'fare_quoted',
+  'waiting_fee',
+  'fare_total',
+  'cancellation_fee',
+  'commission',
+  'commission_note',
+  'tax',
+  'payment_method',
+  'payment_status',
+  'status',
+  'driver_id',
+  'vehicle',
+  'dispatch_stage',
+  'direct_offers',
+  'broadcast_at',
+  'attention_at',
+  'cancelled_by',
+  'cancel_reason',
+  'share_token',
+  'scheduled_for',
+  'fee_status',
+  'fee_collect_ride_id',
+  'fee_waived_by',
+  'fee_waive_note',
+  'owed_fee',
+  'requested_at',
+  'assigned_at',
+  'arrived_at',
+  'started_at',
+  'completed_at',
+  'cancelled_at',
+  'updated_at',
+] as const satisfies readonly Exclude<keyof RidesTable, 'tariff'>[];
+
+/** An event for operators, with the Uzbek label of the reason code it carries. */
+function labelEvent<E extends { type: string; data: Record<string, unknown> }>(e: E) {
+  const text = (v: unknown) => (typeof v === 'string' ? v : null);
+  const label =
+    e.type === 'offer_declined'
+      ? reasonLabel(DECLINE_REASONS, text(e.data.reason))
+      : e.type === 'driver_released'
+        ? text(e.data.reasonCode)
+          ? reasonLabel(DRIVER_CANCEL_REASONS, text(e.data.reasonCode))
+          : reasonLabel(RELEASE_REASONS, text(e.data.reason))
+        : null;
+  return label ? { ...e, reasonLabel: label } : e;
 }
 
 /** Event types riders see in their ride's timeline. */

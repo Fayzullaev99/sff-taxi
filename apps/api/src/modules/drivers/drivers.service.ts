@@ -333,7 +333,15 @@ export class DriversService {
     // the rider of the driver's ride watches the car come
     const ride = await this.db.kysely
       .selectFrom('rides')
-      .select(['id', 'rider_id', 'status', 'pickup_lat', 'pickup_lng'])
+      .select([
+        'id',
+        'rider_id',
+        'status',
+        'pickup_lat',
+        'pickup_lng',
+        'dropoff_lat',
+        'dropoff_lng',
+      ])
       .where('driver_id', '=', user.userId)
       .where('status', 'in', [...ACTIVE_RIDE_STATUSES])
       .executeTakeFirst();
@@ -343,6 +351,13 @@ export class DriversService {
         ride.status === 'driver_assigned'
           ? await this.pickupEta
               .eta(ride.id, fix, { lat: ride.pickup_lat, lng: ride.pickup_lng }, now)
+              .catch(() => null)
+          : null;
+      // on the trip: the road ETA to the destination, refreshed the same way
+      const toDestination =
+        ride.status === 'in_progress'
+          ? await this.pickupEta
+              .eta(ride.id, fix, { lat: ride.dropoff_lat, lng: ride.dropoff_lng }, now, 'dropoff')
               .catch(() => null)
           : null;
       await this.realtime.publish({
@@ -355,6 +370,7 @@ export class DriversService {
           heading: fix.heading ?? null,
           at: now.toISOString(),
           etaS: eta?.etaS ?? null,
+          destinationEtaS: toDestination?.etaS ?? null,
         },
       });
     }
@@ -391,6 +407,7 @@ export class DriversService {
         'd.rides_completed as ridesCompleted',
         'd.licence_status as licenceStatus',
         balanceOf('d.user_id').as('balance'),
+        cardOwedOf('d.user_id').as('cardOwed'),
       ])
       .$if(Boolean(filter.status), (q) => q.where('d.status', '=', filter.status!))
       .$if(Boolean(filter.q), (q) =>
@@ -417,6 +434,8 @@ export class DriversService {
         return {
           ...r,
           balance: Number(r.balance),
+          // card fares credited minus payouts: what the platform still owes the driver
+          cardOwed: Number(r.cardOwed),
           rating: p.stars,
           priority: p.score,
           plateFormatted: r.plate ? formatPlate(r.plate) : null,
@@ -428,7 +447,7 @@ export class DriversService {
   /** Everything an operator needs to verify a driver, with the status history. */
   async adminView(driverId: string) {
     const view = await this.view(driverId);
-    const [history, standing, licenceChecks] = await Promise.all([
+    const [history, standing, licenceChecks, cardMoney] = await Promise.all([
       this.db.kysely
         .selectFrom('driver_status_changes')
         .select([
@@ -457,8 +476,60 @@ export class DriversService {
         .orderBy('created_at', 'desc')
         .limit(20)
         .execute(),
+      this.cardMoney(driverId),
     ]);
-    return { ...view, history, licenceChecks, balance: standing.balance };
+    return { ...view, history, licenceChecks, balance: standing.balance, cardMoney };
+  }
+
+  /**
+   * Card money: fares riders prepaid by card, credited to the driver, minus payouts made.
+   * `payableNow` is what can be paid out today (the balance also carries fees and debts).
+   */
+  async cardMoney(driverId: string) {
+    const row = await this.db.kysely
+      .selectFrom('driver_ledger')
+      .select([
+        sql<string>`coalesce(sum(amount) filter (where kind = 'card_fare'), 0)`.as('credited'),
+        sql<string>`coalesce(-sum(amount) filter (where kind = 'payout'), 0)`.as('paidOut'),
+        sql<string>`coalesce(sum(amount), 0)`.as('balance'),
+        sql<Date | null>`max(created_at) filter (where kind = 'payout')`.as('lastPayoutAt'),
+      ])
+      .where('driver_id', '=', driverId)
+      .executeTakeFirstOrThrow();
+    return cardMoneyView(row);
+  }
+
+  /**
+   * The payouts screen: drivers the platform owes card money to, most owed first, with what
+   * can be paid out now (limited by the balance) and the last payout.
+   */
+  async payouts() {
+    const rows = await this.db.kysely
+      .selectFrom('driver_ledger as l')
+      .innerJoin('drivers as d', 'd.user_id', 'l.driver_id')
+      .innerJoin('users as u', 'u.id', 'l.driver_id')
+      .select([
+        'l.driver_id as driverId',
+        'd.full_name as fullName',
+        'u.phone',
+        'd.status',
+        sql<string>`coalesce(sum(l.amount) filter (where l.kind = 'card_fare'), 0)`.as('credited'),
+        sql<string>`coalesce(-sum(l.amount) filter (where l.kind = 'payout'), 0)`.as('paidOut'),
+        sql<string>`sum(l.amount)`.as('balance'),
+        sql<Date | null>`max(l.created_at) filter (where l.kind = 'payout')`.as('lastPayoutAt'),
+      ])
+      .groupBy(['l.driver_id', 'd.full_name', 'u.phone', 'd.status'])
+      .having(
+        sql<boolean>`coalesce(sum(l.amount) filter (where l.kind in ('card_fare', 'payout')), 0) > 0`,
+      )
+      .execute();
+    return rows
+      .map(({ credited, paidOut, balance, lastPayoutAt, ...r }) => ({
+        ...r,
+        balance: Number(balance),
+        ...cardMoneyView({ credited, paidOut, balance, lastPayoutAt }),
+      }))
+      .sort((a, b) => b.owed - a.owed);
   }
 
   /**
@@ -644,15 +715,20 @@ export class DriversService {
       .execute();
   }
 
+  /** Answers an appeal; the driver hears at once (push and stream). */
   async resolveAppeal(admin: AuthUser, appealId: string, resolution: string) {
-    const res = await this.db.kysely
-      .updateTable('driver_appeals')
-      .set({ status: 'resolved', resolution, resolved_by: admin.userId, resolved_at: new Date() })
-      .where('id', '=', appealId)
-      .where('status', '=', 'open')
-      .returning('driver_id')
-      .executeTakeFirst();
-    if (!res) throw new NotFoundException('Ochiq murojaat topilmadi');
+    const res = await this.db.transaction(async (trx) => {
+      const row = await trx
+        .updateTable('driver_appeals')
+        .set({ status: 'resolved', resolution, resolved_by: admin.userId, resolved_at: new Date() })
+        .where('id', '=', appealId)
+        .where('status', '=', 'open')
+        .returning('driver_id')
+        .executeTakeFirst();
+      if (!row) throw new NotFoundException('Ochiq murojaat topilmadi');
+      await emit(trx, 'driver.appeal_resolved', { appealId, driverId: row.driver_id });
+      return row;
+    });
     return this.appeals(res.driver_id).then((all) => all.find((a) => a.id === appealId)!);
   }
 
@@ -682,16 +758,18 @@ export class DriversService {
         .where('driver_id', '=', driverId)
         .executeTakeFirst(),
       this.db.kysely
-        .selectFrom('driver_documents')
+        .selectFrom('driver_documents as doc')
+        .leftJoin('uploads as up', 'up.id', 'doc.upload_id')
         .select([
-          'kind',
-          'url',
-          'upload_id',
-          'expires_on as expiresOn',
-          'uploaded_at as uploadedAt',
+          'doc.kind',
+          'doc.url',
+          'doc.upload_id',
+          'up.content_type',
+          'doc.expires_on as expiresOn',
+          'doc.uploaded_at as uploadedAt',
         ])
-        .where('driver_id', '=', driverId)
-        .orderBy('kind')
+        .where('doc.driver_id', '=', driverId)
+        .orderBy('doc.kind')
         .execute(),
       this.db.kysely
         .selectFrom('users')
@@ -736,9 +814,11 @@ export class DriversService {
           : null,
       photoUrl: readUrl(d.photo_upload_id),
       vehicle: v ? { ...vehicleView(v), photoUrl: readUrl(v.photo_upload_id) } : null,
-      documents: docs.map(({ upload_id, url, ...doc }) => ({
+      documents: docs.map(({ upload_id, url, content_type, ...doc }) => ({
         ...doc,
         uploadId: upload_id,
+        // image/jpeg, image/png, image/webp or application/pdf (a legacy URL: by its extension)
+        contentType: content_type ?? typeFromUrl(url),
         // uploaded files: a short-lived read URL; old apps: the URL they sent
         url: upload_id ? readUrl(upload_id) : url,
       })),
@@ -881,6 +961,40 @@ export function vehicleView(v: Selectable<VehiclesTable>) {
     luggage: v.features.includes('big_trunk') && !v.cng_in_trunk,
   };
 }
+
+/** A legacy document URL's type by its extension (null when it does not say). */
+export function typeFromUrl(url: string | null): string | null {
+  const ext = url?.split(/[?#]/)[0]?.split('.').pop()?.toLowerCase();
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'png') return 'image/png';
+  if (ext === 'webp') return 'image/webp';
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  return null;
+}
+
+/** Card money from ledger sums (strings from Postgres). */
+function cardMoneyView(r: {
+  credited: string;
+  paidOut: string;
+  balance: string;
+  lastPayoutAt: Date | null;
+}) {
+  const credited = Number(r.credited);
+  const paidOut = Number(r.paidOut);
+  const owed = credited - paidOut;
+  return {
+    credited,
+    paidOut,
+    owed,
+    /** A payout is refused above the balance: fees and debts are settled first. */
+    payableNow: Math.max(0, Math.min(owed, Number(r.balance))),
+    lastPayoutAt: r.lastPayoutAt,
+  };
+}
+
+/** SQL: card fares credited minus payouts made (what the platform owes the driver). */
+export const cardOwedOf = (driverIdRef: string) =>
+  sql<number>`(select coalesce(sum(l.amount), 0) from driver_ledger l where l.driver_id = ${sql.ref(driverIdRef)} and l.kind in ('card_fare', 'payout'))`;
 
 /** SQL: whether a driver's balance still allows work (used by dispatch). */
 export const balanceOf = (driverIdRef: string) =>

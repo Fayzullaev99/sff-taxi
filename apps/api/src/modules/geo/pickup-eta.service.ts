@@ -16,12 +16,17 @@ export interface PickupEta {
   at: string;
 }
 
-const key = (rideId: string) => `eta:ride:${rideId}`;
+/** pickup: the car on its way to the rider; dropoff: the trip to the destination. */
+export type EtaLeg = 'pickup' | 'dropoff';
+
+const key = (rideId: string, leg: EtaLeg) =>
+  leg === 'pickup' ? `eta:ride:${rideId}` : `eta:ride:${rideId}:${leg}`;
 
 /**
- * The assigned car's road ETA to the pickup, for the rider's screen: recomputed with the
- * driver's position at most every ETA_REFRESH_SECONDS (one router call, cached in Redis and
- * shared by every API instance), otherwise the last value.
+ * The assigned car's road ETA to the pickup (and, during the trip, to the destination) for
+ * the rider's screen: recomputed with the driver's position at most every
+ * ETA_REFRESH_SECONDS (one router call, cached in Redis and shared by every API instance),
+ * otherwise the last value.
  */
 @Injectable()
 export class PickupEtaService {
@@ -30,22 +35,28 @@ export class PickupEtaService {
     private readonly routing: RoutingService,
   ) {}
 
-  async eta(rideId: string, car: Point, pickup: Point, now = new Date()): Promise<PickupEta> {
-    const cached = await this.cached(rideId);
+  async eta(
+    rideId: string,
+    car: Point,
+    target: Point,
+    now = new Date(),
+    leg: EtaLeg = 'pickup',
+  ): Promise<PickupEta> {
+    const cached = await this.cached(rideId, leg);
     if (cached) return cached;
-    const route = await this.routing.route(car, pickup);
+    const route = await this.routing.route(car, target);
     const eta: PickupEta = {
       etaS: etaSeconds(route),
       distanceM: route.distanceM,
       source: route.source,
       at: now.toISOString(),
     };
-    await this.redis.set(key(rideId), JSON.stringify(eta), 'EX', ETA_REFRESH_SECONDS);
+    await this.redis.set(key(rideId, leg), JSON.stringify(eta), 'EX', ETA_REFRESH_SECONDS);
     return eta;
   }
 
-  async cached(rideId: string): Promise<PickupEta | null> {
-    const raw = await this.redis.get(key(rideId));
+  async cached(rideId: string, leg: EtaLeg = 'pickup'): Promise<PickupEta | null> {
+    const raw = await this.redis.get(key(rideId, leg));
     return raw ? (JSON.parse(raw) as PickupEta) : null;
   }
 }
