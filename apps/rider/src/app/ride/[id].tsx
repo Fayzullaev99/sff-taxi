@@ -99,7 +99,7 @@ export default function RideScreenRoute() {
     );
   }
 
-  return <LiveRide ride={ride} screen={screen!} onCheck={() => void query.refetch()} />;
+  return <LiveRide ride={ride} screen={screen!} onCheck={() => query.refetch()} />;
 }
 
 function TopBar({ ride, overMap = false }: { ride: Ride; overMap?: boolean }) {
@@ -135,7 +135,7 @@ function LiveRide({
 }: {
   ride: Ride;
   screen: RideScreen;
-  onCheck: () => void;
+  onCheck: () => Promise<unknown>;
 }) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();

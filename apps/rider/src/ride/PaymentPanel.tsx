@@ -18,9 +18,28 @@ const PAYMENT_RETURN_PREFIX = 'sfftaxi://payments';
  * tab. Payme/Click confirm the payment to the API server to server; the ride is polled
  * (and nudged over the stream), so the search starts on this screen by itself.
  */
-export function PaymentPanel({ ride, onCheck }: { ride: Ride; onCheck: () => void }) {
+export function PaymentPanel({
+  ride,
+  onCheck,
+}: {
+  ride: Ride;
+  /** Re-reads the ride; resolves when the answer is in. */
+  onCheck: () => Promise<unknown>;
+}) {
   const now = useNow(1000);
   const [opening, setOpening] = useState<CardProvider | null>(null);
+  // "I paid — check": a spinner, then a word when the payment has not arrived yet (the
+  // screen moves on by itself once it has); before, the tap did nothing visible
+  const [checking, setChecking] = useState(false);
+  const [notYet, setNotYet] = useState(false);
+
+  const check = async () => {
+    setChecking(true);
+    setNotYet(false);
+    await onCheck().catch(() => undefined);
+    setChecking(false);
+    setNotYet(true);
+  };
   const left = paymentSecondsLeft(ride.payment, now);
   const links = checkoutLinks(ride.payment);
   const amount = ride.payment?.amount ?? ride.fare.quoted;
@@ -42,7 +61,7 @@ export function PaymentPanel({ ride, onCheck }: { ride: Ride; onCheck: () => voi
       await openLink(url);
     } finally {
       setOpening(null);
-      onCheck();
+      void onCheck();
     }
   };
 
@@ -98,7 +117,19 @@ export function PaymentPanel({ ride, onCheck }: { ride: Ride; onCheck: () => voi
         </T>
       ) : null}
 
-      <Button title="To‘ladim — tekshirish" variant="secondary" icon="refresh" onPress={onCheck} />
+      <Button
+        title="To‘ladim — tekshirish"
+        variant="secondary"
+        icon="refresh"
+        loading={checking}
+        onPress={() => void check()}
+      />
+      {notYet && !checking && !expired ? (
+        <T variant="small" color={colors.textMuted} accessibilityLiveRegion="polite">
+          To‘lov hali kelmadi. To‘lov sahifasida to‘lovni yakunlang — tasdiq kelishi bilan haydovchi
+          qidiruvi o‘zi boshlanadi.
+        </T>
+      ) : null}
     </View>
   );
 }

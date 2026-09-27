@@ -396,7 +396,7 @@ export default function OrderScreen() {
         />
         {draft.paymentMethod === 'card' && cardAvailable ? (
           <T variant="small" color={colors.textMuted}>
-            Buyurtmadan keyin {formatMoney(fare?.total ?? 0)} ni 10 daqiqa ichida to‘laysiz, shundan
+            Buyurtmadan keyin {formatMoney(fare?.total ?? 0)}ni 10 daqiqa ichida to‘laysiz, shundan
             so‘ng haydovchi qidiriladi. Bekor qilsangiz, pul to‘liq qaytariladi.
           </T>
         ) : null}

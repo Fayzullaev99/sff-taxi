@@ -14,20 +14,20 @@ export type LocateResult =
 
 /**
  * Asks for permission if needed and returns the device's position. `fresh` (the rider tapped
- * "my location") asks the system for a new fix first: the cached last-known position can be
- * minutes behind a moving phone (seen on the emulator: the button kept returning the old
- * place, only a restart moved it). The first automatic lookup takes a recent cached fix,
+ * "my location") asks for a new high-accuracy (GPS) fix first: the cached last-known and the
+ * "balanced" (network) positions can be well behind a moving phone (seen on the emulator:
+ * the button kept returning the old place, only a restart moved it), and a pickup point
+ * wants metres, not a cell's hundred. The first automatic lookup takes a recent cached fix,
  * which is instant.
  */
 export async function locateDevice(fresh = false): Promise<LocateResult> {
   try {
     const permission = await Location.requestForegroundPermissionsAsync();
     if (permission.status !== 'granted') return { ok: false, reason: 'denied' };
+    const accuracy = fresh ? Location.Accuracy.High : Location.Accuracy.Balanced;
     const current = () =>
       Promise.race([
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(
-          () => null,
-        ),
+        Location.getCurrentPositionAsync({ accuracy }).catch(() => null),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
       ]);
     const cached = (maxAge: number) =>
