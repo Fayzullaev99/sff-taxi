@@ -173,9 +173,17 @@ describe('geo', () => {
         expect(first.body[0]).toMatchObject({ title: 'Navoiy koʻchasi, 7', serviceable: true });
         await api(app).get('/v1/geo/reverse?lat=40.5&lng=68.77&lang=ru').expect(200);
         const calls = fake.hitsOf('/nominatim').slice(before);
-        expect(calls.map((c) => c.path)).toEqual(['/nominatim/search', '/nominatim/reverse']);
+        // the area around the town first; too few there, so the whole country as well
+        expect(calls.map((c) => c.path)).toEqual([
+          '/nominatim/search',
+          '/nominatim/search',
+          '/nominatim/reverse',
+        ]);
+        expect(calls[0]!.query.get('bounded')).toBe('1');
+        expect(calls[1]!.query.get('bounded')).toBe('0');
         expect(calls[0]!.headers['user-agent']).toBe('SFF-Taxi/1.0 (ops@example.com)');
         expect(calls[1]!.at - calls[0]!.at).toBeGreaterThanOrEqual(950);
+        expect(calls[2]!.at - calls[1]!.at).toBeGreaterThanOrEqual(950);
 
         const redis = app.get<Redis>(REDIS);
         const ttls = await Promise.all((await redis.keys('geo:gc:*')).map((k) => redis.ttl(k)));

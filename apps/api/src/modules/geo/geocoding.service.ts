@@ -155,17 +155,35 @@ export class NominatimGeocoder implements GeocodingProvider {
     private readonly redis: Redis,
   ) {}
 
-  search(q: string, bias: GeocodeBias, lang: GeoLang, limit: number) {
+  /** Around the rider's town (about 30 km): nearby towns of the region count as local. */
+  static readonly LOCAL_MARGIN_DEG = 0.3;
+
+  /**
+   * Nominatim treats an unbounded viewbox as a weak hint, so "vokzal" typed in Guliston
+   * returned Termiz and Bukhara first. Search the surrounding area first; only when that
+   * finds too little, search the whole country and list local places first.
+   */
+  async search(q: string, bias: GeocodeBias, lang: GeoLang, limit: number) {
     const b = bias.bbox;
-    return this.request('search', {
+    const m = NominatimGeocoder.LOCAL_MARGIN_DEG;
+    const params = (bounded: boolean) => ({
       q,
       limit: String(limit),
       countrycodes: 'uz',
-      // a preference, not a filter (bounded=0)
-      viewbox: `${b.minLng},${b.maxLat},${b.maxLng},${b.minLat}`,
-      bounded: '0',
+      viewbox: bounded
+        ? `${b.minLng - m},${b.maxLat + m},${b.maxLng + m},${b.minLat - m}`
+        : `${b.minLng},${b.maxLat},${b.maxLng},${b.minLat}`,
+      bounded: bounded ? '1' : '0',
       'accept-language': lang === 'ru' ? 'ru,uz' : 'uz,ru',
-    }).then((rows) => (rows as NominatimPlace[]).map((r) => NominatimGeocoder.parse(r)));
+    });
+    const parse = (rows: unknown) =>
+      (rows as NominatimPlace[]).map((r) => NominatimGeocoder.parse(r));
+    const local = parse(await this.request('search', params(true)));
+    if (local.length >= limit) return local;
+    const wide = parse(await this.request('search', params(false)));
+    const seen = new Set(local.map((p) => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`));
+    const rest = wide.filter((p) => !seen.has(`${p.lat.toFixed(5)},${p.lng.toFixed(5)}`));
+    return [...local, ...rest].slice(0, limit);
   }
 
   async reverse(p: Point, lang: GeoLang) {
