@@ -7,10 +7,11 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { SessionProvider, useSession } from '../auth/session';
+import { persistSnapshots, restoreSnapshot } from '../data/persist';
 import { createQueryClient, useDriverMe, usePublicConfig } from '../data/queries';
 import { installReactQueryNativeBindings } from '../data/react-native';
 import { errorMessage } from '../lib/api-client';
@@ -30,12 +31,22 @@ const APP_VERSION = Constants.expoConfig?.version ?? null;
 
 export default function RootLayout() {
   const [queryClient] = useState(createQueryClient);
+  // the last known profile and ride are shown at once after a cold start (then refetched)
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    void restoreSnapshot(queryClient).finally(() => setRestored(true));
+    return persistSnapshots(queryClient);
+  }, [queryClient]);
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
         <SessionProvider>
           <StatusBar style="light" />
-          <RootNavigator />
+          {restored ? (
+            <RootNavigator />
+          ) : (
+            <View style={{ flex: 1, backgroundColor: colors.background }} />
+          )}
         </SessionProvider>
       </QueryClientProvider>
     </SafeAreaProvider>
