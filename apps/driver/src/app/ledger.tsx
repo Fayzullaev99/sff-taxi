@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { useRouter } from 'expo-router';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,7 +10,7 @@ import { Button, EmptyState, ErrorState, Loading } from '../ui/components';
 import { OfflineBanner } from '../ui/screen';
 import { colors, space } from '../ui/theme';
 
-function Entry({ item }: { item: LedgerEntry }) {
+const Entry = memo(function Entry({ item }: { item: LedgerEntry }) {
   return (
     <View style={styles.row}>
       <View style={{ flex: 1 }}>
@@ -29,7 +30,7 @@ function Entry({ item }: { item: LedgerEntry }) {
       </Text>
     </View>
   );
-}
+});
 
 /** Every balance movement (append-only on the server), 50 per page. A FlatList: cheap to scroll. */
 export default function Ledger() {

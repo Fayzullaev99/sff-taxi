@@ -398,7 +398,8 @@ function apply(): Promise<TrackingMode> {
   return serial(async () => {
     const want = locationPolicy(phase, battery);
     if (!want) {
-      if (mode !== 'off') await stopNow();
+      // also stops a location service left running by an earlier JS runtime
+      await stopNow();
       return mode;
     }
     reporter.setRules(want.send);
@@ -406,18 +407,27 @@ function apply(): Promise<TrackingMode> {
       setActive(want);
       return mode;
     }
-    if (mode === 'off') {
-      await readBattery();
-      watchBattery();
-      const fresh = locationPolicy(phase, battery)!;
-      reporter.setRules(fresh.send);
-      await startProvider(fresh);
-    } else {
-      if (mode === 'foreground') {
-        watcher?.remove();
-        watcher = null;
+    try {
+      if (mode === 'off') {
+        await readBattery();
+        watchBattery();
+        const fresh = locationPolicy(phase, battery)!;
+        reporter.setRules(fresh.send);
+        await startProvider(fresh);
+      } else {
+        if (mode === 'foreground') {
+          watcher?.remove();
+          watcher = null;
+        }
+        await startProvider(want);
       }
-      await startProvider(want);
+    } catch (error) {
+      // permission revoked or location off: the next phase change or restart tries again
+      console.warn('[location] could not start', error);
+      watcher?.remove();
+      watcher = null;
+      setActive(null);
+      setMode('off');
     }
     return mode;
   });

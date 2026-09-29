@@ -109,13 +109,44 @@ appeal answer shows at once.
 - **Appeal answers** arrive as `appeal.updated` / the `appeal_resolved` push (tap: `appeals`,
   or home when the answer unblocked the account); the status and appeals screens re-read
   `GET /driver/appeals` every minute without the stream, every 5 minutes with it.
-- **GPS every 3–5 s** while online or on a ride (min gap 3 s, at least every 5 s, or after
-  25 m), fixes worse than 100 m are not sent, API refusals only change the GPS indicator.
+- **GPS paced by what the driver does** (`lib/location-policy.ts`, market research §6.7):
+  online and free ~every 15 s (a 50 m move after 10 s, a parked car every 30 s so dispatch's
+  120 s freshness window never lapses), to the pickup ~4 s, waiting at the pickup ~10 s, on a
+  trip ~3 s; every interval doubled below 15 % battery when not charging (`expo-battery`, a
+  chip under the GPS indicator). High accuracy while tracking; offline without a ride the
+  GPS is off. The provider is restarted only when its pace changes (the foreground-service
+  notification says what the driver is doing).
+- **Fix filter and queue** (`lib/location-throttle.ts`): fixes over 100 m are never sent,
+  50–100 m ones are skipped while good fixes keep coming, duplicates/out-of-order and fixes
+  older than 30 s are dropped (the API stamps a fix with its own clock and takes no trail).
+  One request at a time (10 s timeout); without network the newest fix waits and is retried
+  with backoff (1 → 30 s), at once when NetInfo reports the connection back; a 422 refusal
+  only changes the GPS indicator. The phase is saved so a background-only JS runtime keeps
+  the right pace.
+- **Stream health**: the API pings every 25 s; 35 s of silence means a dead link and the
+  stream reconnects (polling speeds up meanwhile), at once when the network returns or the
+  app comes to the foreground; a stream past 256 KB is renewed. While on shift with the
+  background location service, the stream stays open in the background too, so an offer
+  sounds at once with the navigator in front (push remains the fallback).
+- **Accept and steps survive a bad network** (`lib/ride-actions.ts`): a request with no
+  answer is re-sent (accept 8 s timeout, 4 tries; steps 12 s, 8 tries); a 409 after that is
+  checked against the ride (the current ride is this offer's / the ride already reached the
+  step) before it is shown as a failure. Accept ignores second taps; "Yetib keldim" and
+  "Boshlash" show their result at once and are undone if they fail; the footer says
+  "Yuborilmoqda…" / "Aloqa sust — qayta yuborilmoqda (n)…".
+- **Cold start**: profile, current ride, balance, today and the rules are kept on disk
+  (`lib/snapshot.ts`, `data/persist.ts`) and shown at once after a restart, then refetched.
+- **Stops, not "pickup and drop-off"**: the ride and home screens render `lib/stops.ts`'s
+  ordered stop list (`src/ride/parts.tsx`, `src/home/current-ride-card.tsx`), so several
+  riders at once only add stops.
 - **Decline asks for an optional reason** (the API's `declineReasons`) after the tap, accept is
-  a single 84 px button.
+  a single 84 px button (on the right on a landscape tablet).
 - **Low-end Android**: no maps SDK, no SVG/animation libraries (the ring is 36 plain
-  views), lazy tabs, paged FlatLists, one GPS request in flight, polling backs off while
-  the stream is open.
+  views, redrawn on its own 250 ms tick while the rest of the offer screen redraws once a
+  second), lazy tabs, memoised paged FlatLists, one GPS request in flight, the GPS indicator
+  re-renders only when its text changes, polling backs off while the stream is open.
+- **Battery optimisation**: while online, home warns when Android's battery optimisation is
+  on for the app (it stops the location service on many cheap phones) and opens the settings.
 - **Navigation**: the first "Yo‘l" tap asks Yandex Navigator / Yandex Maps / Google Maps and
   remembers it (changeable in Profil); web fallback when the app is missing.
 - **CNG**: the wizard's "gas tank in the trunk" switch (default on — most Cobalts/Nexias) is
@@ -160,6 +191,17 @@ Still open:
     with no total "owed to you" figure in `GET /driver/balance`.
 12. **`scope=upcoming` is capped at 100 trips** with `nextCursor: null`; harmless for one
     driver today, but the list would silently cut off.
+13. **The stream's heartbeat is 25 s**: a dead mobile link is noticed only after ~35 s
+    (the reference is a 4 s ping and a 7 s dead-link limit). A 5–10 s ping (a few bytes)
+    would let the app switch to polling much sooner.
+14. **`POST /driver/location` takes one fix stamped with the server's clock**: a fix held
+    during an outage cannot be sent with its real time, and no short trail can be sent when
+    the link comes back (an optional `at` and a `trail[]` of ≤10 fixes would fix both).
+15. **Accept and ride steps are not idempotent**: a retry after a lost answer gets 409
+    ("Taklif endi amal qilmaydi" / "Buyurtma holati mos emas"); the app reconciles by
+    re-reading the ride. An idempotency key, or answering 200 with the ride when it is
+    already in the step's status, would save that round trip on a bad network (and allow
+    Uber-style offline steps with client timestamps).
 
 ## Checks
 

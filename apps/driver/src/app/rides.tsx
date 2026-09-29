@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { useRouter } from 'expo-router';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,7 +10,7 @@ import { Button, EmptyState, ErrorState, Loading } from '../ui/components';
 import { OfflineBanner } from '../ui/screen';
 import { colors, space } from '../ui/theme';
 
-function RideRow({ item }: { item: DriverRide }) {
+const RideRow = memo(function RideRow({ item }: { item: DriverRide }) {
   const done = item.status === 'completed';
   return (
     <View style={styles.row}>
@@ -37,7 +38,7 @@ function RideRow({ item }: { item: DriverRide }) {
       </View>
     </View>
   );
-}
+});
 
 /** Completed and cancelled rides with what each earned, 30 per page. */
 export default function Rides() {
