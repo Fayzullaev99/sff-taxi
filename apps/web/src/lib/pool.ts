@@ -201,7 +201,8 @@ export function depositFor(
   r: Pick<BookingRules, 'deposit_percent' | 'deposit_min'>,
 ) {
   if (price <= 0 || r.deposit_percent <= 0) return 0;
-  const byPercent = Math.round((price * r.deposit_percent) / 100 / 100) * 100;
+  // the share rounded up to whole 1 000 so‘m (apps/api/src/lib/deposit.ts)
+  const byPercent = Math.ceil((price * r.deposit_percent) / 100 / 1000) * 1000;
   return Math.min(price, Math.max(r.deposit_min, byPercent));
 }
 

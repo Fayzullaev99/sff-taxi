@@ -14,8 +14,13 @@ import type {
   LedgerKind,
   LiveDriverState,
   RideActor,
+  AnyRideClass,
+  CargoClass,
+  IntentPurpose,
   RideClass,
   RideOffer,
+  RideService,
+  VehicleBody,
   RideOption,
   RideStatus,
   VehicleFeature,
@@ -192,7 +197,39 @@ export const RIDE_STATUS_TONE: Record<RideStatus, Tone> = {
   cancelled: 'red',
 };
 
-export const CLASSES: Record<RideClass, string> = { economy: 'Ekonom', comfort: 'Komfort' };
+export const CLASSES: Record<AnyRideClass, string> = {
+  economy: 'Ekonom',
+  comfort: 'Komfort',
+  cargo_s: 'Kichik yuk (Damas/Labo)',
+  cargo_m: 'O‘rta yuk (Gazel/Porter)',
+};
+
+/** Short cargo class names for badges. */
+export const CARGO_CLASS: Record<CargoClass, string> = {
+  cargo_s: 'Yuk S (≤ 800 kg)',
+  cargo_m: 'Yuk M (≤ 1,5 t)',
+};
+
+export const SERVICES: Record<RideService, string> = {
+  taxi: 'Taksi',
+  cargo: 'Yuk',
+  delivery: 'Yetkazish',
+};
+
+export const SERVICE_TONE: Record<RideService, Tone> = {
+  taxi: 'neutral',
+  cargo: 'amber',
+  delivery: 'brand',
+};
+
+export const VEHICLE_BODY: Record<VehicleBody, string> = {
+  sedan: 'Sedan',
+  hatchback: 'Xetchbek',
+  minivan: 'Miniven',
+  van: 'Furgon',
+  pickup: 'Pikap',
+  truck: 'Yuk mashinasi',
+};
 
 export const OPTIONS: Record<RideOption, string> = {
   child_seat: 'Bolalar o‘rindig‘i',
@@ -335,6 +372,7 @@ export const TRIP_TONE: Record<TripStatus, Tone> = {
 };
 
 export const BOOKING_STATUS: Record<BookingStatus, string> = {
+  awaiting_payment: 'Depozit kutilmoqda',
   booked: 'Bron qilingan',
   boarded: 'Mashinada',
   completed: 'Yakunlangan',
@@ -343,6 +381,7 @@ export const BOOKING_STATUS: Record<BookingStatus, string> = {
 };
 
 export const BOOKING_TONE: Record<BookingStatus, Tone> = {
+  awaiting_payment: 'amber',
   booked: 'blue',
   boarded: 'green',
   completed: 'neutral',
@@ -461,9 +500,10 @@ export const INTENT_TONE: Record<IntentStatus, Tone> = {
   refunded: 'blue',
 };
 
-export const INTENT_PURPOSE: Record<'ride' | 'topup', string> = {
+export const INTENT_PURPOSE: Record<IntentPurpose, string> = {
   ride: 'Safar uchun',
   topup: 'Balans to‘ldirish',
+  booking: 'Bron depoziti',
 };
 
 /** A cash ride's cancellation fee, as operators read it. */

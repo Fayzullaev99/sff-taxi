@@ -101,6 +101,15 @@ export interface AdminCity {
 
 export const RIDE_CLASSES = ['economy', 'comfort'] as const;
 export type RideClass = (typeof RIDE_CLASSES)[number];
+/** Cargo classes: cargo_s Damas/Labo (up to 800 kg payload), cargo_m Gazel/Porter (1.5 t). */
+export const CARGO_CLASSES = ['cargo_s', 'cargo_m'] as const;
+export type CargoClass = (typeof CARGO_CLASSES)[number];
+/** Any ride's class: the taxi classes (taxi, delivery) and the cargo ones. */
+export type AnyRideClass = RideClass | CargoClass;
+export const RIDE_SERVICES = ['taxi', 'cargo', 'delivery'] as const;
+export type RideService = (typeof RIDE_SERVICES)[number];
+export const VEHICLE_BODIES = ['sedan', 'hatchback', 'minivan', 'van', 'pickup', 'truck'] as const;
+export type VehicleBody = (typeof VEHICLE_BODIES)[number];
 export const RIDE_OPTIONS = ['child_seat', 'luggage', 'pets', 'ac'] as const;
 export type RideOption = (typeof RIDE_OPTIONS)[number];
 export type RideKind = 'city' | 'intercity';
@@ -174,6 +183,29 @@ export interface BookingRules {
   deposit_percent: number;
   deposit_min: number;
   payment_minutes: number;
+}
+
+export interface CargoClassTariff {
+  /** The order's price including the first included_km and included_minutes. */
+  base: number;
+  included_km: number;
+  /** Free loading minutes after arrival (at most 30), then per_minute. */
+  included_minutes: number;
+  per_km: number;
+  intercity_per_km: number;
+  per_minute: number;
+  max_payload_kg: number;
+}
+
+/** GET/PUT /admin/settings/cargo (apps/api/src/lib/cargo.ts CargoRules). */
+export interface CargoRules {
+  enabled: boolean;
+  classes: Record<CargoClass, CargoClassTariff>;
+  loader_price: number;
+  max_loaders: number;
+  night: { percent: number; from: string; to: string };
+  intercity_from_km: number;
+  delivery: { enabled: boolean; percent: number; max_weight_kg: number };
 }
 
 /** GET /admin/routes items: fixed route prices of rides between towns. */
@@ -275,6 +307,13 @@ export interface Place extends LatLng {
 
 export type FareMode = 'car' | 'seat';
 
+export interface CargoDetails {
+  loaders: number;
+  riderRides: boolean;
+  description: string | null;
+  weightKg: number | null;
+}
+
 export interface RideVehicle {
   make: string;
   model: string;
@@ -291,7 +330,7 @@ export interface RideBase {
   status: RideStatus;
   channel: 'app' | 'phone';
   kind: RideKind;
-  class: RideClass;
+  class: AnyRideClass;
   cityId: string;
   pickup: Place;
   dropoff: Place;
@@ -317,7 +356,15 @@ export interface RideBase {
     breakdown: Fare;
   };
   /** Wave 4 (docs/shared-rides.md): optional so older API builds still render. */
-  service?: string;
+  service?: RideService;
+  /** Cargo rides: loaders, the customer in the cab, the load (null otherwise). */
+  cargo?: CargoDetails | null;
+  /** Deliveries: the parcel and who receives it (null otherwise). */
+  delivery?: {
+    parcel: { description: string | null; weightKg: number | null } | null;
+    recipientName: string | null;
+    recipientPhone: string | null;
+  } | null;
   /** People riding: 1-3 (one in front, at most two in the back). */
   passengers?: number;
   /** The rider agreed to share the car ("Hamroh bilan"). */
@@ -460,6 +507,8 @@ export interface LiveDriver {
   onlineSince: string | null;
   plate: string;
   class: RideClass;
+  /** A cargo car's class (null or absent: a taxi car). */
+  cargoClass?: CargoClass | null;
   rideId: string | null;
   rideStatus: RideStatus | null;
   offeredRideId: string | null;
@@ -546,6 +595,12 @@ export interface Vehicle {
   class: RideClass;
   features: VehicleFeature[];
   cngInTrunk?: boolean;
+  /** taxi: passenger rides and deliveries; cargo: cargo rides of its class only. */
+  service?: 'taxi' | 'cargo';
+  body?: VehicleBody;
+  payloadKg?: number | null;
+  grossKg?: number | null;
+  cargoClass?: CargoClass | null;
   /** The car as riders see it (a 15-minute read URL). */
   photoUrl?: string | null;
 }
@@ -784,15 +839,21 @@ export interface TaxReport {
   totals: { rides: number; base: number; amount: number };
 }
 
-/** GET /admin/payments/refunds items: cancelled card rides paid in advance. */
+export type IntentPurpose = 'ride' | 'topup' | 'booking';
+
+/** GET /admin/payments/refunds items: cancelled card rides and trip-board booking deposits. */
 export interface Refund {
   id: string;
   amount: number;
   provider: 'payme' | 'click' | null;
   paidAt: string | null;
   refundRequestedAt: string | null;
-  rideId: string;
-  rideNumber: number;
+  purpose?: IntentPurpose;
+  rideId: string | null;
+  rideNumber: number | null;
+  /** A trip-board booking's deposit. */
+  bookingId?: string | null;
+  bookingNumber?: number | null;
   riderPhone: string;
   cancelReason: string | null;
 }
@@ -811,12 +872,14 @@ export type IntentStatus = (typeof INTENT_STATUSES)[number];
 /** GET /admin/payments/intents items: ride prepayments and driver top-ups by card. */
 export interface PaymentIntent {
   id: string;
-  purpose: 'ride' | 'topup';
+  purpose: IntentPurpose;
   status: IntentStatus;
   amount: number;
   provider: PaymentProvider | null;
   rideId: string | null;
   rideNumber: number | null;
+  bookingId?: string | null;
+  bookingNumber?: number | null;
   driverId: string | null;
   driverName: string | null;
   userId: string;
@@ -831,7 +894,7 @@ export interface PaymentIntent {
 
 /** GET /admin/payments/intents/summary rows: count and amount per purpose and status. */
 export interface IntentSummaryRow {
-  purpose: 'ride' | 'topup';
+  purpose: IntentPurpose;
   status: IntentStatus;
   count: number;
   amount: number;
@@ -841,7 +904,15 @@ export interface IntentSummaryRow {
 
 export const TRIP_STATUSES = ['scheduled', 'boarding', 'departed', 'arrived', 'cancelled'] as const;
 export type TripStatus = (typeof TRIP_STATUSES)[number];
-export const BOOKING_STATUSES = ['booked', 'boarded', 'completed', 'cancelled', 'no_show'] as const;
+export const BOOKING_STATUSES = [
+  /** Held while the rider pays the card deposit (payment_minutes), then booked or cancelled. */
+  'awaiting_payment',
+  'booked',
+  'boarded',
+  'completed',
+  'cancelled',
+  'no_show',
+] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 
 export interface IntercityPoint {
@@ -883,6 +954,13 @@ export interface PublicTrip {
   };
 }
 
+export interface BookingTown {
+  id: string;
+  slug: string;
+  nameUz: string;
+  nameRu: string;
+}
+
 export interface TripBooking {
   id: string;
   number: number;
@@ -893,9 +971,17 @@ export interface TripBooking {
   front: boolean;
   price: number;
   pickupNote: string | null;
+  /** rider, driver, operator, or system (the deposit was not paid in time). */
   cancelledBy: string | null;
   cancelReason: string | null;
   cancellationFee: number;
+  /** Paid by card in advance; the rest (payCash) is cash to the driver. */
+  depositAmount?: number;
+  payCash?: number;
+  /** A seat along the way: the rider's towns on the trip's road. */
+  alongTheWay?: boolean;
+  pickup?: BookingTown | null;
+  dropoff?: BookingTown | null;
   createdAt: string;
   boardedAt: string | null;
   completedAt: string | null;
@@ -949,6 +1035,8 @@ export interface IntercityRules {
   free_cancel_minutes: number;
   late_cancel_fee_percent: number;
   boarding_opens_minutes: number;
+  /** Seats along the way: a trip passing the rider's towns within this many extra km. */
+  along_route_max_km?: number;
 }
 
 // Support ----------------------------------------------------------------------------------
@@ -1058,6 +1146,8 @@ export interface FiscalReceipt {
 export interface FiscalRules {
   city_item_name: string;
   intercity_item_name: string;
+  cargo_item_name?: string;
+  delivery_item_name?: string;
   mxik_code: string;
   package_code: string;
   vat_percent: number;

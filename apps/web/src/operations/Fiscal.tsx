@@ -399,6 +399,30 @@ function SettingsTab() {
             />
           )}
         </Field>
+        {draft.cargo_item_name !== undefined && (
+          <Field label="Yuk tashish nomi" error={errors.cargo_item_name}>
+            {(p) => (
+              <input
+                {...p}
+                value={draft.cargo_item_name ?? ''}
+                maxLength={128}
+                onChange={(e) => set({ cargo_item_name: e.target.value })}
+              />
+            )}
+          </Field>
+        )}
+        {draft.delivery_item_name !== undefined && (
+          <Field label="Yetkazish (posilka) nomi" error={errors.delivery_item_name}>
+            {(p) => (
+              <input
+                {...p}
+                value={draft.delivery_item_name ?? ''}
+                maxLength={128}
+                onChange={(e) => set({ delivery_item_name: e.target.value })}
+              />
+            )}
+          </Field>
+        )}
         <Field label="MXIK (IKPU) kodi" hint="17 ta raqam" error={errors.mxik_code}>
           {(p) => (
             <input

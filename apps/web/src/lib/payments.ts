@@ -1,4 +1,9 @@
-import { INTENT_STATUSES, type IntentStatus, type IntentSummaryRow } from '../api/types';
+import {
+  INTENT_STATUSES,
+  type IntentPurpose,
+  type IntentStatus,
+  type IntentSummaryRow,
+} from '../api/types';
 
 export interface PurposeTotals {
   paid: { count: number; amount: number };
@@ -11,14 +16,14 @@ export interface PurposeTotals {
  */
 export function intentTotals(
   rows: readonly IntentSummaryRow[],
-): Record<'ride' | 'topup', PurposeTotals> {
+): Record<IntentPurpose, PurposeTotals> {
   const empty = (): PurposeTotals => ({
     paid: { count: 0, amount: 0 },
     byStatus: Object.fromEntries(
       INTENT_STATUSES.map((s) => [s, { count: 0, amount: 0 }]),
     ) as PurposeTotals['byStatus'],
   });
-  const out = { ride: empty(), topup: empty() };
+  const out = { ride: empty(), topup: empty(), booking: empty() };
   for (const r of rows) {
     const t = out[r.purpose];
     if (!t || !(r.status in t.byStatus)) continue;

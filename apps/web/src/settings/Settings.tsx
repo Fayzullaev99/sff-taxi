@@ -7,6 +7,7 @@ import {
   useBookingRules,
   useDispatchRules,
   useIntercityRules,
+  useCargoRules,
   usePoolRules,
 } from '../api/queries';
 import type { BillingRules, BookingRules, DispatchRules, IntercityRules } from '../api/types';
@@ -14,6 +15,7 @@ import { date, som, tashkentToday } from '../lib/format';
 import { depositFor } from '../lib/pool';
 import { Button, Field, MoneyInput, NumberInput, PageHeader, Toggle } from '../ui/controls';
 import { ErrorBox, Loading, useConfirm, useToast } from '../ui/feedback';
+import { CargoSettingsCard } from './CargoSettings';
 import { PoolSettingsCard } from './PoolSettings';
 
 type Draft<T> = { [K in keyof T]: T[K] extends number ? number | null : T[K] };
@@ -327,10 +329,21 @@ const BOOKING_SPECS: NumSpec<BookingRules>[] = [
     label: 'To‘lash uchun vaqt',
     hint: 'Shu vaqtda to‘lanmagan bron bekor bo‘ladi',
     suffix: 'daq',
-    min: 1,
-    max: 1440,
+    min: 5,
+    max: 120,
   },
 ];
+
+/** Seats along the way (API wave 4): shown only when the API sends the rule. */
+const ALONG_SPEC: NumSpec<IntercityRules> = {
+  key: 'along_route_max_km',
+  label: 'Yo‘l ustidagi shaharlar',
+  hint: 'Qatnov yo‘lovchining shaharlaridan o‘tishi shuncha km dan ko‘p qo‘shmasa, taklif qilinadi',
+  suffix: 'km',
+  min: 0,
+  max: 100,
+  decimals: true,
+};
 
 /** Dispatch parameters and driver billing (commission promo, caps, passes, tax, minimum). */
 export default function Settings() {
@@ -340,6 +353,7 @@ export default function Settings() {
   const pool = usePoolRules();
   // null: this API has no deposits yet (404), the section stays hidden
   const booking = useBookingRules();
+  const cargo = useCargoRules();
   return (
     <div>
       <PageHeader
@@ -355,6 +369,7 @@ export default function Settings() {
       )}
       {pool.error && <ErrorBox error={pool.error} onRetry={() => void pool.refetch()} />}
       {booking.error && <ErrorBox error={booking.error} onRetry={() => void booking.refetch()} />}
+      {cargo.error && <ErrorBox error={cargo.error} onRetry={() => void cargo.refetch()} />}
       {dispatch.isPending || billing.isPending ? (
         <Loading />
       ) : (
@@ -459,7 +474,11 @@ export default function Settings() {
               path="/v1/admin/settings/intercity"
               queryKey={['settings', 'intercity']}
               data={intercity.data}
-              specs={INTERCITY_SPECS}
+              specs={
+                intercity.data.along_route_max_km === undefined
+                  ? INTERCITY_SPECS
+                  : [...INTERCITY_SPECS, ALONG_SPEC]
+              }
             />
           )}
           {pool.data && <PoolSettingsCard data={pool.data} />}
@@ -481,6 +500,7 @@ export default function Settings() {
               specs={BOOKING_SPECS}
             />
           )}
+          {cargo.data && <CargoSettingsCard data={cargo.data} />}
         </div>
       )}
     </div>
