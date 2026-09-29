@@ -29,7 +29,13 @@ import {
 } from '../../lib/format';
 import { alongLine, alongStopLines, offerBadges, ridePool } from '../../lib/pool';
 import { acceptOffer } from '../../lib/ride-actions';
-import { cargoLines, parcelLines, SERVICE_LABELS, serviceOf } from '../../lib/service';
+import {
+  cargoLines,
+  customerWord,
+  parcelLines,
+  SERVICE_LABELS,
+  serviceOf,
+} from '../../lib/service';
 import {
   OFFER_FAILURE_TEXT,
   type OfferFailure,
@@ -508,7 +514,7 @@ const OfferDetails = memo(function OfferDetails(props: { offer: Offer; minute: n
         </View>
       ) : null}
       <Muted>
-        Yo‘lovchi reytingi: {r.riderRating.toFixed(1)} ★ · #{r.number}
+        {customerWord(service)} reytingi: {r.riderRating.toFixed(1)} ★ · #{r.number}
       </Muted>
     </>
   );
