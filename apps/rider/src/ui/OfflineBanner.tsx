@@ -1,3 +1,4 @@
+import { StatusBar } from 'expo-status-bar';
 import { useEffect, useSyncExternalStore } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -55,7 +56,11 @@ export function OfflineBanner() {
       style={[styles.banner, { paddingTop: insets.top + space(1) }]}
       accessibilityRole="alert"
       accessibilityLiveRegion="polite"
+      // it lies over the screens' headers: the back button under it must still work
+      pointerEvents="none"
     >
+      {/* the clock and signal icons stay readable on the dark strip */}
+      <StatusBar style="light" />
       <Icon name="cloud-offline-outline" size={18} color={colors.onInk} />
       <T variant="smallStrong" color={colors.onInk} style={styles.text}>
         Internet aloqasi yo‘q. Qayta ulanmoqda…
