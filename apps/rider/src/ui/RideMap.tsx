@@ -1,4 +1,5 @@
 import { useIsFocused } from 'expo-router';
+import type { RideService } from '../api/types';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
@@ -28,6 +29,8 @@ export interface RideMapProps {
   heading: 'pickup' | 'dropoff' | null;
   /** Space the bottom panel covers, so framing keeps the points visible above it. */
   bottomInset: number;
+  /** Taxi, cargo or delivery: "Taksi sizdan …" / "Yuk mashinasi sizdan …" without a map. */
+  service?: RideService;
 }
 
 /** After the rider pans or zooms, leave the camera alone for this long. */
@@ -54,6 +57,7 @@ export const RideMap = memo(function RideMap(props: RideMapProps) {
       target={heading === 'dropoff' ? dropoff : pickup}
       heading={heading}
       bottomInset={bottomInset}
+      service={props.service}
     />
   );
 });

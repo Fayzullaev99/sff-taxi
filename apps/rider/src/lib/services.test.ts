@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CargoClassRules } from '../api/types';
 import {
+  carAwayLabel,
   cargoClassFor,
   cargoFits,
   cargoLimitsText,
@@ -118,5 +119,14 @@ describe('the ride screen for cargo and parcels', () => {
       }),
     ).toBe('Hujjatlar, 1 kg → Aziz');
     expect(loadLine({ service: 'taxi' })).toBeNull();
+  });
+});
+
+describe('carAwayLabel', () => {
+  it('names the car coming by service (QA wave 4: a Damas was "Taksi")', () => {
+    expect(carAwayLabel('cargo')).toBe('Yuk mashinasi sizdan');
+    expect(carAwayLabel('delivery')).toBe('Mashina sizdan');
+    expect(carAwayLabel('taxi')).toBe('Taksi sizdan');
+    expect(carAwayLabel(undefined)).toBe('Taksi sizdan');
   });
 });

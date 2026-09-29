@@ -269,6 +269,7 @@ function LiveRide({
           trail={track}
           heading={screen.heading}
           bottomInset={panelHeight}
+          service={ride.service}
         />
       )}
       <TopBar ride={ride} overMap />

@@ -181,3 +181,10 @@ export function loadLine(ride: {
   }
   return null;
 }
+
+/** "Taksi sizdan 180 m" on the way to the pickup, in the words of the service. */
+export function carAwayLabel(service: RideService | undefined): string {
+  if (service === 'cargo') return 'Yuk mashinasi sizdan';
+  if (service === 'delivery') return 'Mashina sizdan';
+  return 'Taksi sizdan';
+}

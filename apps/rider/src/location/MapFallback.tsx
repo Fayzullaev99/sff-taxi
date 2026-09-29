@@ -1,4 +1,6 @@
 import Constants from 'expo-constants';
+import type { RideService } from '../api/types';
+import { carAwayLabel } from '../lib/services';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import { canShowNativeMap, parseCoordinate } from '../lib/map-support';
@@ -153,11 +155,13 @@ export function RideMapFallback({
   target,
   heading,
   bottomInset,
+  service,
 }: {
   car: LatLng | null;
   target: LatLng;
   heading: 'pickup' | 'dropoff' | null;
   bottomInset: number;
+  service?: RideService;
 }) {
   const away = car && heading ? distanceM(car, target) : null;
   return (
@@ -167,7 +171,7 @@ export function RideMapFallback({
       </View>
       {away !== null ? (
         <T variant="h3" style={styles.center}>
-          {heading === 'pickup' ? 'Taksi sizdan' : 'Manzilgacha'} {formatDistance(away)}
+          {heading === 'pickup' ? carAwayLabel(service) : 'Manzilgacha'} {formatDistance(away)}
         </T>
       ) : null}
     </View>
