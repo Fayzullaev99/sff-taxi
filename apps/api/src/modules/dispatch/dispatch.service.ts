@@ -688,8 +688,18 @@ export class DispatchService {
         .execute(),
       this.rides.adminList({ status: 'open' }),
     ]);
+    // a car carrying several riders who share comes once per ride: one row per driver
+    const byDriver = new Map<string, (typeof drivers)[number] & { rideIds: string[] }>();
+    for (const d of drivers) {
+      const seen = byDriver.get(d.id);
+      if (seen) {
+        if (d.rideId) seen.rideIds.push(d.rideId);
+      } else {
+        byDriver.set(d.id, { ...d, rideIds: d.rideId ? [d.rideId] : [] });
+      }
+    }
     return {
-      drivers: drivers.map((d) => ({
+      drivers: [...byDriver.values()].map((d) => ({
         ...d,
         state: d.rideId ? 'busy' : d.offeredRideId ? 'offered' : 'free',
       })),
