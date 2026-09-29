@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  alongParams,
+  alongRouteParams,
   bookingCancelledText,
   bookingCancelTerms,
   bookingPrice,
@@ -141,5 +143,81 @@ describe('intercity cancellation rules from the API', () => {
     expect(cancelRuleText({ freeCancelMinutes: 90, lateCancelFeePercent: 25 })).toContain(
       '90 daqiqa',
     );
+  });
+});
+
+describe('deposits on the trip board', () => {
+  const departure = '2026-09-30T10:00:00Z';
+  it('refunds a paid deposit in the free time and keeps it later', () => {
+    const early = bookingCancelTerms(
+      departure,
+      70_000,
+      new Date('2026-09-30T08:00:00Z'),
+      undefined,
+      {
+        deposit: 14_000,
+      },
+    );
+    expect(early.fee).toBe(0);
+    expect(early.message).toContain('qaytariladi');
+    const late = bookingCancelTerms(
+      departure,
+      70_000,
+      new Date('2026-09-30T09:30:00Z'),
+      undefined,
+      {
+        deposit: 14_000,
+      },
+    );
+    expect(late.fee).toBe(14_000);
+    expect(late.message).toContain('haydovchiga qoladi');
+  });
+
+  it('cancels an unpaid booking for free and explains a system cancellation', () => {
+    expect(
+      bookingCancelTerms(departure, 70_000, new Date('2026-09-30T09:30:00Z'), undefined, {
+        unpaid: true,
+      }),
+    ).toEqual({
+      fee: 0,
+      freeUntil: null,
+      message: 'Depozit hali to‘lanmagan: bekor qilish bepul.',
+    });
+    expect(
+      bookingCancelledText({
+        status: 'cancelled',
+        cancelledBy: 'system',
+        cancelReason: null,
+        cancellationFee: 0,
+        depositAmount: 14_000,
+      }),
+    ).toContain('Depozit o‘z vaqtida to‘lanmadi');
+  });
+});
+
+describe('a seat along the way', () => {
+  const trip = {
+    alongTheWay: true,
+    pickup: { slug: 'guliston', nameUz: 'Guliston' },
+    dropoff: { slug: 'sirdaryo', nameUz: 'Sirdaryo' },
+    price: { rear: 25_000, front: 28_000 },
+  };
+
+  it('carries the rider’s towns and part price to the trip screen and back', () => {
+    const params = alongRouteParams(trip);
+    expect(params).toMatchObject({ along: '1', from: 'guliston', to: 'sirdaryo', rear: '25000' });
+    expect(alongParams(params)).toEqual({
+      from: 'guliston',
+      to: 'sirdaryo',
+      fromName: 'Guliston',
+      toName: 'Sirdaryo',
+      prices: { rear: 25_000, front: 28_000 },
+    });
+  });
+
+  it('carries nothing for a direct trip and ignores broken params', () => {
+    expect(alongRouteParams({ ...trip, alongTheWay: false })).toEqual({});
+    expect(alongParams({})).toBeNull();
+    expect(alongParams({ along: '1', from: 'a', to: 'b', rear: 'x', front: '1' })).toBeNull();
   });
 });

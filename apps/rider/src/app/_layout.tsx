@@ -134,6 +134,7 @@ function Screens() {
       <Stack.Screen name="search" options={{ title: 'Qayerga?', animation: 'slide_from_bottom' }} />
       <Stack.Screen name="pick-on-map" options={{ title: 'Xaritada belgilang' }} />
       <Stack.Screen name="order" options={{ title: 'Tarifni tanlang' }} />
+      <Stack.Screen name="cargo" options={{ title: 'Yuk tashish' }} />
       <Stack.Screen
         name="ride/[id]"
         options={{ headerShown: false, gestureEnabled: false, title: 'Safar' }}

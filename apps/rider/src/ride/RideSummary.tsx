@@ -4,13 +4,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSupport } from '../api/support';
 import type { Ride } from '../api/types';
 import { canComplain } from '../lib/complaints';
-import { cancellationFeeNote, CLASS_LABELS, fareLines, OWED_FEE_LABEL } from '../lib/fare';
+import { cancellationFeeNote, fareLines, OWED_FEE_LABEL } from '../lib/fare';
 import { POOL_DISCOUNT_LABEL } from '../lib/sharing';
+import { classLabel, isCargoClass, loadLine, SERVICE_NAMES, serviceTitle } from '../lib/services';
 import { driverGivenName, formatDateTime, formatMoney, placeLine } from '../lib/format';
 import { callPhone, openLink } from '../lib/links';
 import { cardMoneyNote } from '../lib/payment';
 import { cancelledText, rideScreen } from '../lib/ride-state';
-import { updateDraft } from '../trip/draft';
+import { orderPath, updateDraft } from '../trip/draft';
 import { Banner, Button, Card, Divider, KeyValue, T } from '../ui/primitives';
 import { colors, space } from '../ui/theme';
 import { RatingForm } from './RatingForm';
@@ -48,11 +49,20 @@ export function RideSummary({ ride }: { ride: Ride }) {
       landmark: ride.pickup.landmark ?? '',
       comment: ride.comment ?? '',
       options: ride.options,
-      rideClass: ride.class,
+      ...(isCargoClass(ride.class) ? { cargoClass: ride.class } : { rideClass: ride.class }),
+      service: ride.service ?? 'taxi',
+      ...(ride.cargo
+        ? {
+            loaders: ride.cargo.loaders,
+            riderRides: ride.cargo.riderRides,
+            loadDescription: ride.cargo.description ?? '',
+            loadWeight: ride.cargo.weightKg ? String(ride.cargo.weightKg) : '',
+          }
+        : {}),
       scheduledFor: null,
       moveMap: { lat: ride.pickup.lat, lng: ride.pickup.lng, key: Date.now() },
     });
-    router.replace('/order');
+    router.replace(orderPath(ride.service ?? 'taxi'));
   };
 
   const openComplaint = (type?: 'lost_item') =>
@@ -67,11 +77,17 @@ export function RideSummary({ ride }: { ride: Ride }) {
     >
       <View style={styles.head}>
         <T variant="h1" accessibilityRole="header">
-          {screen.title}
+          {serviceTitle(ride.service, screen.phase, screen.title)}
         </T>
         <T variant="small" color={colors.textMuted}>
-          #{ride.number} · {formatDateTime(ride.requestedAt)} · {CLASS_LABELS[ride.class]}
+          {ride.service && ride.service !== 'taxi' ? `${SERVICE_NAMES[ride.service]} · ` : ''}#
+          {ride.number} · {formatDateTime(ride.requestedAt)} · {classLabel(ride.class)}
         </T>
+        {loadLine(ride) ? (
+          <T variant="small" color={colors.textMuted} numberOfLines={3}>
+            {loadLine(ride)}
+          </T>
+        ) : null}
       </View>
 
       {!completed ? (

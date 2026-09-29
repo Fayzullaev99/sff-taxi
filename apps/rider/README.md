@@ -69,6 +69,23 @@ React is hoisted to the repo root by another workspace later.
   through, `fare.pays`, "Hamroh chegirmasi") updated live (`ride.changed`, `pool_joined` /
   `pool_left` pushes), a ride for later's deposit ("Oldindan to‘lov (depozit)", the cash left).
   All fields optional: an older API gets the plain order.
+- **Cargo and delivery** ([src/lib/services.ts](src/lib/services.ts), [src/app/cargo.tsx](src/app/cargo.tsx),
+  [src/order/ParcelFields.tsx](src/order/ParcelFields.tsx)): a Taksi · Yuk · Yetkazish switch on
+  the map (taxi by default, the choice kept; `/config` may switch a service off). Cargo: small
+  / medium class cards with their payload, included km and loading minutes, loaders 0–2, "o‘zim
+  ham boraman", the load's description and weight (checked against the class, a heavier load
+  moves to the class that takes it). Delivery: the taxi price screen with the parcel (weight up
+  to the quote's limit) and the recipient's name and phone (validated). The ride screen, the
+  summary and the history speak of a cargo car or a parcel ("Yuk mashinasi yo‘lda", "Posilka
+  yo‘lda"), show the load / parcel and the recipient.
+- **Deposits**: a ride for later shows its deposit and the rules before ordering (the quote's
+  `deposit`: amount per class, free cancellation 60 min before); the order answers
+  `awaiting_payment` and the ride screen takes the deposit with the card-payment panel ("Oldindan
+  to‘lov (depozit)", the cash left); cancelling in time refunds it, later it is the driver's.
+  Trip-board seats the same (`depositRules`, `depositAmount` / `payCash`, the booking's
+  payment); unpaid bookings are listed as "Depozit kutilmoqda". Board search shows trips along
+  the way (the rider's part priced, the whole trip's price apart) and books them with `from` /
+  `to`.
 - **Card rides** ([src/lib/payment.ts](src/lib/payment.ts), [src/ride/PaymentPanel.tsx](src/ride/PaymentPanel.tsx)):
   the order answers `awaiting_payment` with `payment.checkout.{payme,click}`; the ride screen
   shows the amount and the 10-minute window and opens the provider's page with

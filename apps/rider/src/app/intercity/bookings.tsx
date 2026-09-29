@@ -10,6 +10,7 @@ import { EmptyView, ErrorView, LoadingView } from '../../ui/states';
 import { colors, radius, space } from '../../ui/theme';
 
 const STATUS_COLOR: Record<IntercityBooking['status'], string> = {
+  awaiting_payment: colors.warning,
   booked: colors.success,
   boarded: colors.info,
   completed: colors.textMuted,

@@ -6,7 +6,7 @@ import { useGeoConfig } from '../api/queries';
 import { parseSaveTarget, saveTitle } from '../lib/places';
 import { coordinatesLabel, DEFAULT_CENTER, describePoint } from '../location/geo';
 import { PointPicker } from '../location/PointPicker';
-import { choosePickup, updateDraft, useDraft } from '../trip/draft';
+import { choosePickup, updateDraft, useDraft, getDraft, orderPath } from '../trip/draft';
 import { savePicked } from '../trip/places-store';
 import { Button, T } from '../ui/primitives';
 import { colors, space } from '../ui/theme';
@@ -61,7 +61,7 @@ export default function PickOnMapScreen() {
       return;
     }
     updateDraft({ dropoff: { ...point, address: title } });
-    router.replace('/order');
+    router.replace(orderPath(getDraft().service));
   };
 
   const title = save ? saveTitle(save) : field === 'pickup' ? 'Olib ketish joyi' : 'Borish manzili';

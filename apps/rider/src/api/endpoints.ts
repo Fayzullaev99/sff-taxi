@@ -2,6 +2,7 @@ import { api, setSession } from './session';
 import type {
   AppConfig,
   BookInput,
+  CargoQuote,
   CodeRequested,
   Complaint,
   ComplaintListItem,
@@ -90,13 +91,33 @@ export const endpoints = {
     dropoff: LatLng,
     options: RideOption[],
     scheduledFor: string | null = null,
+    service: 'taxi' | 'delivery' = 'taxi',
   ) =>
     api.request<Quote>('/v1/rides/quote', {
       method: 'POST',
       body: {
         pickup: { lat: pickup.lat, lng: pickup.lng },
         dropoff: { lat: dropoff.lat, lng: dropoff.lng },
-        options,
+        // a delivery has no options (the parcel rides alone); older APIs: no service field
+        options: service === 'delivery' ? [] : options,
+        scheduledFor,
+        ...(service === 'delivery' ? { service } : {}),
+      },
+    }),
+  /** A cargo quote: both cargo classes priced with the loaders asked for. */
+  cargoQuote: (
+    pickup: LatLng,
+    dropoff: LatLng,
+    cargo: { loaders: number; riderRides: boolean },
+    scheduledFor: string | null = null,
+  ) =>
+    api.request<CargoQuote>('/v1/rides/quote', {
+      method: 'POST',
+      body: {
+        pickup: { lat: pickup.lat, lng: pickup.lng },
+        dropoff: { lat: dropoff.lat, lng: dropoff.lng },
+        service: 'cargo',
+        cargo,
         scheduledFor,
       },
     }),

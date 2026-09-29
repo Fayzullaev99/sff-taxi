@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'reac
 import MapView, { type Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  useAppConfig,
   useCurrentRide,
   useGeoConfig,
   useMe,
@@ -26,6 +27,8 @@ import {
 } from '../lib/places';
 import { isOpenStatus } from '../lib/ride-state';
 import { routeChips } from '../lib/sharing';
+import { SERVICE_LABELS, serviceOn } from '../lib/services';
+import type { RideService } from '../api/types';
 import { useAppActive } from '../lib/use-app-active';
 import { isGoodFix, MOVE_THRESHOLD_M, PRECISE } from '../location/fix';
 import { DEFAULT_CENTER, describePoint, knownPoint } from '../location/geo';
@@ -33,7 +36,7 @@ import { HomeMapFallback, NATIVE_MAP } from '../location/MapFallback';
 import { Attribution, mapTypeFor, ServiceAreas, TileLayer } from '../location/map-layers';
 import { areaNotice } from '../location/service-area';
 import { type Located, LocationNotice, useLocator } from '../location/useLocator';
-import { getDraft, updateDraft, useDraft } from '../trip/draft';
+import { getDraft, orderPath, updateDraft, useDraft } from '../trip/draft';
 import { usePlaces } from '../trip/places-store';
 import { markRideShown, wasRideShown } from '../trip/shown-rides';
 import { Banner, Button, Chip, Icon, IconButton, T } from '../ui/primitives';
@@ -61,6 +64,9 @@ export default function HomeScreen() {
   const current = useCurrentRide();
   const scheduled = useScheduledRides().data ?? [];
   const intercityOn = useFeature('intercity');
+  const features = useAppConfig().data?.features as Record<string, unknown> | undefined;
+  const services = SERVICES.filter((sv) => serviceOn(sv, features));
+  const service = services.includes(draft.service) ? draft.service : 'taxi';
   const focused = useIsFocused();
   const active = useAppActive();
   const [moving, setMoving] = useState(false);
@@ -221,7 +227,7 @@ export default function HomeScreen() {
 
   const goPlace = (place: { lat: number; lng: number; address: string | null }) => {
     updateDraft({ dropoff: place });
-    router.push('/order');
+    router.push(orderPath(getDraft().service));
   };
 
   const goSaved = (kind: SavedKind) => {
@@ -354,9 +360,25 @@ export default function HomeScreen() {
           )}
         </View>
 
-        <T variant="h2" accessibilityRole="header" numberOfLines={1}>
-          {name ? `Salom, ${name}!` : 'Qayerga boramiz?'}
-        </T>
+        {/* the service switch takes the greeting's place: the panel stays as tall */}
+        {services.length <= 1 ? (
+          <T variant="h2" accessibilityRole="header" numberOfLines={1}>
+            {name ? `Salom, ${name}!` : 'Qayerga boramiz?'}
+          </T>
+        ) : (
+          <ServiceSwitch
+            services={services}
+            value={service}
+            onChange={(next) =>
+              updateDraft(
+                next === 'taxi'
+                  ? { service: next }
+                  : // cargo and parcels: no shared seat of a town route
+                    { service: next, fareMode: 'car', shareable: false },
+              )
+            }
+          />
+        )}
 
         <Pressable
           accessibilityRole="button"
@@ -390,7 +412,7 @@ export default function HomeScreen() {
         {notice ? <Banner tone="warning" title={notice.title} message={notice.message} /> : null}
 
         <Button
-          title="Qayerga?"
+          title={WHERE_TO[service]}
           size="lg"
           icon="search"
           disabled={!canOrder}
@@ -431,7 +453,7 @@ export default function HomeScreen() {
               }}
             />
           ))}
-          {routes.map((r) => (
+          {(service === 'taxi' ? routes : []).map((r) => (
             <Chip
               key={r.key}
               icon="swap-horizontal"
@@ -458,6 +480,57 @@ export default function HomeScreen() {
           ) : null}
         </ScrollView>
       </View>
+    </View>
+  );
+}
+
+const SERVICES: readonly RideService[] = ['taxi', 'cargo', 'delivery'];
+
+const WHERE_TO: Record<RideService, string> = {
+  taxi: 'Qayerga?',
+  cargo: 'Yukni qayerga?',
+  delivery: 'Posilkani qayerga?',
+};
+
+const SERVICE_ICONS = {
+  taxi: 'car-sport-outline',
+  cargo: 'cube-outline',
+  delivery: 'mail-outline',
+} as const;
+
+/**
+ * Taxi · Yuk · Yetkazish: one compact row over "Qayerga?". Taxi stays the default, so
+ * the two-tap taxi order is untouched; the choice is remembered in the draft.
+ */
+function ServiceSwitch({
+  services,
+  value,
+  onChange,
+}: {
+  services: readonly RideService[];
+  value: RideService;
+  onChange: (service: RideService) => void;
+}) {
+  return (
+    <View style={styles.services} accessibilityRole="tablist">
+      {services.map((sv) => {
+        const on = sv === value;
+        return (
+          <Pressable
+            key={sv}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={SERVICE_LABELS[sv]}
+            onPress={() => onChange(sv)}
+            style={[styles.service, on ? styles.serviceOn : null]}
+          >
+            <Icon name={SERVICE_ICONS[sv]} size={18} color={colors.ink} />
+            <T variant="smallStrong" numberOfLines={1}>
+              {SERVICE_LABELS[sv]}
+            </T>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -608,6 +681,24 @@ const styles = StyleSheet.create({
     minHeight: 56,
   },
   dot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: colors.ink },
+  services: {
+    flexDirection: 'row',
+    gap: space(1),
+    padding: 3,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+  },
+  service: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space(1.5),
+    minHeight: 44,
+    paddingHorizontal: space(2),
+    borderRadius: radius.pill,
+  },
+  serviceOn: { backgroundColor: colors.brand },
   chipsScroll: { marginHorizontal: -space(4) },
   chips: { gap: space(2), paddingHorizontal: space(4) },
 });

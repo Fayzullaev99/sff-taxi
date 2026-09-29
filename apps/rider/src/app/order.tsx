@@ -1,12 +1,9 @@
-import { useQueryClient } from '@tanstack/react-query';
-import * as Crypto from 'expo-crypto';
-import { router } from 'expo-router';
-import { memo, useEffect, useRef, useState } from 'react';
+import { router, Stack } from 'expo-router';
+import { memo, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ApiError, describeError, isOffline } from '../api/client';
-import { endpoints } from '../api/endpoints';
-import { keys, useAppConfig, useQuote, useTariffAt } from '../api/queries';
+import { ApiError, describeError } from '../api/client';
+import { useAppConfig, useQuote, useTariffAt } from '../api/queries';
 import { useFeature } from '../api/support';
 import type { Quote, RideClass } from '../api/types';
 import {
@@ -16,19 +13,19 @@ import {
   quoteOwedFee,
   seatShareText,
 } from '../lib/fare';
-import { formatDateTime, formatDistance, formatMinutes, formatMoney } from '../lib/format';
-import { OrderAttempts, orderKey } from '../lib/order-attempt';
+import { formatDateTime, formatDistance, formatMoney } from '../lib/format';
 import { cardLabel } from '../lib/payment';
 import { availabilityText } from '../lib/ride-state';
 import { schedulable, SCHEDULE_DISPATCH_BEFORE_MIN } from '../lib/schedule';
-import { askForPushAfterOrder } from '../notifications/push';
 import { OrderOptions } from '../order/OrderOptions';
 import { PassengersRow, RouteModeChoice, SharingRows } from '../order/RideChoices';
-import { orderChoices, quoteDeposit, routePrices, seatTotal, sharedFloor } from '../lib/sharing';
+import { orderChoices, routePrices, seatTotal, sharedFloor } from '../lib/sharing';
+import { RIDE_FREE_CANCEL_MINUTES, rideDeposit, rideDepositRules } from '../lib/deposit';
+import { ParcelFields, parcelErrors } from '../order/ParcelFields';
+import { useOrderSubmit } from '../order/useOrderSubmit';
+import { RouteCard } from '../order/RouteCard';
 import { ScheduleSheet } from '../ride/ScheduleSheet';
-import { resetAfterOrder, toggleOption, updateDraft, useDraft } from '../trip/draft';
-import { refreshRecentPlaces } from '../trip/places-store';
-import { markRideShown } from '../trip/shown-rides';
+import { toggleOption, updateDraft, useDraft } from '../trip/draft';
 import { Banner, Button, Card, Icon, Segmented, T, TextField } from '../ui/primitives';
 import { ErrorView, Skeleton } from '../ui/states';
 import { colors, radius, space } from '../ui/theme';
@@ -46,25 +43,32 @@ const selectClass = (rideClass: RideClass) => updateDraft({ rideClass });
  */
 export default function OrderScreen() {
   const insets = useSafeAreaInsets();
-  const queryClient = useQueryClient();
   const draft = useDraft();
   const { pickup, dropoff } = draft;
   const later = draft.scheduledFor;
-  const quote = useQuote(pickup, dropoff, draft.options, later);
+  // a parcel carried by a taxi car is priced here too; cargo has its own screen
+  const delivery = draft.service === 'delivery';
+  const quote = useQuote(
+    pickup,
+    dropoff,
+    draft.options,
+    later,
+    delivery ? 'delivery' : 'taxi',
+    draft.service !== 'cargo',
+  );
+  const [triedOrder, setTriedOrder] = useState(false);
   const tariff = useTariffAt(pickup);
   const config = useAppConfig().data;
   const schedulingOn = useFeature('scheduledRides');
-  const attempts = useRef(new OrderAttempts(() => Crypto.randomUUID())).current;
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const order = useOrderSubmit(() => void quote.refetch());
+  const { busy, error, setError, leaving } = order;
   const [pickingTime, setPickingTime] = useState(false);
-  /** Set once the order went through: the draft is reset while this screen leaves. */
-  const leaving = useRef(false);
 
   // nothing to price (the app was restored here): back to the map
   useEffect(() => {
     if (!leaving.current && (!pickup || !dropoff)) router.replace('/home');
-  }, [pickup, dropoff]);
+    else if (!leaving.current && draft.service === 'cargo') router.replace('/cargo');
+  }, [pickup, dropoff, draft.service]);
 
   const q = quote.data;
   // the previous quote stays on screen while a new one loads (other options, another
@@ -95,7 +99,13 @@ export default function OrderScreen() {
       ? seatTotal(seatPrice, choices!.passengers, fare.options)
       : fare.total
     : null;
-  const deposit = later && fare ? quoteDeposit(q?.deposit, tripPrice ?? fare.total) : null;
+  // a ride for later is booked with part of the price paid by card (the quote's rules)
+  const deposit =
+    later && fare
+      ? rideDeposit(q?.deposit, draft.rideClass, tripPrice ?? fare.total, fare.total)
+      : null;
+  const maxParcelKg = q?.delivery?.maxWeightKg ?? 10;
+  const parcel = delivery ? parcelErrors(draft, maxParcelKg) : null;
   // rides for later are cash only (for now); shared rides too (a prepayment cannot be split)
   const cardAvailable = !later && !shared && (q?.paymentMethods.includes('card') ?? false);
   // the quote says which providers take this payment; /config and /tariffs for older APIs
@@ -113,6 +123,13 @@ export default function OrderScreen() {
     if (!pickup || !dropoff || busy) return;
     if (later && !schedulable(later, new Date())) {
       setError('Tanlangan vaqt juda yaqin qoldi. Boshqa vaqtni tanlang.');
+      return;
+    }
+    if (parcel && !parcel.ok) {
+      setTriedOrder(true);
+      setError(
+        parcel.weight.error ?? parcel.recipient.nameError ?? parcel.recipient.phoneError ?? null,
+      );
       return;
     }
     const terms = orderChoices(
@@ -133,7 +150,16 @@ export default function OrderScreen() {
       pickup: { address: pickup.address, landmark: draft.landmark.trim() || null },
       dropoff: { address: dropoff.address, landmark: null },
       comment: draft.comment.trim() || null,
-      ...(wave4
+      ...(parcel
+        ? {
+            parcel: {
+              description: draft.parcelDescription.trim() || null,
+              weightKg: parcel.weight.kg,
+            },
+            recipient: { name: parcel.recipient.name, phone: parcel.recipient.phone! },
+          }
+        : {}),
+      ...(wave4 && !delivery
         ? {
             passengers: terms.passengers,
             shareable: terms.shareable,
@@ -142,55 +168,7 @@ export default function OrderScreen() {
           }
         : {}),
     };
-    const clientRequestId = attempts.idFor(orderKey(input));
-    setBusy(true);
-    setError(null);
-    try {
-      const { data: ride } = await endpoints.order({ ...input, clientRequestId });
-      attempts.settle('created');
-      refreshRecentPlaces();
-      queryClient.setQueryData(keys.ride(ride.id), ride);
-      // a ride for later does not block riding now: it is not the current ride
-      if (ride.status === 'scheduled') {
-        void queryClient.invalidateQueries({ queryKey: keys.scheduled });
-      } else {
-        queryClient.setQueryData(keys.currentRide, ride);
-      }
-      void queryClient.invalidateQueries({ queryKey: keys.history });
-      leaving.current = true;
-      markRideShown(ride.id);
-      router.replace({ pathname: '/ride/[id]', params: { id: ride.id } });
-      resetAfterOrder();
-      void askForPushAfterOrder();
-    } catch (e) {
-      if (isOffline(e)) {
-        // the ride may exist: the same clientRequestId on retry returns it, never a second one
-        attempts.settle('unknown');
-        setError('Aloqa yo‘q. Qayta bosing — buyurtma ikki marta tushmaydi.');
-      } else if (e instanceof ApiError && e.status === 409) {
-        attempts.settle('rejected');
-        const rideId = (e.body as { rideId?: unknown } | null)?.rideId;
-        if (typeof rideId === 'string') {
-          leaving.current = true;
-          markRideShown(rideId);
-          router.replace({ pathname: '/ride/[id]', params: { id: rideId } });
-          return;
-        }
-        setError(describeError(e));
-      } else if (e instanceof ApiError && (e.status === 404 || e.status === 410)) {
-        attempts.settle('rejected');
-        setError('Narx yangilandi, qaytadan tasdiqlang.');
-        void quote.refetch();
-      } else if (e instanceof ApiError && e.status >= 500) {
-        attempts.settle('unknown');
-        setError(describeError(e));
-      } else {
-        attempts.settle('rejected');
-        setError(describeError(e));
-      }
-    } finally {
-      setBusy(false);
-    }
+    await order.submit(input);
   };
 
   if (!pickup || !dropoff) return null;
@@ -201,37 +179,15 @@ export default function OrderScreen() {
 
   return (
     <KeyboardAvoider style={styles.root} keyboardVerticalOffset={90}>
+      {delivery ? <Stack.Screen options={{ title: 'Yetkazib berish' }} /> : null}
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Card style={styles.route}>
-          <RoutePoint
-            color={colors.brand}
-            label="QAYERDAN"
-            text={pickup.address ?? 'Xaritadagi pin'}
-            onPress={() => router.dismissTo('/home')}
-          />
-          <TextField
-            placeholder="Mo‘ljal: 5-maktab ro‘parasi, yashil darvoza"
-            accessibilityLabel="Mo‘ljal, haydovchi uchun"
-            value={draft.landmark}
-            onChangeText={(landmark) => updateDraft({ landmark })}
-            maxLength={200}
-            returnKeyType="done"
-            style={styles.landmark}
-          />
-          <View style={styles.routeLine} />
-          <RoutePoint
-            color={colors.ink}
-            label="QAYERGA"
-            text={dropoff.address ?? 'Xaritadagi pin'}
-            onPress={() => router.replace({ pathname: '/search', params: { field: 'dropoff' } })}
-          />
-          {q ? (
-            <T variant="small" color={colors.textMuted} style={styles.routeMeta}>
-              {formatDistance(q.distanceM)}
-              {q.durationS ? ` · yo‘lda ~${formatMinutes(q.durationS / 60)}` : ''}
-            </T>
-          ) : null}
-        </Card>
+        <RouteCard
+          pickup={pickup}
+          dropoff={dropoff}
+          landmark={draft.landmark}
+          distanceM={q?.distanceM}
+          durationS={q?.durationS}
+        />
 
         {schedulingOn ? (
           <View style={styles.when}>
@@ -382,18 +338,24 @@ export default function OrderScreen() {
           </>
         ) : null}
 
-        <T variant="h3" accessibilityRole="header" style={styles.section}>
-          Qo‘shimcha
-        </T>
-        <OrderOptions selected={draft.options} prices={optionPrices} onToggle={toggleOption}>
-          {q && wave4 && choices ? (
-            <>
-              <PassengersRow quote={q} passengers={choices.passengers} />
-              <SharingRows quote={q} choices={choices} />
-            </>
-          ) : null}
-        </OrderOptions>
-        {draft.options.length ? (
+        {delivery ? (
+          <ParcelFields draft={draft} maxWeightKg={maxParcelKg} showErrors={triedOrder} />
+        ) : (
+          <>
+            <T variant="h3" accessibilityRole="header" style={styles.section}>
+              Qo‘shimcha
+            </T>
+            <OrderOptions selected={draft.options} prices={optionPrices} onToggle={toggleOption}>
+              {q && wave4 && choices ? (
+                <>
+                  <PassengersRow quote={q} passengers={choices.passengers} />
+                  <SharingRows quote={q} choices={choices} />
+                </>
+              ) : null}
+            </OrderOptions>
+          </>
+        )}
+        {!delivery && draft.options.length ? (
           <T variant="small" color={colors.textMuted}>
             Tanlangan qulayliklar mos mashinalarni kamaytiradi — qidiruv biroz uzoqroq bo‘lishi
             mumkin.
@@ -434,11 +396,18 @@ export default function OrderScreen() {
             Hamroh bilan safar hozircha faqat naqd to‘lov bilan.
           </T>
         ) : null}
-        {deposit ? (
-          <T variant="small" color={colors.textMuted}>
-            Oldindan buyurtma uchun {formatMoney(deposit)} oldindan to‘lov (depozit) kartadan
-            olinadi, qolgani naqd. O‘z vaqtida bekor qilsangiz, depozit qaytariladi.
-          </T>
+        {deposit && tripPrice !== null ? (
+          <Banner
+            tone="info"
+            icon="card-outline"
+            title="Oldindan to‘lov (depozit)"
+            message={rideDepositRules(
+              deposit,
+              tripPrice,
+              later,
+              q?.deposit?.freeCancelMinutes ?? RIDE_FREE_CANCEL_MINUTES,
+            )}
+          />
         ) : null}
         {draft.paymentMethod === 'card' && cardAvailable ? (
           <T variant="small" color={colors.textMuted}>
@@ -446,7 +415,7 @@ export default function OrderScreen() {
             so‘ng haydovchi qidiriladi. Bekor qilsangiz, pul to‘liq qaytariladi.
           </T>
         ) : null}
-        {later ? (
+        {later && !deposit ? (
           <T variant="small" color={colors.textMuted}>
             Oldindan buyurtma hozircha faqat naqd to‘lov bilan.
           </T>
@@ -466,6 +435,7 @@ export default function OrderScreen() {
           <View style={styles.summary} accessible accessibilityRole="summary">
             <View style={styles.flex}>
               <T variant="bodyStrong" numberOfLines={1}>
+                {delivery ? 'Posilka · ' : ''}
                 {CLASS_LABELS[draft.rideClass]}
                 {later ? ` · ${formatDateTime(later)}` : ''}
               </T>
@@ -537,38 +507,6 @@ function footerNote(n: {
   }
   if (n.womenOnly) return 'Ayol haydovchi';
   return n.availability ?? 'Narx o‘zgarmaydi';
-}
-
-function RoutePoint({
-  color,
-  label,
-  text,
-  onPress,
-}: {
-  color: string;
-  label: string;
-  text: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${label === 'QAYERDAN' ? 'Qayerdan' : 'Qayerga'}: ${text}. O‘zgartirish`}
-      onPress={onPress}
-      style={({ pressed }) => [styles.routePoint, pressed ? { opacity: 0.6 } : null]}
-    >
-      <View style={[styles.dot, { backgroundColor: color }]} />
-      <View style={styles.flex}>
-        <T variant="caption" color={colors.textMuted}>
-          {label}
-        </T>
-        <T variant="bodyStrong" numberOfLines={2}>
-          {text}
-        </T>
-      </View>
-      <Icon name="create-outline" size={18} color={colors.textMuted} />
-    </Pressable>
-  );
 }
 
 const ClassCard = memo(function ClassCard({

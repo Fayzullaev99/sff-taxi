@@ -11,6 +11,7 @@ import type {
   RideStatus,
   WaitingRule,
 } from '../api/types';
+import { rideDepositCancel } from './deposit';
 import { formatDistance, formatMoney } from './format';
 
 /** A ride's waiting and cancellation rules, as the countdowns and the cancel sheet use them. */
@@ -166,10 +167,26 @@ export function cancelTerms(
     cancelFeeNow: number;
     paymentStatus?: string;
     paymentMethod?: string;
+    scheduledFor?: string | null;
+    fare?: { deposit?: number };
   },
   rules: { waiting: WaitingRule; cancellationFee: number } | null,
   now: Date,
 ): CancelTerms {
+  const deposit = ride.fare?.deposit ?? 0;
+  // a ride for later held by a paid deposit, before a driver took it: refunded in time,
+  // later it is the waiting driver's
+  if (
+    deposit > 0 &&
+    ride.paymentStatus === 'paid' &&
+    (ride.status === 'scheduled' || ride.status === 'searching')
+  ) {
+    const d = rideDepositCancel(deposit, ride.scheduledFor ?? null, now);
+    return {
+      fee: d.refund ? 0 : deposit,
+      message: `${ride.status === 'scheduled' ? 'Oldindan buyurtmani bekor qilish.' : 'Haydovchi hali topilmadi.'} ${d.message}`,
+    };
+  }
   const terms = baseCancelTerms(ride, rules, now);
   if (terms.fee > 0 && ride.paymentMethod === 'cash') {
     // the API keeps a cash ride's fee owed until the rider's next cash ride collects it
@@ -179,7 +196,7 @@ export function cancelTerms(
     };
   }
   // a prepaid card ride is refunded in full (a fee, if any, is owed to the driver apart)
-  return ride.paymentStatus === 'paid'
+  return ride.paymentStatus === 'paid' && deposit <= 0
     ? { ...terms, message: `${terms.message} Karta orqali to‘langan pul to‘liq qaytariladi.` }
     : terms;
 }

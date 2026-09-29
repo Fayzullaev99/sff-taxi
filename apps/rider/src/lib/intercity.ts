@@ -79,12 +79,36 @@ export function bookingCancelTerms(
   price: number,
   now: Date,
   rules: CancelRules = DEFAULT_CANCEL_RULES,
-  server: { freeUntil?: string | null; feeNow?: number | null } = {},
+  server: {
+    freeUntil?: string | null;
+    feeNow?: number | null;
+    /** A paid deposit: refunded in the free time, later kept (instead of the fee). */
+    deposit?: number;
+    /** Not paid yet: cancelling costs nothing, the seats are released. */
+    unpaid?: boolean;
+  } = {},
 ): BookingCancelTerms {
+  if (server.unpaid) {
+    return { fee: 0, freeUntil: null, message: 'Depozit hali to‘lanmagan: bekor qilish bepul.' };
+  }
   const freeUntil = server.freeUntil
     ? new Date(server.freeUntil)
     : new Date(new Date(departureAt).getTime() - rules.freeCancelMinutes * 60_000);
   const percent = rules.lateCancelFeePercent;
+  const deposit = server.deposit ?? 0;
+  if (deposit > 0) {
+    return now < freeUntil
+      ? {
+          fee: 0,
+          freeUntil,
+          message: `Soat ${formatTime(freeUntil)} gacha bekor qilsangiz, depozit ${formatMoney(deposit)} kartangizga qaytariladi. Keyin u haydovchiga qoladi.`,
+        }
+      : {
+          fee: deposit,
+          freeUntil: null,
+          message: `Jo‘nashga ${rules.freeCancelMinutes} daqiqadan kam qoldi: bekor qilsangiz, depozit ${formatMoney(deposit)} haydovchiga qoladi.`,
+        };
+  }
   if (now < freeUntil) {
     return {
       fee: 0,
@@ -129,6 +153,7 @@ export function searchDates(now: Date, days = 8): DateOption[] {
 }
 
 export const BOOKING_STATUS_LABELS: Record<BookingStatus, string> = {
+  awaiting_payment: 'Depozit kutilmoqda',
   booked: 'Band qilingan',
   boarded: 'Mashinadasiz',
   completed: 'Yetib keldi',
@@ -150,6 +175,7 @@ export function bookingCancelledText(b: {
   cancelledBy: string | null;
   cancelReason: string | null;
   cancellationFee: number;
+  depositAmount?: number;
 }): string | null {
   if (b.status === 'no_show') {
     return 'Mashina jo‘nab ketganda siz yo‘q edingiz: bron yopildi.';
@@ -165,7 +191,54 @@ export function bookingCancelledText(b: {
       return `Haydovchi qatnovni bekor qildi${reason}.`;
     case 'operator':
       return `Operator bronni bekor qildi${reason}.`;
+    case 'system':
+      return (b.depositAmount ?? 0) > 0 && !b.cancelReason
+        ? 'Depozit o‘z vaqtida to‘lanmadi: bron bekor qilindi, joylar bo‘shatildi. Kartadan pul yechilmadi.'
+        : `Bron bekor qilindi${reason}.`;
     default:
       return `Bron bekor qilindi${reason}.`;
   }
+}
+
+/** A search result along the way, carried to the trip screen as route params. */
+export interface AlongChoice {
+  from: string;
+  to: string;
+  fromName: string;
+  toName: string;
+  prices: SeatPrices;
+}
+
+/** Route params for a search result (strings; only along-the-way results carry any). */
+export function alongRouteParams(trip: {
+  alongTheWay?: boolean;
+  pickup?: { slug: string; nameUz: string };
+  dropoff?: { slug: string; nameUz: string };
+  price: SeatPrices;
+}): Record<string, string> {
+  if (!trip.alongTheWay || !trip.pickup || !trip.dropoff) return {};
+  return {
+    along: '1',
+    from: trip.pickup.slug,
+    to: trip.dropoff.slug,
+    fromName: trip.pickup.nameUz,
+    toName: trip.dropoff.nameUz,
+    rear: String(trip.price.rear),
+    front: String(trip.price.front),
+  };
+}
+
+/** Reads those params back; null for a direct trip (or anything malformed). */
+export function alongParams(p: Record<string, string | undefined>): AlongChoice | null {
+  if (p.along !== '1' || !p.from || !p.to) return null;
+  const rear = Number(p.rear);
+  const front = Number(p.front);
+  if (!Number.isFinite(rear) || rear <= 0 || !Number.isFinite(front) || front <= 0) return null;
+  return {
+    from: p.from,
+    to: p.to,
+    fromName: p.fromName ?? p.from,
+    toName: p.toName ?? p.to,
+    prices: { rear, front },
+  };
 }

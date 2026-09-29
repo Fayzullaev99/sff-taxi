@@ -5,7 +5,7 @@ import { useIntercityPoints, useIntercityTrips } from '../../api/queries';
 import type { IntercityPoint, IntercityTrip } from '../../api/types';
 import { CLASS_LABELS } from '../../lib/fare';
 import { formatDistance, formatMoney, formatTime } from '../../lib/format';
-import { MAX_SEATS, searchDates } from '../../lib/intercity';
+import { MAX_SEATS, searchDates, alongRouteParams } from '../../lib/intercity';
 import { Banner, Button, Chip, Icon, IconButton, RadioMark, Stepper, T } from '../../ui/primitives';
 import { formatRating } from '../../ui/Rating';
 import { Sheet } from '../../ui/Sheet';
@@ -136,7 +136,7 @@ export default function IntercityScreen() {
             onPress={() =>
               router.push({
                 pathname: '/intercity/trip/[id]',
-                params: { id: item.id, seats: String(seats) },
+                params: { id: item.id, seats: String(seats), ...alongRouteParams(item) },
               })
             }
           />
@@ -219,7 +219,7 @@ function TripCard({ trip, onPress }: { trip: IntercityTrip; onPress: () => void 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Soat ${formatTime(trip.departureAt)}, ${car}, ${trip.seats.free} ta bo‘sh joy, orqa o‘rindiq ${formatMoney(trip.price.rear)}`}
+      accessibilityLabel={`Soat ${formatTime(trip.departureAt)}${trip.alongTheWay ? ', yo‘l-yo‘lakay' : ''}, ${car}, ${trip.seats.free} ta bo‘sh joy, orqa o‘rindiq ${formatMoney(trip.price.rear)}`}
       onPress={onPress}
       style={({ pressed }) => [styles.card, pressed ? styles.pressed : null]}
     >
@@ -229,6 +229,11 @@ function TripCard({ trip, onPress }: { trip: IntercityTrip; onPress: () => void 
           <T variant="bodyStrong" numberOfLines={1}>
             {trip.from.nameUz} → {trip.to.nameUz}
           </T>
+          {trip.alongTheWay && trip.pickup && trip.dropoff ? (
+            <T variant="smallStrong" color={colors.brandText} numberOfLines={2}>
+              Yo‘l-yo‘lakay: siz {trip.pickup.nameUz} → {trip.dropoff.nameUz}
+            </T>
+          ) : null}
           <T variant="small" color={colors.textMuted} numberOfLines={1}>
             {car} · {CLASS_LABELS[trip.class]} · {formatDistance(trip.distanceM)}
           </T>
@@ -245,6 +250,11 @@ function TripCard({ trip, onPress }: { trip: IntercityTrip; onPress: () => void 
         </View>
         <View style={styles.priceCol}>
           <T variant="price">{formatMoney(trip.price.rear)}</T>
+          {trip.alongTheWay && trip.fullPrice ? (
+            <T variant="caption" color={colors.textMuted}>
+              butun yo‘l {formatMoney(trip.fullPrice.rear)}
+            </T>
+          ) : null}
           {trip.seats.frontFree ? (
             <T variant="caption" color={colors.textMuted}>
               oldinda {formatMoney(trip.price.front)}

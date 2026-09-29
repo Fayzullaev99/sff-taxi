@@ -57,5 +57,10 @@ describe('order attempts', () => {
     expect(orderKey({ ...order, shareable: true })).not.toBe(plain);
     expect(orderKey({ ...order, womenOnly: true })).not.toBe(plain);
     expect(orderKey({ ...order, fareMode: 'seat' })).not.toBe(plain);
+    // a load, a parcel or another recipient is another order too
+    expect(orderKey({ ...order, cargo: { weightKg: 80 } })).not.toBe(plain);
+    expect(orderKey({ ...order, recipient: { name: 'Ali', phone: '+998901234567' } })).not.toBe(
+      plain,
+    );
   });
 });
