@@ -60,7 +60,8 @@ export const driver = {
   /** 403 with `{balance, minBalance}` when the balance is below the minimum. */
   shift: (online: boolean) => api.post<DriverMe>('/v1/driver/shift', { online }),
   /** 422 `{reason}` when the API refuses the fix (see lib/gps-quality). */
-  location: (payload: LocationPayload) => api.post<void>('/v1/driver/location', payload),
+  location: (payload: LocationPayload, timeoutMs?: number) =>
+    api.post<void>('/v1/driver/location', payload, { timeoutMs }),
 
   offers: () => api.get<Offer[]>('/v1/driver/offers'),
   accept: (offerId: string) => api.post<DriverRide>(`/v1/driver/offers/${offerId}/accept`),

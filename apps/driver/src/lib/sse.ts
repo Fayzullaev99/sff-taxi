@@ -1,3 +1,5 @@
+import { backoffMs } from './backoff';
+
 /** One server-sent event. */
 export interface SseMessage {
   event: string;
@@ -63,8 +65,24 @@ export class SseParser {
 
 /** Exponential backoff with jitter: ~1 s, 2 s, 4 s … capped at 30 s. */
 export function reconnectDelayMs(attempt: number, random: number = Math.random()): number {
-  const base = Math.min(30_000, 1_000 * 2 ** Math.max(0, attempt));
-  return Math.round(base * (0.5 + random / 2));
+  return backoffMs(attempt, 1_000, 30_000, random);
+}
+
+/**
+ * The API writes a ping every 25 s (apps/api realtime.module.ts `HEARTBEAT_MS`). Silence
+ * longer than one heartbeat plus a grace period means the link is dead (a mobile network
+ * often drops a connection without closing it): reconnect instead of waiting for TCP.
+ */
+export const SERVER_HEARTBEAT_MS = 25_000;
+export const STREAM_DEAD_AFTER_MS = SERVER_HEARTBEAT_MS + 10_000;
+
+/** Whether the stream has been silent for too long to be trusted. */
+export function streamIsStale(
+  lastMessageAt: number | null,
+  now: number,
+  deadAfterMs: number = STREAM_DEAD_AFTER_MS,
+): boolean {
+  return lastMessageAt === null || now - lastMessageAt > deadAfterMs;
 }
 
 /** Events the API sends a driver (apps/api realtime.publisher.ts); all are nudges to refetch. */
