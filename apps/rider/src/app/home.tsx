@@ -340,26 +340,27 @@ export default function HomeScreen() {
         />
       </View>
 
+      {/* above the panel, not inside it: Android delivers no touches outside a parent's bounds */}
+      <View style={[styles.locate, { bottom: panelHeight + space(4) }]}>
+        {locator.locating ? (
+          <View style={styles.locateSpinner} accessibilityLabel="Joylashuv aniqlanmoqda">
+            <ActivityIndicator color={colors.ink} />
+          </View>
+        ) : (
+          <IconButton
+            name="navigate"
+            label="Mening joylashuvim"
+            size={48}
+            onPress={() => void locator.locateAndReport('precise')}
+            style={shadow.card}
+          />
+        )}
+      </View>
+
       <View
         style={[styles.panel, { paddingBottom: insets.bottom + space(4) }, shadow.bar]}
         onLayout={(e) => setPanelHeight(Math.round(e.nativeEvent.layout.height))}
       >
-        <View style={styles.locate}>
-          {locator.locating ? (
-            <View style={styles.locateSpinner} accessibilityLabel="Joylashuv aniqlanmoqda">
-              <ActivityIndicator color={colors.ink} />
-            </View>
-          ) : (
-            <IconButton
-              name="navigate"
-              label="Mening joylashuvim"
-              size={48}
-              onPress={() => void locator.locateAndReport('precise')}
-              style={shadow.card}
-            />
-          )}
-        </View>
-
         {/* the service switch takes the greeting's place: the panel stays as tall */}
         {services.length <= 1 ? (
           <T variant="h2" accessibilityRole="header" numberOfLines={1}>
@@ -660,7 +661,7 @@ const styles = StyleSheet.create({
     paddingTop: space(4),
     gap: space(3),
   },
-  locate: { position: 'absolute', right: space(4), top: -space(16) },
+  locate: { position: 'absolute', right: space(4) },
   locateSpinner: {
     width: 48,
     height: 48,
