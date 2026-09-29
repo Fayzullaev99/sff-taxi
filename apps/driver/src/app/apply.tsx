@@ -31,6 +31,7 @@ import { Banner, Button, Choice, Field, Muted, SectionTitle, ToggleRow } from '.
 import { haptics } from '../ui/haptics';
 import { Screen } from '../ui/screen';
 import { colors, radius, space } from '../ui/theme';
+import { dateInput } from '../lib/format';
 
 const STEPS = ['Shaxsiy ma’lumotlar', 'Guvohnoma va litsenziya', 'Avtomobil'];
 
@@ -178,8 +179,8 @@ export default function Apply() {
           <Field
             label="Tug‘ilgan sana"
             value={form.birthDate}
-            onChangeText={(v) => set('birthDate', v)}
-            keyboardType="numbers-and-punctuation"
+            onChangeText={(v) => set('birthDate', dateInput(v))}
+            keyboardType="number-pad"
             placeholder="KK.OO.YYYY"
             maxLength={10}
             error={shown.birthDate}
@@ -237,8 +238,8 @@ export default function Apply() {
           <Field
             label="Guvohnoma berilgan sana (staj)"
             value={form.licenceIssuedOn}
-            onChangeText={(v) => set('licenceIssuedOn', v)}
-            keyboardType="numbers-and-punctuation"
+            onChangeText={(v) => set('licenceIssuedOn', dateInput(v))}
+            keyboardType="number-pad"
             placeholder="KK.OO.YYYY"
             maxLength={10}
             error={shown.licenceIssuedOn}
@@ -254,8 +255,8 @@ export default function Apply() {
           <Field
             label="Kartochka amal qilish muddati"
             value={form.licenceCardExpiresOn}
-            onChangeText={(v) => set('licenceCardExpiresOn', v)}
-            keyboardType="numbers-and-punctuation"
+            onChangeText={(v) => set('licenceCardExpiresOn', dateInput(v))}
+            keyboardType="number-pad"
             placeholder="KK.OO.YYYY"
             maxLength={10}
             error={shown.licenceCardExpiresOn}

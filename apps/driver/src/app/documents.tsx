@@ -7,7 +7,7 @@ import { driver } from '../api/driver';
 import type { DriverDocument, DriverMe } from '../api/types';
 import { keys, useDriverMe, useUploadsConfig } from '../data/queries';
 import { DOCUMENTS, parseDate, showDate, tashkentToday } from '../lib/application';
-import { dateTime } from '../lib/format';
+import { dateInput, dateTime } from '../lib/format';
 import { isPdfDocument, type UploadPurpose } from '../lib/upload-flow';
 import type { FileSource } from '../uploads/files';
 import { useUpload } from '../uploads/use-upload';
@@ -255,8 +255,8 @@ function DocumentCard(props: { doc: (typeof DOCUMENTS)[number]; current: DriverD
             <Field
               label="Amal qilish muddati (ixtiyoriy)"
               value={expires}
-              onChangeText={setExpires}
-              keyboardType="numbers-and-punctuation"
+              onChangeText={(v) => setExpires(dateInput(v))}
+              keyboardType="number-pad"
               placeholder="KK.OO.YYYY"
               maxLength={10}
               editable={!upload.busy}

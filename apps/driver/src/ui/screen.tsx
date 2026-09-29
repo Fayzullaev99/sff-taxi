@@ -1,7 +1,8 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNetInfo } from '@react-native-community/netinfo';
-import type { ReactNode } from 'react';
+import { type ReactNode, useEffect, useRef } from 'react';
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -37,12 +38,28 @@ export function Screen(props: {
   onRefresh?: () => void;
   footer?: ReactNode;
   keyboard?: boolean;
+  /**
+   * A short form whose button is last (sign-in): scroll it into view when the keyboard opens
+   * (a landscape tablet has room for little else above the keypad).
+   */
+  scrollToEndOnKeyboard?: boolean;
   onBack?: () => void;
 }) {
   // Android: the window is not resized for the keyboard (edge to edge), so make room here
   const keyboardHeight = useAndroidKeyboardHeight();
+  const scroll = useRef<ScrollView>(null);
+  const toEnd = props.scrollToEndOnKeyboard;
+  useEffect(() => {
+    if (!toEnd) return;
+    // after the padding for the keyboard has been laid out
+    const sub = Keyboard.addListener('keyboardDidShow', () =>
+      setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 50),
+    );
+    return () => sub.remove();
+  }, [toEnd]);
   const body = (
     <ScrollView
+      ref={scroll}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
       refreshControl={

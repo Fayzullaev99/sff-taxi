@@ -147,3 +147,13 @@ export const CANCEL_FEE_STATUS: Record<string, string> = {
   collected: 'olindi, balansingizda',
   waived: 'operator kechirdi',
 };
+
+/**
+ * A date typed on the number pad (Android has no keypad with a dot): the dots come by
+ * themselves, "01012000" -> "01.01.2000"; a dot appears once the next part is started, so
+ * backspace works as expected.
+ */
+export function dateInput(typed: string): string {
+  const d = typed.replace(/\D/g, '').slice(0, 8);
+  return [d.slice(0, 2), d.slice(2, 4), d.slice(4)].filter(Boolean).join('.');
+}

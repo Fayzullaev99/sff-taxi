@@ -1,11 +1,13 @@
 import { useMutation } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { auth } from '../api/driver';
 import { useSession } from '../auth/session';
 import { errorMessage } from '../lib/api-client';
 import { formatPhone, uzPhoneDigits } from '../lib/format';
+import { compactHero } from '../lib/layout';
+import { useAndroidKeyboardHeight } from '../ui/keyboard';
 import { Banner, Button, Muted } from '../ui/components';
 import { Screen } from '../ui/screen';
 import { colors, radius, space, TOUCH } from '../ui/theme';
@@ -29,6 +31,9 @@ export default function SignIn() {
   const [code, setCode] = useState('');
   const [resendIn, setResendIn] = useCountdown();
   const codeRef = useRef<TextInput>(null);
+  // landscape tablet with the keypad up: the form and "Kod olish" first, the logo small
+  const { height } = useWindowDimensions();
+  const compact = compactHero(height, useAndroidKeyboardHeight());
 
   const requestCode = useMutation({
     mutationFn: (e164: string) => auth.requestCode(e164),
@@ -54,13 +59,17 @@ export default function SignIn() {
   };
 
   return (
-    <Screen keyboard>
-      <View style={styles.hero}>
-        <View style={styles.logo}>
-          <Ionicons name="car-sport" size={52} color={colors.onBrand} />
-        </View>
-        <Text style={styles.brand}>SFF Taxi Haydovchi</Text>
-        <Muted center>Adolatli buyurtmalar, past komissiya, shaffof qoidalar</Muted>
+    <Screen keyboard scrollToEndOnKeyboard>
+      <View style={[styles.hero, compact && styles.heroCompact]}>
+        {compact ? null : (
+          <View style={styles.logo}>
+            <Ionicons name="car-sport" size={52} color={colors.onBrand} />
+          </View>
+        )}
+        <Text style={[styles.brand, compact && styles.brandCompact]}>SFF Taxi Haydovchi</Text>
+        {compact ? null : (
+          <Muted center>Adolatli buyurtmalar, past komissiya, shaffof qoidalar</Muted>
+        )}
       </View>
 
       {!phone ? (
@@ -155,6 +164,7 @@ export default function SignIn() {
 
 const styles = StyleSheet.create({
   hero: { alignItems: 'center', gap: space.sm, marginTop: space.xl * 2, marginBottom: space.lg },
+  heroCompact: { marginTop: 0, marginBottom: 0 },
   logo: {
     width: 88,
     height: 88,
@@ -164,6 +174,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   brand: { fontSize: 28, fontWeight: '800', color: colors.text },
+  brandCompact: { fontSize: 20 },
   form: { gap: space.md },
   label: { fontSize: 17, fontWeight: '700', color: colors.text },
   phoneRow: {

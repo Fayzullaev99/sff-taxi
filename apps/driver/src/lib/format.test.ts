@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dateTime, time } from './format';
+import { dateInput, dateTime, time } from './format';
 
 describe('time and dateTime', () => {
   it('show Tashkent time whatever the phone zone is', () => {
@@ -25,5 +25,15 @@ describe('passLabel', () => {
     expect(passLabel({ kind: 'day', endsAt: '2026-09-26T18:59:00Z' })).toBe(
       'Kunlik abonement · 26.09 23:59 gacha',
     );
+  });
+});
+
+describe('dateInput', () => {
+  it('puts the dots in a date typed on the number pad', () => {
+    expect(dateInput('01012000')).toBe('01.01.2000');
+    expect(dateInput('010')).toBe('01.0');
+    expect(dateInput('01.')).toBe('01');
+    expect(dateInput('01.01.20001')).toBe('01.01.2000');
+    expect(dateInput('')).toBe('');
   });
 });
