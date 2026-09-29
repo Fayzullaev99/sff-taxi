@@ -13,12 +13,15 @@ import { ApiError } from './client';
 import { endpoints } from './endpoints';
 import { pushFix } from './live-track';
 import { keys } from './queries';
-import { backoffMs, parseRealtimeEvent } from './realtime-logic';
+import { isOnline, subscribeOnline } from './reachability';
+import { backoffMs, parseRealtimeEvent, streamHealth } from './realtime-logic';
 import { API_URL, useIsSignedIn } from './session';
 import { openStream } from './stream';
 
 /** Long-lived XHR streams keep their whole body in memory: start a fresh one now and then. */
 const RECYCLE_AFTER_MS = 15 * 60_000;
+/** How often the watchdog looks at the stream. */
+const WATCHDOG_MS = 5_000;
 
 interface RealtimeContextValue {
   connected: boolean;
@@ -58,6 +61,9 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let recycleTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
+    /** The stream being opened or open: when it started, opened, last spoke. */
+    let link: { startedAt: number; openedAt: number | null; lastMessageAt: number | null } | null =
+      null;
 
     const refreshRides = (rideId?: string) => {
       void queryClient.invalidateQueries({ queryKey: keys.currentRide });
@@ -86,18 +92,25 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       recycleTimer = null;
       closeStream?.();
       closeStream = null;
+      link = null;
     };
 
     const reconnect = (immediately = false) => {
       drop();
       setConnected(false);
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = null;
       if (stopped) return;
       const delay = immediately ? 0 : backoffMs(attempt);
       attempt++;
-      retryTimer = setTimeout(() => void connect(), delay);
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void connect();
+      }, delay);
     };
 
     const connect = async () => {
+      link = { startedAt: Date.now(), openedAt: null, lastMessageAt: null };
       let ticket: string;
       try {
         ticket = (await endpoints.streamTicket()).ticket;
@@ -108,9 +121,12 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (stopped) return;
+      // the ticket request may have taken a while on a slow link: the open timeout starts now
+      link = { startedAt: Date.now(), openedAt: null, lastMessageAt: null };
       closeStream = openStream(`${API_URL}/v1/stream?ticket=${encodeURIComponent(ticket)}`, {
         onOpen: () => {
           attempt = 0;
+          if (link) link.openedAt = Date.now();
           setConnected(true);
           // events sent while disconnected are lost: catch up once
           refreshRides();
@@ -119,6 +135,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
           recycleTimer = setTimeout(() => reconnect(true), RECYCLE_AFTER_MS);
         },
         onMessage: (raw) => {
+          if (link) link.lastMessageAt = Date.now();
           const event = parseRealtimeEvent(raw);
           if (!event) return;
           // a refund queued or made: the ride's payment state changed
@@ -143,9 +160,24 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       });
     };
 
+    // a half-open socket (the phone changed cells) never says it died: listen for silence
+    const watchdog = setInterval(() => {
+      if (stopped || !link || !closeStream) return;
+      if (streamHealth(link, Date.now()) === 'dead') reconnect();
+    }, WATCHDOG_MS);
+
+    // the network is back (any request answered): do not sit out the back-off
+    const stopOnline = subscribeOnline(() => {
+      if (stopped || !isOnline() || !retryTimer) return;
+      attempt = 0;
+      reconnect(true);
+    });
+
     void connect();
     return () => {
       stopped = true;
+      clearInterval(watchdog);
+      stopOnline();
       if (retryTimer) clearTimeout(retryTimer);
       drop();
       setConnected(false);

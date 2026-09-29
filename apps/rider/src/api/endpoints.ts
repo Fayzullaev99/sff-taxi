@@ -63,12 +63,16 @@ export const endpoints = {
     api.request<GeoReverse>('/v1/geo/reverse', {
       auth: 'none',
       query: { lat: p.lat, lng: p.lng, lang: 'uz' },
+      // the rider looks at "Manzil aniqlanmoqda…": short, once more on a flaky link
+      timeoutMs: 8_000,
+      retries: 1,
     }),
   geoSearch: (q: string, near: LatLng | null, signal?: AbortSignal) =>
     api.request<GeoSuggestion[]>('/v1/geo/search', {
       auth: 'none',
       query: { q, lat: near?.lat, lng: near?.lng, lang: 'uz' },
       signal,
+      timeoutMs: 8_000,
     }),
   tariff: (p: LatLng) =>
     api.request<TariffInfo>('/v1/tariffs', { auth: 'none', query: { lat: p.lat, lng: p.lng } }),
@@ -179,5 +183,5 @@ export const endpoints = {
     api.request<void>(`/v1/devices/${id(token)}`, { method: 'DELETE' }),
 
   /** Root health check (no /v1): used to notice the connection is back. */
-  health: () => api.request<unknown>('/health', { auth: 'none' }),
+  health: () => api.request<unknown>('/health', { auth: 'none', timeoutMs: 5_000 }),
 };

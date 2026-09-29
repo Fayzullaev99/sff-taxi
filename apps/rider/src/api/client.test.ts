@@ -3,6 +3,7 @@ import {
   ApiError,
   buildUrl,
   createApiClient,
+  defaultRetryDelayMs,
   errorMessage,
   OfflineError,
   type SessionTokens,
@@ -412,5 +413,92 @@ describe('auth modes and status', () => {
     await expect(
       api.requestWithStatus('/v1/rides/r1/cancel', { method: 'POST', body: {} }),
     ).resolves.toEqual({ status: 201, data: { id: 'r1' } });
+  });
+});
+
+describe('timeouts and retries', () => {
+  it('gives up after the request’s own timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const tokens = memoryStore(null);
+      const fetch = ((_: unknown, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        })) as unknown as typeof globalThis.fetch;
+      const api = createApiClient({ baseUrl: 'http://x', tokens, fetch, timeoutMs: 20_000 });
+      const result = api.request('/v1/geo/reverse', { auth: 'none', timeoutMs: 5_000 });
+      const settled = expect(result).rejects.toBeInstanceOf(OfflineError);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await settled;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries a GET without an answer or with a gateway error, then succeeds', async () => {
+    const tokens = memoryStore(null);
+    let n = 0;
+    const { fetch, calls } = fakeFetch(() => {
+      n++;
+      if (n === 1) throw new TypeError('Network request failed');
+      if (n === 2) return json(503, {});
+      return json(200, { ok: n });
+    });
+    const delays: number[] = [];
+    const api = createApiClient({
+      baseUrl: 'http://x',
+      tokens,
+      fetch,
+      retryDelayMs: (a) => {
+        delays.push(a);
+        return 0;
+      },
+    });
+    await expect(api.request('/v1/geo/reverse', { auth: 'none', retries: 2 })).resolves.toEqual({
+      ok: 3,
+    });
+    expect(calls).toHaveLength(3);
+    expect(delays).toEqual([0, 1]);
+  });
+
+  it('never retries a POST, a client error or past the limit', async () => {
+    const tokens = memoryStore(null);
+    const offline = fakeFetch(() => {
+      throw new TypeError('Network request failed');
+    });
+    const api = createApiClient({
+      baseUrl: 'http://x',
+      tokens,
+      fetch: offline.fetch,
+      retryDelayMs: () => 0,
+    });
+    await expect(
+      api.request('/v1/auth/code', { method: 'POST', auth: 'none', body: {}, retries: 3 }),
+    ).rejects.toBeInstanceOf(OfflineError);
+    expect(offline.calls).toHaveLength(1);
+    await expect(api.request('/v1/x', { auth: 'none', retries: 1 })).rejects.toBeInstanceOf(
+      OfflineError,
+    );
+    expect(offline.calls).toHaveLength(3);
+
+    const notFound = fakeFetch(() => json(404, { message: 'Topilmadi' }));
+    const api2 = createApiClient({
+      baseUrl: 'http://x',
+      tokens,
+      fetch: notFound.fetch,
+      retryDelayMs: () => 0,
+    });
+    await expect(api2.request('/v1/x', { auth: 'none', retries: 3 })).rejects.toBeInstanceOf(
+      ApiError,
+    );
+    expect(notFound.calls).toHaveLength(1);
+  });
+
+  it('backs off exponentially with jitter, capped', () => {
+    expect(defaultRetryDelayMs(0, 0)).toBe(500);
+    expect(defaultRetryDelayMs(1, 0)).toBe(1_000);
+    expect(defaultRetryDelayMs(2, 1)).toBe(3_000);
+    expect(defaultRetryDelayMs(10, 0)).toBe(8_000);
+    expect(defaultRetryDelayMs(10, 1)).toBe(12_000);
   });
 });

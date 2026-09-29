@@ -3,11 +3,18 @@ import { router, Stack, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { type ReactNode, useEffect, useState } from 'react';
-import { AppState } from 'react-native';
+import { AppState, InteractionManager } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { clearAccountData, queryClient } from '../api/queries';
 import { RealtimeProvider } from '../api/realtime';
-import { hydrateSession, onSignedOut, useIsSignedIn, useSessionStatus } from '../api/session';
+import { forgetOpenRide, keepOpenRide, restoreOpenRide } from '../api/ride-cache';
+import {
+  getSessionStatus,
+  hydrateSession,
+  onSignedOut,
+  useIsSignedIn,
+  useSessionStatus,
+} from '../api/session';
 import { PushManager } from '../notifications/PushManager';
 import { resetDraft } from '../trip/draft';
 import { clearLegacyPlaces, migrateLegacyPlaces } from '../trip/places-store';
@@ -21,8 +28,15 @@ export default function RootLayout() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    void hydrateSession().finally(() => setReady(true));
+    // the saved session, then the open ride kept on the phone (a cold start offline
+    // still shows it), then the first screen
+    void hydrateSession()
+      .then(() => (getSessionStatus() === 'signedIn' ? restoreOpenRide() : undefined))
+      .catch(() => undefined)
+      .finally(() => setReady(true));
+    const stopKeeping = keepOpenRide();
     const stopListening = onSignedOut(() => {
+      forgetOpenRide();
       clearAccountData();
       clearLegacyPlaces();
       resetDraft();
@@ -32,6 +46,7 @@ export default function RootLayout() {
       focusManager.setFocused(state === 'active');
     });
     return () => {
+      stopKeeping();
       stopListening();
       sub.remove();
     };
@@ -45,8 +60,10 @@ export default function RootLayout() {
           <Gate ready={ready}>
             <Screens />
             <SessionGuard />
-            <PlacesMigration />
-            <PushManager />
+            <AfterStart>
+              <PlacesMigration />
+              <PushManager />
+            </AfterStart>
             <UpdateRequired />
           </Gate>
           <OfflineBanner />
@@ -62,6 +79,20 @@ function Gate({ ready, children }: { ready: boolean; children: ReactNode }) {
     if (ready) void SplashScreen.hideAsync().catch(() => undefined);
   }, [ready]);
   return ready ? children : null;
+}
+
+/**
+ * Work that is not needed for the first screen (push registration, moving old saved
+ * places) starts once the start-up animations and the first render are done: a faster
+ * cold start on low-end phones.
+ */
+function AfterStart({ children }: { children: ReactNode }) {
+  const [go, setGo] = useState(false);
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => setGo(true));
+    return () => task.cancel();
+  }, []);
+  return go ? children : null;
 }
 
 /** A session that ended (signed out, refresh token rejected) leads back to the sign-in. */

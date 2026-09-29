@@ -78,6 +78,33 @@ export function backoffMs(attempt: number, random: number = Math.random()): numb
   return Math.min(MAX_BACKOFF_MS, 1000 * 2 ** Math.max(0, attempt)) + random * 500;
 }
 
+/**
+ * The API writes a ping every 25 s and a car on its way sends a fix every few seconds: a
+ * stream silent for 45 s (the heartbeat and a slow 3G hop) is dead even if the socket was
+ * never closed (a phone moving between cells often keeps a half-open connection). Same
+ * idea as Uber's 4 s heartbeat / 7 s dead link, scaled to this API's heartbeat.
+ */
+export const STREAM_DEAD_MS = 45_000;
+/** A stream that has not opened this long after asking is given up and asked again. */
+export const STREAM_OPEN_TIMEOUT_MS = 15_000;
+
+export type StreamHealth = 'connecting' | 'open' | 'dead';
+
+/**
+ * The stream's state for the watchdog: dead when it never opened in time, or when nothing
+ * (not even a ping) came for STREAM_DEAD_MS.
+ */
+export function streamHealth(
+  s: { startedAt: number; openedAt: number | null; lastMessageAt: number | null },
+  now: number,
+): StreamHealth {
+  if (s.openedAt === null) {
+    return now - s.startedAt > STREAM_OPEN_TIMEOUT_MS ? 'dead' : 'connecting';
+  }
+  const last = Math.max(s.openedAt, s.lastMessageAt ?? 0);
+  return now - last > STREAM_DEAD_MS ? 'dead' : 'open';
+}
+
 export interface TrackPoint {
   lat: number;
   lng: number;

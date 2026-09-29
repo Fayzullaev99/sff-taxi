@@ -6,23 +6,47 @@ import { isOnline, subscribeOnline } from '../api/reachability';
 import { Icon, T } from './primitives';
 import { colors, space } from './theme';
 
-const PROBE_MS = 8000;
+/** Probes soon after the link dropped, then less often (3G drops are often short). */
+const PROBE_MS = [2_000, 4_000, 8_000];
 
 /**
  * A strip over every screen while the API cannot be reached. It appears after a request
  * got no answer and goes away with the next answer; meanwhile a tiny health request
  * checks every few seconds, so it clears even when no screen is fetching.
  */
+/** Whether the API answered the last request (re-renders when that changes). */
+export function useOnline(): boolean {
+  return useSyncExternalStore(subscribeOnline, isOnline, isOnline);
+}
+
 export function OfflineBanner() {
-  const online = useSyncExternalStore(subscribeOnline, isOnline, isOnline);
+  const online = useOnline();
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (online) return;
-    const timer = setInterval(() => {
-      endpoints.health().catch(() => undefined);
-    }, PROBE_MS);
-    return () => clearInterval(timer);
+    let n = 0;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const probe = () => {
+      timer = setTimeout(
+        () => {
+          n++;
+          endpoints
+            .health()
+            .catch(() => undefined)
+            .finally(() => {
+              if (!stopped && !isOnline()) probe();
+            });
+        },
+        PROBE_MS[Math.min(n, PROBE_MS.length - 1)],
+      );
+    };
+    probe();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, [online]);
 
   if (online) return null;
