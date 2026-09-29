@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { distanceM } from './distance.js';
-import type { Point } from './geo.js';
+import { estimatedDurationS, type Point } from './geo.js';
 import {
   allowedDelay,
   bestInsertion,
@@ -92,6 +92,35 @@ describe('inserting a rider on the way', () => {
     expect(ins.stops).toHaveLength(3);
     expect(ins.addedS).toBeLessThan(1);
     expect(ins.maxDelayS).toBeLessThan(1);
+  });
+
+  it('without a router, a stop on the way to another town is no detour (QA wave 4)', () => {
+    // the router's estimate: straight line x 1.35, the first 5 km at city speed
+    const estimated = (points: Point[]): LegMatrix =>
+      points.map((a) =>
+        points.map((b) => {
+          const m = distanceM(a.lat, a.lng, b.lat, b.lng) * 1.35;
+          return { distanceM: m, durationS: estimatedDurationS(m), estimated: true };
+        }),
+      );
+    // heading 25 km out of town with a friend in front, a rider from here to 7 km on the way
+    const plan: PlanStop[] = [{ rideId: null, type: 'destination', ...east(25), passengers: 1 }];
+    const request = { rideId: 'B', pickup: east(0.3), dropoff: east(7), passengers: 1 };
+    const over = {
+      extraOnboard: 1,
+      maxDetourS: DEFAULT_POOL.max_detour_seconds_city,
+      maxPickupEtaS: DEFAULT_POOL.max_pickup_eta_seconds,
+    };
+    const matrix = estimated(poolPoints(east(0), plan, request));
+    const ins = bestInsertion(input(east(0), plan, request, { ...over, matrix }))!;
+    expect(ins).not.toBeNull();
+    expect(ins.addedS).toBeLessThan(5);
+    expect(ins.maxDelayS).toBeLessThan(5);
+    // counted per leg (each leg starting at city speed) the same trip was a 7-minute detour
+    const perLeg = matrix.map((row) =>
+      row.map((l) => ({ distanceM: l.distanceM, durationS: l.durationS })),
+    );
+    expect(bestInsertion(input(east(0), plan, request, { ...over, matrix: perLeg }))).toBeNull();
   });
 
   it('refuses a rider far off the route', () => {

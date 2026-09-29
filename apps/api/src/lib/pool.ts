@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { distanceM } from './distance.js';
-import type { Point } from './geo.js';
+import { estimatedDurationS, type Point } from './geo.js';
 
 /**
  * Shared rides ("Hamroh bilan"): a driver carrying riders who agreed to share the car takes
@@ -91,6 +91,12 @@ export interface PlanStop {
 export interface Leg {
   distanceM: number;
   durationS: number;
+  /**
+   * No router: the time is estimatedDurationS(distanceM), whose first 5 km are at city
+   * speed. Driving a plan then counts the town part once for the whole drive, not once per
+   * leg (else every stop on the way to another town would look like a 7-minute detour).
+   */
+  estimated?: boolean;
 }
 
 /** Road legs between any two of the points (by index): the routing matrix. */
@@ -181,13 +187,18 @@ function walk(
 ): Walked {
   let s = 0;
   let m = 0;
+  /** Metres driven on estimated legs so far: their time follows one continuous drive. */
+  let estM = 0;
   let prev = 0;
   let people = startOnboard;
   let overCapacity = startOnboard > capacity;
   const at: Walked['at'] = [];
   for (const i of order) {
     const leg = matrix[prev]![i]!;
-    s += leg.durationS;
+    if (leg.estimated) {
+      s += estimatedDurationS(estM + leg.distanceM) - estimatedDurationS(estM);
+      estM += leg.distanceM;
+    } else s += leg.durationS;
     m += leg.distanceM;
     const stop = stopOf(i);
     people += stop.type === 'pickup' ? stop.passengers : -stop.passengers;

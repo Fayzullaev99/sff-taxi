@@ -135,9 +135,11 @@ export class RoutingService {
 
 /** A route as a leg with a driving time (estimated routes get one by distance). */
 export function legOf(route: Route): Leg {
-  return {
-    distanceM: route.distanceM,
-    durationS:
-      route.durationS !== null ? Math.round(route.durationS) : estimatedDurationS(route.distanceM),
-  };
+  return route.durationS !== null
+    ? { distanceM: route.distanceM, durationS: Math.round(route.durationS) }
+    : {
+        distanceM: route.distanceM,
+        durationS: estimatedDurationS(route.distanceM),
+        estimated: true,
+      };
 }
