@@ -1,4 +1,4 @@
-/* global process, console, fetch, setTimeout */
+/* global process, console, fetch, setTimeout, performance */
 /**
  * Wave-4 end-to-end smoke test against a RUNNING dev API + worker (not the test harness):
  * sign-in, driver approval, a shared ride with a second rider joining on the way, the
