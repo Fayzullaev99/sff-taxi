@@ -143,28 +143,49 @@ Tests: API 296 passed (38 files, `TEST_DB_NAME=taxi_test_2 TEST_REDIS_DB=14`), r
 skipped smoke), driver 209. `npm run typecheck`, `rtk proxy npx eslint .`, `rtk proxy npx
 prettier --check .`: clean.
 
-## Open issues (not fixed)
+## Open issues
 
-1. **Trip board, along the way**: a rider boarding in Sirdaryo sees the trip's meeting point
-   ("Guliston avtovokzali") and the full 132 km; where the car picks up an along-the-way rider
-   is left to the pickup note and a call. Needs a product decision (a stop per town).
-2. **Device geocoder language**: rider B's phone (English/Russian locale) produced
-   "улица Увайсий, Guliston" and "M-34, Bayaut District", shown to the driver. A server
-   geocoder (Yandex/Nominatim, uz) or a town-name fallback would keep addresses Uzbek.
-3. Tablet sign-in: the phone keypad covers "Kod olish" in landscape until scrolled (the
-   keypad's action key works). The driver's date fields still use the full keyboard.
-4. Font 1.3: class-card availability is cut to one line ("Yaqinda bo‘sh m…", the footer has it
-   in full); the clipped landmark hint is bug 17 (fixed, not re-checked at 1.3).
-5. The ride header "#10020 · Naqd · 2 yo‘lovchi" counts app riders in the car, next to one
-   ride's number — reads like that ride has 2 people.
-6. A cargo car's cab seats default to 4 (Damas has one seat next to the driver); only one
-   customer may ride anyway (`riderRides`).
-7. A ride for later whose search starts takes over the rider's screen, also in the middle of
-   another order (by design: "an open ride nobody looked at yet takes over once").
-8. Rider cancelled while the driver's start-code keypad was open: the driver's "bekor qilindi"
-   alert was not seen (the ride screen showed "Faol safar yo‘q"); not reproduced further.
+Closed after the run on branch `wave4-polish` (code and tests; not re-run on the emulators):
+
+1. ~~**Trip board, along the way**: a rider boarding in Sirdaryo sees the trip's meeting point
+   ("Guliston avtovokzali") and the full 132 km.~~ **Closed** (10b08bb, 7b90ec3). Product
+   decision: the rider gets in at their own town's meeting point ("Sirdaryo markazi, bozor
+   yonida") about when the car passes it (departure + the town's share of the driving time by
+   distance, to 5 min, "taxminan 08:50") and gets off at their drop-off town's point; the
+   distance is their part. API `boardingPoint`, `alightingPoint`, `partDistanceM` on bookings
+   and along-the-way results; the rider's booking, trip screen and search cards and the
+   driver's booking card show them.
+2. ~~**Device geocoder language**: "улица Увайсий, Guliston", "M-34, Bayaut District" shown to
+   the driver.~~ **Closed** (6ef3646). The API's reverse geocoding (uz) is used first, the
+   phone's only without it; Cyrillic parts and plus codes are dropped, "District"/"Region" put
+   in Uzbek; with nothing readable the order carries no address (the pin and the landmark
+   do), never coordinates or "Mening joylashuvim".
+3. ~~Tablet sign-in: the keypad covers "Kod olish" in landscape; date fields use the full
+   keyboard.~~ **Closed** (1aad1cc): the form scrolls into view when the keyboard opens, the
+   logo shrinks when little room is left; date fields use the number pad with automatic dots.
+4. ~~Font 1.3: class-card availability cut to one line.~~ **Closed** (980502a): the cards say
+   "Mashina ~4 daq" / "Mashina yo‘q" (one line, same height for each class), the footer and
+   the screen reader keep the full sentence.
+5. ~~The ride header "#10020 · Naqd · 2 yo‘lovchi" reads like that ride has 2 people.~~
+   **Closed** (c76d324): "Bu buyurtmada 2 kishi · Mashinada jami 3 kishi"; the home card counts
+   orders ("2 buyurtma").
+6. ~~A cargo car's cab seats default to 4.~~ **Closed** (f6d83bc): the cargo quick picks set
+   the real cab seats (Damas/Labo 1, Gazel/Porter/Isuzu 2), switching to cargo drops the
+   taxi's 4; the app and the API accept 1–2 for a cargo car (`riderRides` stays 1).
+7. ~~A ride for later whose search starts takes over the screen mid-order.~~ **Closed**
+   (53d224e): it opens by itself only from the map; elsewhere a notice "Oldindan buyurtmangiz
+   uchun haydovchi qidirilmoqda" shows below the header, a tap opens the ride.
+8. ~~Rider cancelled while the start-code keypad was open: no "bekor qilindi" alert.~~
+   **Closed** (5b90be2). Cause: the alert came only from the stream's `ride.status_changed`
+   and only while the cached current ride was still that ride; a poll, a push or a
+   reconnect that cleared it first left just "Faol safar yo‘q". The app now watches the
+   current ride: a ride leaving the car without the driver ending it is looked up and
+   announced once (cancelled or taken away), also for the other rider of a shared car.
 9. Missed offers during the run lowered the test driver's priority 91 → 84 (dispatch rule,
-   noted in the previous run too).
+   noted in the previous run too). Open: by design.
+
+Tests after these: API 298 passed (38 files), rider 228 (+3 skipped smoke), driver 220; typecheck, eslint and
+prettier clean.
 
 ## Test data and cleanup
 

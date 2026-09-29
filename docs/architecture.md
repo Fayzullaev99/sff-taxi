@@ -284,7 +284,13 @@ for callers (SMS with the car and the driver's phone).
   in order adds at most `along_route_max_km` (15 km, straight lines: Guliston → Sirdaryo →
   Toshkent is the road, 12 km more than the straight line) and the rider's part is at least
   30% of the trip. The seat costs its share of the trip (rounded up to 1 000, at least 30% of
-  the seat); booking with `from`/`to` keeps the rider's towns for the driver.
+  the seat); booking with `from`/`to` keeps the rider's towns for the driver. The rider gets in
+  at their own town's meeting point (`boardingPoint`: the town's `meeting_point`, e.g.
+  "Sirdaryo markazi, bozor yonida", and `estimatedAt`: departure + the town's share of the
+  driving time by distance along the route, rounded to 5 minutes, shown as "taxminan") and
+  gets off at their drop-off town's (`alightingPoint`); `partDistanceM` is their part of the
+  road. Bookings (rider, driver, operator) and along-the-way results carry these; a
+  whole-trip seat has the trip's meeting point, departure and distance.
 - **Cancellation**: riders free until 60 minutes before departure, then 30% of the booking is
   recorded as owed (the rules are in `GET config` → `intercity`, the trip view's `cancelRules`
   and the booking's `cancelFreeUntil` / `cancelFeeNow`); with a deposit, a free cancellation
