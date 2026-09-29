@@ -26,6 +26,7 @@ import { getPreferredNavApp, setPreferredNavApp } from '../../ui/actions';
 import { Banner, Button, Card, Choice, Loading, Muted, Row, Title } from '../../ui/components';
 import { haptics } from '../../ui/haptics';
 import { WomenRidersCard } from '../../home/women-riders-card';
+import { CARGO_CLASS_LABELS } from '../../lib/service';
 import { Screen } from '../../ui/screen';
 import { LicenceCardStatus, SupportCard } from '../../ui/widgets';
 
@@ -78,8 +79,21 @@ export default function Profile() {
               value={`${d.vehicle.colour} ${d.vehicle.make} ${d.vehicle.model}, ${d.vehicle.year}`}
             />
             <Row label="Davlat raqami" value={d.vehicle.plateFormatted} strong />
-            <Row label="Sinf" value={RIDE_CLASSES[d.vehicle.class] ?? d.vehicle.class} />
-            {d.vehicle.cngInTrunk !== undefined ? (
+            {d.vehicle.service === 'cargo' ? (
+              <>
+                <Row
+                  label="Xizmat"
+                  value={`Yuk tashish · ${CARGO_CLASS_LABELS[d.vehicle.cargoClass ?? ''] ?? 'yuk mashinasi'}`}
+                />
+                {d.vehicle.payloadKg ? (
+                  <Row label="Yuk ko‘tarish" value={`${d.vehicle.payloadKg} kg`} />
+                ) : null}
+                <Muted>Yuk mashinasiga faqat yuk buyurtmalari keladi.</Muted>
+              </>
+            ) : (
+              <Row label="Sinf" value={RIDE_CLASSES[d.vehicle.class] ?? d.vehicle.class} />
+            )}
+            {d.vehicle.cngInTrunk !== undefined && d.vehicle.service !== 'cargo' ? (
               <Row
                 label="Katta yukli buyurtmalar"
                 value={

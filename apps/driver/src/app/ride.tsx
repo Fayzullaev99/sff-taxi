@@ -9,7 +9,8 @@ import { errorMessage } from '../lib/api-client';
 import { PAYMENT_METHODS, som } from '../lib/format';
 import { isPinError, offerBadges, poolRideIds, ridePool } from '../lib/pool';
 import { optimisticStatus, runRideStep } from '../lib/ride-actions';
-import { canCancel, cashBreakdown, owedFeeNote, type RideAction, stepOf } from '../lib/ride-flow';
+import { canCancel, cashBreakdown, owedFeeNote, type RideAction } from '../lib/ride-flow';
+import { customerWord, depositLine, serviceOf, serviceStep } from '../lib/service';
 import { nextStop, stopList, stopsFromPool } from '../lib/stops';
 import type { WaitingRules } from '../lib/waiting';
 import { scheduledLabel } from '../lib/when';
@@ -24,6 +25,7 @@ import {
   WaitingCard,
 } from '../ride/parts';
 import { PinPad } from '../ride/pin-pad';
+import { ServiceCard } from '../ride/service-card';
 import { PoolRidersCard } from '../ride/pool-riders';
 import { navigateTo } from '../ui/actions';
 import { Banner, Button, Chip, EmptyState, ErrorState, Loading, Muted } from '../ui/components';
@@ -177,7 +179,8 @@ function ActiveRide(props: {
   const optimistic =
     pending && pending.action !== 'complete' && pending.rideId === focus.id ? pending.action : null;
   const status = optimisticStatus(focus.status, optimistic);
-  const step = stepOf(status);
+  const service = serviceOf(focus);
+  const step = serviceStep(status, service);
   const shown = useMemo(() => ({ ...focus, status }) as DriverRide, [focus, status]);
   const stops = useMemo(() => {
     if (!baseStops) return stopList([shown]);
@@ -201,16 +204,24 @@ function ActiveRide(props: {
     if (step.action === 'complete') {
       const cash = cashBreakdown(focus);
       const owedNote = owedFeeNote(cash.owedFee);
+      const deposit = depositLine(focus.fare.deposit, cash.total);
       Alert.alert(
-        'Safarni yakunlaysizmi?',
+        service === 'delivery'
+          ? 'Posilkani topshirdingizmi?'
+          : service === 'cargo'
+            ? 'Yukni topshirdingizmi?'
+            : 'Safarni yakunlaysizmi?',
         focus.paymentMethod === 'card'
           ? cash.total > 0
-            ? `Safar kartada oldindan to‘langan. Kutish uchun ${som(cash.total)} naqd oling.`
-            : 'Safar kartada oldindan to‘langan: naqd pul olmang.'
-          : `${focus.rider?.name ?? 'Yo‘lovchi'}dan ${som(cash.total)} oling.${owedNote ? ` (${owedNote}.)` : ''}`,
+            ? `Kartada oldindan to‘langan. Kutish uchun ${som(cash.total)} naqd oling.`
+            : 'Kartada oldindan to‘langan: naqd pul olmang.'
+          : `${focus.rider?.name ?? customerWord(service)}dan ${som(cash.total)} oling.${deposit ? ` ${deposit}.` : ''}${owedNote ? ` (${owedNote}.)` : ''}`,
         [
           { text: 'Yo‘q', style: 'cancel' },
-          { text: 'Yakunlash', onPress: () => run('complete') },
+          {
+            text: service === 'delivery' ? 'Topshirdim' : 'Yakunlash',
+            onPress: () => run('complete'),
+          },
         ],
       );
       return;
@@ -219,7 +230,14 @@ function ActiveRide(props: {
   };
 
   const scheduled = scheduledLabel(focus.scheduledFor, Date.now());
-  const navTitle = target?.kind === 'dropoff' ? 'Manzilga yo‘l' : 'Yo‘lovchiga yo‘l';
+  const navTitle =
+    target?.kind === 'dropoff'
+      ? service === 'delivery'
+        ? 'Qabul qiluvchiga yo‘l'
+        : 'Manzilga yo‘l'
+      : service === 'taxi'
+        ? 'Yo‘lovchiga yo‘l'
+        : 'Olish joyiga yo‘l';
   const badges = offerBadges(focus);
 
   return (
@@ -301,6 +319,8 @@ function ActiveRide(props: {
       {status === 'in_progress' || status === 'driver_arrived' ? (
         <CashCard ride={focus} arrivedAt={arrivedAt} waitingNow={waitingNow} rules={rules} />
       ) : null}
+
+      <ServiceCard ride={shown} />
 
       <StopList stops={stops} ride={focus} />
 

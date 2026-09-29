@@ -9,6 +9,7 @@ import { keys, useRide } from '../../data/queries';
 import { errorMessage, isApiError } from '../../lib/api-client';
 import { COMMISSION_NOTES, digits, som } from '../../lib/format';
 import { withRetry } from '../../lib/ride-actions';
+import { customerWord, depositLine, SERVICE_LABELS, serviceOf } from '../../lib/service';
 import { amountToCollect, cashBreakdown, cashPartsText, owedFeeNote } from '../../lib/ride-flow';
 import {
   Banner,
@@ -76,6 +77,8 @@ export default function RideDone() {
   const cashNow = money.total;
   const parts = cashPartsText(money);
   const owedNote = owedFeeNote(money.owedFee);
+  const service = serviceOf(r);
+  const deposit = depositLine(r.fare.deposit, cashNow);
   const e = r.earnings;
   const options = stars >= 4 ? GOOD_TAGS : stars > 0 ? BAD_TAGS : [];
 
@@ -101,9 +104,12 @@ export default function RideDone() {
     >
       <View style={styles.collectBox}>
         <Ionicons name={cash ? 'cash' : 'card'} size={40} color={colors.onBrand} />
+        {service !== 'taxi' ? (
+          <Text style={styles.collectNote}>{SERVICE_LABELS[service]}</Text>
+        ) : null}
         <Text style={styles.collectLabel}>
           {cash
-            ? 'YO‘LOVCHIDAN NAQD OLING'
+            ? `${customerWord(service).toUpperCase()}DAN NAQD OLING`
             : cashNow > 0
               ? 'KUTISH UCHUN NAQD OLING'
               : 'NAQD OLMANG'}
@@ -112,7 +118,8 @@ export default function RideDone() {
           {digits(cashNow)}
         </Text>
         <Text style={styles.collectUnit}>so‘m</Text>
-        {cash && parts ? <Text style={styles.collectNote}>{parts}</Text> : null}
+        {cash && deposit ? <Text style={styles.collectNote}>{deposit}</Text> : null}
+        {cash && parts && !deposit ? <Text style={styles.collectNote}>{parts}</Text> : null}
         {owedNote ? <Text style={styles.collectNote}>({owedNote})</Text> : null}
         {!cash ? (
           <Text style={styles.collectNote}>

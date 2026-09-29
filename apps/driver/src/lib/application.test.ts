@@ -167,3 +167,79 @@ describe('formFromProfile', () => {
     expect(formFromProfile({ ...base, vehicle: null }).cng).toBe(true);
   });
 });
+
+describe('cargo car application', () => {
+  const DAMAS: ApplicationForm = {
+    ...GOOD,
+    licenceCategories: ['B'],
+    service: 'cargo',
+    make: 'Chevrolet',
+    model: 'Damas',
+    year: '2008',
+    seats: '1',
+    body: 'van',
+    payloadKg: '550',
+    grossKg: '1400',
+  };
+
+  it('accepts a Damas as a cargo car (older than a taxi may be)', () => {
+    expect(validateApplication(DAMAS, TODAY)).toEqual({});
+    expect(toApplicationBody(DAMAS).vehicle).toMatchObject({
+      service: 'cargo',
+      body: 'van',
+      payloadKg: 550,
+      grossKg: 1400,
+      cngInTrunk: false,
+    });
+  });
+
+  it('still refuses a Damas as a taxi', () => {
+    expect(validateApplication({ ...DAMAS, service: 'taxi' }, TODAY).model).toMatch(/Yuk tashish/);
+  });
+
+  it('asks for the body and payload, and C above 3.5 t', () => {
+    const e = validateApplication({ ...DAMAS, body: '', payloadKg: '' }, TODAY);
+    expect(e.body).toBeTruthy();
+    expect(e.payloadKg).toBeTruthy();
+    expect(validateApplication({ ...DAMAS, grossKg: '500' }, TODAY).grossKg).toMatch(/katta/);
+    const heavy = {
+      ...DAMAS,
+      model: 'NLR',
+      body: 'truck' as const,
+      payloadKg: '3000',
+      grossKg: '6500',
+    };
+    expect(validateApplication(heavy, TODAY).licenceCategories).toMatch(/C toifali/);
+    expect(validateApplication({ ...heavy, licenceCategories: ['B', 'C'] }, TODAY)).toEqual({});
+    expect(validateApplication({ ...DAMAS, year: '1995' }, TODAY).year).toMatch(/25 yil/);
+  });
+
+  it('a taxi body stays as before (no cargo fields sent)', () => {
+    expect(toApplicationBody(GOOD).vehicle).not.toHaveProperty('service');
+  });
+
+  it('reads a cargo car back from the profile', () => {
+    const f = formFromProfile({
+      fullName: 'A B C',
+      birthDate: '1990-03-05',
+      pinfl: '30503900123456',
+      licence: { number: 'AF1234567', categories: ['B'], issuedOn: '2015-06-01' },
+      licenceCard: { number: 'LK1', expiresOn: '2027-12-31' },
+      vehicle: {
+        make: 'Chevrolet',
+        model: 'Labo',
+        colour: 'Oq',
+        plate: '20A123BC',
+        year: 2012,
+        seats: 1,
+        class: 'economy',
+        features: [],
+        service: 'cargo',
+        body: 'pickup',
+        payloadKg: 550,
+        grossKg: null,
+      },
+    });
+    expect(f).toMatchObject({ service: 'cargo', body: 'pickup', payloadKg: '550', grossKg: '' });
+  });
+});

@@ -13,7 +13,40 @@ export const RULES = {
   maxVehicleAgeYears: 15,
   maxComfortAgeYears: 5,
   maxSeats: 4,
+  /** Cargo cars (not passenger taxis): at most 25 years old. */
+  maxCargoVehicleAgeYears: 25,
+  /** Above this total (gross) mass a category C licence is needed. */
+  maxCategoryBGrossKg: 3500,
+  /** Up to this payload a cargo car serves small loads (cargo_s), above medium (cargo_m). */
+  smallMaxPayloadKg: 800,
 } as const;
+
+/** What the car works for: passenger rides and parcels, or cargo rides only. */
+export type CarService = 'taxi' | 'cargo';
+
+export const CARGO_BODIES = ['van', 'pickup', 'truck'] as const;
+export type CargoBody = (typeof CARGO_BODIES)[number];
+export const CARGO_BODY_LABELS: Record<CargoBody, string> = {
+  van: 'Furgon (yopiq)',
+  pickup: 'Pikap (ochiq bort)',
+  truck: 'Yuk kuzovi',
+};
+
+/** Common cargo cars with typical figures (the driver corrects them from the tech passport). */
+export const CARGO_CARS = [
+  { make: 'Chevrolet', model: 'Damas', body: 'van', payloadKg: 550, grossKg: 1400 },
+  { make: 'Chevrolet', model: 'Labo', body: 'pickup', payloadKg: 550, grossKg: 1400 },
+  { make: 'GAZ', model: 'Gazel', body: 'truck', payloadKg: 1500, grossKg: 3500 },
+  { make: 'Hyundai', model: 'Porter', body: 'truck', payloadKg: 1000, grossKg: 2900 },
+  { make: 'Isuzu', model: 'NLR', body: 'truck', payloadKg: 1500, grossKg: 3500 },
+] as const;
+
+/** Which cargo orders the car gets, by its payload. */
+export function cargoClassText(payloadKg: number): string {
+  return payloadKg <= RULES.smallMaxPayloadKg
+    ? 'Kichik yuk buyurtmalari (Damas, Labo sinfi)'
+    : 'Kichik va o‘rta yuk buyurtmalari (Gazel, Porter sinfi)';
+}
 
 export const LICENCE_CATEGORIES = ['A', 'B', 'C', 'D', 'E', 'BE', 'CE', 'DE'] as const;
 export const VEHICLE_FEATURES = ['ac', 'child_seat', 'pets', 'big_trunk'] as const;
@@ -62,6 +95,13 @@ export interface ApplicationForm {
   cng: boolean;
   /** Optional, as in the passport; an operator verifies it (women drivers, women riders). */
   gender: 'female' | 'male' | null;
+  /** taxi (default) or a cargo car: cargo orders only. */
+  service: CarService;
+  /** Cargo cars: the body type. */
+  body: CargoBody | '';
+  /** Cargo cars: payload and total mass as typed (kg). */
+  payloadKg: string;
+  grossKg: string;
 }
 
 export const EMPTY_FORM: ApplicationForm = {
@@ -83,6 +123,10 @@ export const EMPTY_FORM: ApplicationForm = {
   features: [],
   cng: true,
   gender: null,
+  service: 'taxi',
+  body: '',
+  payloadKg: '',
+  grossKg: '',
 };
 
 /** "31.12.1990" (also "31/12/1990", "31-12-1990") -> "1990-12-31"; null if not a real date. */
@@ -137,7 +181,20 @@ export const STEP_FIELDS: (keyof ApplicationForm)[][] = [
     'licenceCardNumber',
     'licenceCardExpiresOn',
   ],
-  ['make', 'model', 'colour', 'plate', 'year', 'seats', 'vehicleClass', 'features'],
+  [
+    'service',
+    'make',
+    'model',
+    'colour',
+    'plate',
+    'year',
+    'seats',
+    'vehicleClass',
+    'features',
+    'body',
+    'payloadKg',
+    'grossKg',
+  ],
 ];
 
 export function validateApplication(f: ApplicationForm, today: string): FormErrors {
@@ -173,9 +230,11 @@ export function validateApplication(f: ApplicationForm, today: string): FormErro
   else if (cardExpires < today) e.licenceCardExpiresOn = 'Litsenziya kartochkasi muddati o‘tgan';
 
   if (f.make.trim().length < 2) e.make = 'Markani yozing, masalan Chevrolet';
+  const cargo = f.service === 'cargo';
   if (f.model.trim().length < 1) e.model = 'Modelni yozing, masalan Cobalt';
-  else if (/\b(damas|labo)\b/i.test(`${f.make} ${f.model}`)) {
-    e.model = 'Furgon turidagi avtomobillar (Damas, Labo) taksi bo‘la olmaydi';
+  else if (!cargo && /\b(damas|labo)\b/i.test(`${f.make} ${f.model}`)) {
+    e.model =
+      'Furgon turidagi avtomobillar (Damas, Labo) taksi bo‘la olmaydi: “Yuk tashish” ni tanlang';
   }
   if (f.colour.trim().length < 2) e.colour = 'Rangini yozing, masalan Oq';
   const plate = plateProblem(f.plate);
@@ -183,19 +242,60 @@ export function validateApplication(f: ApplicationForm, today: string): FormErro
 
   const thisYear = Number(today.slice(0, 4));
   const year = Number(f.year);
+  const maxAge = cargo ? RULES.maxCargoVehicleAgeYears : RULES.maxVehicleAgeYears;
   if (!/^\d{4}$/.test(f.year.trim())) e.year = 'Ishlab chiqarilgan yilni yozing, masalan 2019';
-  else if (year > thisYear + 1 || thisYear - year > RULES.maxVehicleAgeYears) {
-    e.year = `Avtomobil ${RULES.maxVehicleAgeYears} yildan eski bo‘lmasligi kerak`;
+  else if (year > thisYear + 1 || thisYear - year > maxAge) {
+    e.year = cargo
+      ? `Yuk mashinasi ${maxAge} yildan eski bo‘lmasligi kerak`
+      : `Avtomobil ${maxAge} yildan eski bo‘lmasligi kerak`;
   }
   const seats = Number(f.seats);
   if (!Number.isInteger(seats) || seats < 1 || seats > RULES.maxSeats) {
-    e.seats = `Yo‘lovchi o‘rindiqlari 1 dan ${RULES.maxSeats} tagacha`;
+    e.seats = cargo
+      ? `Kabinadagi o‘rindiqlar 1 dan ${RULES.maxSeats} tagacha`
+      : `Yo‘lovchi o‘rindiqlari 1 dan ${RULES.maxSeats} tagacha`;
+  }
+  if (cargo) {
+    Object.assign(e, cargoProblems(f));
+    return e;
   }
   if (f.vehicleClass === 'comfort') {
     if (!e.year && thisYear - year > RULES.maxComfortAgeYears) {
       e.vehicleClass = `Komfort uchun avtomobil ${RULES.maxComfortAgeYears} yildan eski bo‘lmasligi kerak`;
     } else if (!f.features.includes('ac')) {
       e.vehicleClass = 'Komfort uchun konditsioner kerak';
+    }
+  }
+  return e;
+}
+
+/** A whole number of kilograms as typed, or null. */
+function kg(text: string): number | null {
+  const t = text.replace(/\s/g, '');
+  return /^\d{1,6}$/.test(t) ? Number(t) : null;
+}
+
+/**
+ * The cargo car's own rules (API checkCargoVehicle): a van, pickup or truck body, a payload,
+ * a total mass above the payload, and a category C licence above 3.5 t.
+ */
+export function cargoProblems(f: ApplicationForm): FormErrors {
+  const e: FormErrors = {};
+  if (!f.body || !(CARGO_BODIES as readonly string[]).includes(f.body)) {
+    e.body = 'Kuzov turini tanlang: furgon, pikap yoki yuk kuzovi';
+  }
+  const payload = kg(f.payloadKg);
+  if (payload === null || payload < 1 || payload > 20_000) {
+    e.payloadKg = 'Yuk ko‘tarish quvvatini kg da yozing, masalan 550 (texpasportda)';
+  }
+  if (f.grossKg.trim()) {
+    const gross = kg(f.grossKg);
+    if (gross === null || gross < 500 || gross > 40_000) {
+      e.grossKg = 'To‘liq massani kg da yozing, masalan 1400 (texpasportda)';
+    } else if (payload !== null && payload >= gross) {
+      e.grossKg = 'To‘liq massa yuk ko‘tarish quvvatidan katta bo‘lishi kerak';
+    } else if (gross > RULES.maxCategoryBGrossKg && !f.licenceCategories.includes('C')) {
+      e.licenceCategories = '3,5 tonnadan og‘ir mashina uchun C toifali guvohnoma kerak';
     }
   }
   return e;
@@ -225,6 +325,11 @@ export interface ApplicationBody {
     class: 'economy' | 'comfort';
     features: VehicleFeature[];
     cngInTrunk: boolean;
+    /** Absent: a taxi (older APIs). */
+    service?: CarService;
+    body?: CargoBody;
+    payloadKg?: number | null;
+    grossKg?: number | null;
   };
   gender?: 'female' | 'male';
 }
@@ -249,7 +354,16 @@ export function toApplicationBody(f: ApplicationForm): ApplicationBody {
       seats: Number(f.seats),
       class: f.vehicleClass,
       features: [...new Set(f.features)],
-      cngInTrunk: f.cng,
+      // a cargo car carries no gas-tank or luggage question: its load is the point
+      cngInTrunk: f.service === 'cargo' ? false : f.cng,
+      ...(f.service === 'cargo'
+        ? {
+            service: 'cargo' as const,
+            ...(f.body ? { body: f.body } : {}),
+            payloadKg: kg(f.payloadKg),
+            grossKg: kg(f.grossKg),
+          }
+        : {}),
     },
     ...(f.gender ? { gender: f.gender } : {}),
   };
@@ -272,6 +386,10 @@ export function formFromProfile(p: {
     class: string;
     features: string[];
     cngInTrunk?: boolean;
+    service?: string;
+    body?: string | null;
+    payloadKg?: number | null;
+    grossKg?: number | null;
   } | null;
   gender?: string | null;
 }): ApplicationForm {
@@ -299,6 +417,10 @@ export function formFromProfile(p: {
     // most Cobalts/Nexias carry the tank in the trunk: on until the driver says otherwise
     cng: v ? (v.cngInTrunk ?? !features.includes('big_trunk')) : true,
     gender: p.gender === 'female' || p.gender === 'male' ? p.gender : null,
+    service: v?.service === 'cargo' ? 'cargo' : 'taxi',
+    body: (CARGO_BODIES as readonly string[]).includes(v?.body ?? '') ? (v!.body as CargoBody) : '',
+    payloadKg: v?.payloadKg ? String(v.payloadKg) : '',
+    grossKg: v?.grossKg ? String(v.grossKg) : '',
   };
 }
 
