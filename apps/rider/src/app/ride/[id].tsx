@@ -14,6 +14,7 @@ import type { Ride, SosResult } from '../../api/types';
 import { confirm, notify } from '../../lib/dialogs';
 import {
   cashToPay,
+  waitingCashLine,
   OWED_FEE_LABEL,
   type RideRules,
   rideRules,
@@ -477,6 +478,7 @@ function useSteadyEta(minutes: number | null, phase: string): number | null {
  */
 function FareLine({ ride }: { ride: Ride }) {
   const cash = cashToPay(ride);
+  const waiting = waitingCashLine(ride);
   // a shared ride: the quoted price is the ceiling, co-riders lower it (live)
   const price = ridePrice(ride.fare);
   const cashRide = ride.paymentMethod === 'cash';
@@ -504,8 +506,12 @@ function FareLine({ ride }: { ride: Ride }) {
       ) : null}
       {price.deposit > 0 && cashRide ? (
         <T variant="small" color={colors.textMuted}>
-          Oldindan to‘langan {formatMoney(price.deposit)} · qolgan {formatMoney(price.cashLeft)}{' '}
-          naqd
+          Oldindan to‘langan {formatMoney(price.deposit)} · qolgan {formatMoney(cash.fare)} naqd
+        </T>
+      ) : null}
+      {waiting ? (
+        <T variant="small" color={colors.textMuted}>
+          {waiting}
         </T>
       ) : null}
       {cash.owedFee > 0 ? (

@@ -10,6 +10,7 @@ import {
   rideRules,
   seatShareText,
   waitingRuleText,
+  waitingCashLine,
   waitingState,
 } from './fare';
 
@@ -257,6 +258,36 @@ describe('owed cancellation fees', () => {
         fare: { quoted: 20_000, waiting: 1500, total: null, owedFee: 0 },
       }).total,
     ).toBe(1500);
+  });
+
+  it('shows paid waiting and the cash total during the trip (QA wave 4)', () => {
+    // the driver's screen said 19 100 while the rider's said 15 600
+    expect(
+      s(
+        waitingCashLine({
+          paymentMethod: 'cash',
+          fare: { quoted: 15_600, waiting: 3500, total: null, pays: 15_600 },
+        })!,
+      ),
+    ).toBe('Pullik kutish +3 500 so‘m · naqd jami 19 100 so‘m');
+    expect(
+      s(
+        waitingCashLine({
+          paymentMethod: 'card',
+          fare: { quoted: 15_600, waiting: 1000, total: null },
+        })!,
+      ),
+    ).toBe('Pullik kutish 1 000 so‘m haydovchiga naqd to‘lanadi');
+    expect(
+      waitingCashLine({ paymentMethod: 'cash', fare: { quoted: 15_600, waiting: 0, total: null } }),
+    ).toBeNull();
+    // the owed-fee line already says the cash total
+    expect(
+      waitingCashLine({
+        paymentMethod: 'cash',
+        fare: { quoted: 15_600, waiting: 500, total: null, owedFee: 3000 },
+      }),
+    ).toBeNull();
   });
 
   it('names a fixed route price by seat or whole car', () => {

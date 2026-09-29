@@ -301,6 +301,21 @@ export function cashToPay(ride: {
   return { total: fare + owedFee, fare, owedFee, deposit };
 }
 
+/**
+ * Paid waiting on an open ride: the driver collects it in cash on top of the price, so the
+ * rider sees it (and the cash total) before the end, not only on the receipt. Null without
+ * paid waiting, or when the owed-fee line already spells the cash total out.
+ */
+export function waitingCashLine(ride: Parameters<typeof cashToPay>[0]): string | null {
+  const waiting = ride.fare.waiting;
+  if (waiting <= 0) return null;
+  const cash = cashToPay(ride);
+  if (cash.owedFee > 0) return null;
+  return ride.paymentMethod === 'cash'
+    ? `Pullik kutish +${formatMoney(waiting)} · naqd jami ${formatMoney(cash.total)}`
+    : `Pullik kutish ${formatMoney(waiting)} haydovchiga naqd to‘lanadi`;
+}
+
 /** What happened to this ride's own cancellation fee, for the summary. */
 export function cancellationFeeNote(fare: {
   cancellationFee: number;
