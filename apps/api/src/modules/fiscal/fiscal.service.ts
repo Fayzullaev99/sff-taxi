@@ -107,6 +107,7 @@ export class FiscalService {
           'r.rider_phone',
           'r.pickup',
           'r.dropoff',
+          'r.service',
           'd.pinfl',
         ])
         .where('r.id', '=', target.rideId)
@@ -126,6 +127,7 @@ export class FiscalService {
         from: r.pickup.address,
         to: r.dropoff.address,
         quantity: 1,
+        service: r.service,
       };
     }
     const b = await this.db.kysely

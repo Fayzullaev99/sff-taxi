@@ -14,6 +14,7 @@ import { Notifier } from './notifier.js';
  *   was given to someone else, the application was decided or the account blocked, a card
  *   top-up was paid, an appeal was answered;
  * - riders also: a card refund queued or made, an operator answered or closed a complaint;
+ * - deliveries: the sender when the parcel is picked up, the recipient by SMS (car, driver);
  * - operators: an SMS for every SOS (the panel also shows it in realtime).
  */
 @Injectable()
@@ -146,7 +147,7 @@ export class NotificationsHandler implements OutboxHandler {
           .where('status', '=', 'accepted')
           .executeTakeFirst();
         const minutes = offer?.eta_s != null ? Math.max(1, Math.round(offer.eta_s / 60)) : null;
-        await toRider('driver_assigned', (l) => push.driverAssigned(l, car, minutes));
+        await toRider('driver_assigned', (l) => push.driverAssigned(l, car, minutes, ride.service));
         if (byPhone) {
           const driver = await this.db.kysely
             .selectFrom('users')
@@ -186,9 +187,30 @@ export class NotificationsHandler implements OutboxHandler {
       case 'completed':
         // the cash asked for includes fees owed from earlier rides
         await toRider('completed', (l) =>
-          push.completed(l, (ride.fare_total ?? ride.fare_quoted) + ride.owed_fee),
+          push.completed(l, (ride.fare_total ?? ride.fare_quoted) + ride.owed_fee, ride.service),
         );
         return;
+      case 'in_progress': {
+        // a parcel on its way: the sender hears it, the recipient gets the car and the driver
+        if (ride.service !== 'delivery' || !car || !ride.driver_id || !ride.recipient_phone) {
+          return;
+        }
+        await toRider('parcel_picked_up', (l) => push.parcelPickedUp(l, car));
+        const driver = await this.db.kysely
+          .selectFrom('users')
+          .select('phone')
+          .where('id', '=', ride.driver_id)
+          .executeTakeFirstOrThrow();
+        await this.notifier.sms({
+          key,
+          kind: 'parcel_on_the_way',
+          rideId,
+          userId: null,
+          phone: ride.recipient_phone,
+          text: sms.parcelOnTheWay(ride.number, car, driver.phone),
+        });
+        return;
+      }
       case 'searching':
         // a card ride just paid starts its first search: nothing to tell
         if (from === 'awaiting_payment') return;

@@ -4,6 +4,8 @@
  * as a template in the SMS provider's cabinet before production.
  */
 export type Locale = 'uz' | 'ru';
+/** The ride's service: cargo and delivery rides get their own wording. */
+type Service = 'taxi' | 'cargo' | 'delivery';
 
 export interface PushText {
   title: string;
@@ -22,14 +24,19 @@ const soum = (n: number) => `${String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} 
 const car = (c: CarText) => `${c.colour} ${c.make} ${c.model}, ${c.plate}`;
 
 export const push = {
-  driverAssigned: (l: Locale, c: CarText, minutes: number | null): PushText =>
+  driverAssigned: (
+    l: Locale,
+    c: CarText,
+    minutes: number | null,
+    service: Service = 'taxi',
+  ): PushText =>
     l === 'ru'
       ? {
-          title: 'Водитель найден',
+          title: service === 'cargo' ? 'Грузовая машина найдена' : 'Водитель найден',
           body: `${car(c)}${minutes ? `, прибудет через ~${minutes} мин` : ''}`,
         }
       : {
-          title: 'Haydovchi topildi',
+          title: service === 'cargo' ? 'Yuk mashinasi topildi' : 'Haydovchi topildi',
           body: `${car(c)}${minutes ? `, ~${minutes} daqiqada yetib keladi` : ''}`,
         },
   driverArrived: (l: Locale, c: CarText): PushText =>
@@ -39,10 +46,26 @@ export const push = {
           title: 'Haydovchi yetib keldi',
           body: `Sizni ${car(c)} kutmoqda. 2 daqiqa kutish bepul.`,
         },
-  completed: (l: Locale, fare: number): PushText =>
-    l === 'ru'
+  completed: (l: Locale, fare: number, service: Service = 'taxi'): PushText => {
+    if (service === 'delivery') {
+      return l === 'ru'
+        ? { title: 'Посылка доставлена', body: `К оплате ${soum(fare)}. Оцените доставку.` }
+        : { title: 'Posilka yetkazildi', body: `To‘lov: ${soum(fare)}. Xizmatni baholang.` };
+    }
+    if (service === 'cargo') {
+      return l === 'ru'
+        ? { title: 'Груз доставлен', body: `К оплате ${soum(fare)}. Оцените перевозку.` }
+        : { title: 'Yuk yetkazildi', body: `To‘lov: ${soum(fare)}. Xizmatni baholang.` };
+    }
+    return l === 'ru'
       ? { title: 'Поездка завершена', body: `К оплате ${soum(fare)}. Оцените поездку.` }
-      : { title: 'Safar yakunlandi', body: `To‘lov: ${soum(fare)}. Safarni baholang.` },
+      : { title: 'Safar yakunlandi', body: `To‘lov: ${soum(fare)}. Safarni baholang.` };
+  },
+  /** The sender of a parcel: the driver has it and is on the way to the recipient. */
+  parcelPickedUp: (l: Locale, c: CarText): PushText =>
+    l === 'ru'
+      ? { title: 'Посылка в пути', body: `Её везёт ${car(c)}.` }
+      : { title: 'Posilka yo‘lda', body: `Uni ${car(c)} olib ketmoqda.` },
   cancelledForRider: (l: Locale, reason: string | null): PushText =>
     l === 'ru'
       ? { title: 'Заказ отменён', body: reason ?? 'Свободных машин не нашлось' }
@@ -156,6 +179,9 @@ export const sms = {
     `SFF Taxi #${number}: ${car(c)}${minutes ? `, ~${minutes} daqiqada` : ''}. Haydovchi: ${driverPhone}`,
   driverArrived: (number: number, c: CarText) =>
     `SFF Taxi #${number}: haydovchi yetib keldi, ${car(c)}.`,
+  /** The recipient of a parcel: who brings it and how to reach the driver. */
+  parcelOnTheWay: (number: number, c: CarText, driverPhone: string) =>
+    `SFF Taxi #${number}: sizga posilka yo‘lda, ${car(c)}. Haydovchi: ${driverPhone}`,
   cancelled: (number: number, reason: string | null) =>
     `SFF Taxi #${number}: buyurtma bekor qilindi${reason ? ` (${reason})` : ''}.`,
   sos: (number: number, role: 'rider' | 'driver', phone: string) =>
