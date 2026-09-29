@@ -1,8 +1,8 @@
 import * as Location from 'expo-location';
 import { AppState, Linking, Platform } from 'react-native';
 import { endpoints } from '../api/endpoints';
-import type { GeoCity } from '../api/types';
-import { deviceAddressLine } from '../lib/device-address';
+import type { GeoCity, GeoReverse } from '../api/types';
+import { chooseAddress } from '../lib/device-address';
 import { coordKey, LruCache } from '../lib/lru';
 import { type Fix, PRECISE, ROUGH } from './fix';
 import { locate, type LocateOutcome, type LocationDriver } from './locate';
@@ -155,28 +155,20 @@ export function knownPoint(lat: number, lng: number): PointInfo | null {
 
 async function lookUpPoint(lat: number, lng: number): Promise<PointInfo> {
   let info: PointInfo = { address: null, serviceable: null, city: null };
+  let api: GeoReverse['address'] = null;
   try {
     const res = await endpoints.geoReverse({ lat, lng });
-    const a = res.address;
-    info = {
-      address: a ? [a.title, a.subtitle].filter(Boolean).join(', ') : null,
-      serviceable: res.serviceable,
-      city: res.city,
-    };
+    api = res.address;
+    info = { address: null, serviceable: res.serviceable, city: res.city };
   } catch {
-    // fall through to the device geocoder
+    // offline or failing: the device geocoder may still name the place
   }
-  if (!info.address) info.address = await deviceAddress(lat, lng);
-  return info;
-}
-
-async function deviceAddress(lat: number, lng: number): Promise<string | null> {
-  try {
+  // the API's Uzbek address; the phone's own (its language, plus codes) only without it
+  info.address = await chooseAddress(api, async () => {
     const [place] = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-    return place ? deviceAddressLine(place) : null;
-  } catch {
-    return null;
-  }
+    return place;
+  });
+  return info;
 }
 
 /** Fallback label when no address text is known. */

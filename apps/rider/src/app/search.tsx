@@ -57,7 +57,8 @@ export default function SearchScreen() {
     placeholderData: keepPreviousData,
   });
 
-  const pick = async (place: Place) => {
+  /** `address`: the text for the driver, when the title is only a label ("Mening joylashuvim"). */
+  const pick = async (place: Place, address: string | null = place.title) => {
     Keyboard.dismiss();
     if (save) {
       if (saving) return;
@@ -67,7 +68,7 @@ export default function SearchScreen() {
       if (ok) router.back();
       return;
     }
-    const point = { lat: place.lat, lng: place.lng, address: place.title };
+    const point = { lat: place.lat, lng: place.lng, address };
     if (field === 'pickup') {
       choosePickup(point);
       router.back();
@@ -84,12 +85,15 @@ export default function SearchScreen() {
     setDescribing(true);
     const info = await describePoint(fix.lat, fix.lng);
     setDescribing(false);
-    void pick({
-      lat: fix.lat,
-      lng: fix.lng,
-      title: info.address ?? 'Mening joylashuvim',
-      subtitle: null,
-    });
+    void pick(
+      {
+        lat: fix.lat,
+        lng: fix.lng,
+        title: info.address ?? 'Mening joylashuvim',
+        subtitle: null,
+      },
+      info.address,
+    );
   };
   const locator = useLocator((found) => void pickHere(found));
   const locating = locator.locating || describing;

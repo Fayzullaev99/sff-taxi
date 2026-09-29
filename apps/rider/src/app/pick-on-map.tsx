@@ -55,12 +55,14 @@ export default function PickOnMapScreen() {
       if (ok) router.dismiss(2);
       return;
     }
+    // the driver gets a readable address or none (the pin and the landmark carry it), never
+    // coordinates
     if (field === 'pickup') {
-      choosePickup({ ...point, address: title });
+      choosePickup({ ...point, address });
       router.dismiss(2);
       return;
     }
-    updateDraft({ dropoff: { ...point, address: title } });
+    updateDraft({ dropoff: { ...point, address } });
     router.replace(orderPath(getDraft().service));
   };
 
