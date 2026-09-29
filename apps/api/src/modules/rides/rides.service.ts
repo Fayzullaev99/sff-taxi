@@ -18,8 +18,11 @@ import { Database, type Tx } from '../../core/db/database.js';
 import { containsPattern } from '../../core/db/like.js';
 import {
   ACTIVE_RIDE_STATUSES,
+  type CargoDetails,
   OPEN_RIDE_STATUSES,
+  type ParcelDetails,
   type Place,
+  type RideService,
   type RideActor,
   type RidePaymentStatus,
   type RidesTable,
@@ -28,6 +31,15 @@ import {
 } from '../../core/db/schema.js';
 import { msg } from '../../core/http/messages.js';
 import { emit } from '../../core/outbox/outbox.js';
+import {
+  CARGO_CLASSES,
+  type CargoClass,
+  type CargoFare,
+  carClassesFor,
+  cargoRideTariff,
+  computeCargoFare,
+  deliveryFare,
+} from '../../lib/cargo.js';
 import { distanceM } from '../../lib/distance.js';
 import { formatPlate } from '../../lib/driver-rules.js';
 import type { Point } from '../../lib/geo.js';
@@ -89,6 +101,12 @@ export interface QuoteInput {
   options: RideOption[];
   /** Ordering for later (30 min to 24 h ahead); null = now. */
   scheduledFor?: Date | null;
+  /** taxi (default), cargo ("Yuk tashish") or delivery (a parcel in a taxi car). */
+  service?: RideService;
+  /** Cargo: loaders, the customer riding along, the load. */
+  cargo?: Partial<CargoDetails>;
+  /** Delivery: the parcel (at most the configured weight). */
+  parcel?: Partial<ParcelDetails>;
 }
 
 /** Scheduled rides: how far ahead, when dispatch starts, how many a rider may hold. */
@@ -99,7 +117,13 @@ export const SCHEDULED_PER_RIDER = 3;
 
 export interface OrderInput {
   quoteId: string;
-  class: RideClass;
+  /** A taxi class (taxi, delivery) or a cargo class (a cargo quote). */
+  class: RideClass | CargoClass;
+  /** Cargo: the load described or weighed more precisely than in the quote. */
+  cargo?: { description?: string | null; weightKg?: number | null };
+  /** Delivery: the parcel, and who receives it (required). */
+  parcel?: { description?: string | null; weightKg?: number | null };
+  recipient?: { name: string; phone: string } | null;
   paymentMethod: PaymentMethod;
   pickup: { address: string | null; landmark: string | null };
   dropoff: { address: string | null; landmark: string | null };
@@ -138,6 +162,9 @@ const placeText = (p: { address: string | null; landmark: string | null }) => ({
 
 export { DRIVER_CANCEL_REASONS, type DriverCancelReason };
 
+const isTaxiClass = (c: string): c is RideClass => (RIDE_CLASSES as readonly string[]).includes(c);
+const isCargoClass = (c: string): c is CargoClass =>
+  (CARGO_CLASSES as readonly string[]).includes(c);
 const isActive = (s: RideStatus) => (ACTIVE_RIDE_STATUSES as readonly string[]).includes(s);
 const isOpen = (s: RideStatus) => (OPEN_RIDE_STATUSES as readonly string[]).includes(s);
 const isUnfinished = (s: RideStatus) => (UNFINISHED_RIDE_STATUSES as readonly string[]).includes(s);
@@ -199,13 +226,22 @@ export class RidesService {
         );
       }
     }
+    const service = input.service ?? 'taxi';
+    if (service === 'cargo') return this.cargoQuote(user, input, scheduledFor, now, opts);
+    // a delivery: a parcel in a taxi car, priced as the ride (or a share of it)
+    const delivery = service === 'delivery' ? await this.deliveryRules(input.parcel) : null;
     // a ride for later is priced for its own time (the night add-on), fixed now
     const priced = await this.price(
       input.pickup,
       input.dropoff,
-      input.options,
+      delivery ? [] : input.options,
       scheduledFor ?? now,
     );
+    if (delivery) {
+      for (const rideClass of RIDE_CLASSES) {
+        priced.fares[rideClass] = deliveryFare(priced.fares[rideClass], delivery.percent);
+      }
+    }
     const id = uuidv7();
     const expiresAt = new Date(now.getTime() + QUOTE_TTL_SECONDS * 1000);
     await this.db.kysely
@@ -218,7 +254,7 @@ export class RidesService {
         pickup_lng: input.pickup.lng,
         dropoff_lat: input.dropoff.lat,
         dropoff_lng: input.dropoff.lng,
-        options: [...new Set(input.options)],
+        options: delivery ? [] : [...new Set(input.options)],
         distance_m: priced.route.distanceM,
         duration_s: priced.route.durationS === null ? null : Math.round(priced.route.durationS),
         route_source: priced.route.source,
@@ -228,8 +264,21 @@ export class RidesService {
         expires_at: expiresAt,
         scheduled_for: scheduledFor,
         route: priced.fixedRoute ? JSON.stringify(priced.fixedRoute) : null,
+        service,
+        cargo: delivery ? JSON.stringify(delivery.parcel) : null,
       })
       .execute();
+    if (delivery) {
+      return this.deliveryQuoteView(user, {
+        id,
+        expiresAt,
+        scheduledFor,
+        priced,
+        delivery,
+        forRider: opts.forRider,
+        pickup: input.pickup,
+      });
+    }
     const [poolRules, rider] = await Promise.all([
       this.settings.pool(),
       opts.forRider
@@ -242,6 +291,7 @@ export class RidesService {
     ]);
     return {
       quoteId: id,
+      service: 'taxi' as const,
       expiresAt,
       scheduledFor,
       city: publicCity(priced.city),
@@ -314,6 +364,229 @@ export class RidesService {
               : await this.availability.womenDrivers(input.pickup, user.userId),
           }
         : null,
+    };
+  }
+
+  /** How a quote may be paid: rides for later are cash only (a card ride is prepaid first). */
+  private paymentOptions(scheduledFor: Date | null) {
+    return {
+      paymentMethods: scheduledFor
+        ? this.payments.methods().filter((m) => m === 'cash')
+        : this.payments.methods(),
+      cardProviders: scheduledFor ? [] : this.payments.providers(),
+    };
+  }
+
+  /** Nothing to share and no woman-driver option: cargo and delivery quotes. */
+  private static readonly NO_POOL = {
+    available: false,
+    discountPercent: 0,
+    fullDiscountSharePercent: 0,
+    cashOnly: true,
+    cars: [] as never[],
+  };
+
+  /** Delivery is open, and the parcel is light enough for a taxi car. */
+  private async deliveryRules(parcel: QuoteInput['parcel']) {
+    const rules = await this.settings.cargo();
+    if (!rules.delivery.enabled) {
+      throw new BadRequestException('Yetkazib berish hozircha ishlamaydi');
+    }
+    const details: ParcelDetails = {
+      description: parcel?.description ?? null,
+      weightKg: parcel?.weightKg ?? null,
+    };
+    if (details.weightKg !== null && details.weightKg > rules.delivery.max_weight_kg) {
+      throw new BadRequestException(
+        msg(
+          'Posilka {0} kg dan og‘ir bo‘lmasligi kerak: og‘irroq yuk uchun «Yuk tashish»',
+          rules.delivery.max_weight_kg,
+        ),
+      );
+    }
+    return {
+      percent: rules.delivery.percent,
+      maxWeightKg: rules.delivery.max_weight_kg,
+      parcel: details,
+    };
+  }
+
+  /**
+   * A delivery quote: the taxi classes' fares (the ride's price or the configured share of
+   * it) for a parcel carried by a taxi car; the sender is not in the car, so no sharing and
+   * no seats. The recipient's name and phone are asked for when ordering.
+   */
+  private async deliveryQuoteView(
+    user: AuthUser,
+    q: {
+      id: string;
+      expiresAt: Date;
+      scheduledFor: Date | null;
+      priced: Awaited<ReturnType<RidesService['price']>>;
+      delivery: Awaited<ReturnType<RidesService['deliveryRules']>>;
+      forRider: boolean;
+      pickup: Point;
+    },
+  ) {
+    const { priced } = q;
+    return {
+      quoteId: q.id,
+      service: 'delivery' as const,
+      expiresAt: q.expiresAt,
+      scheduledFor: q.scheduledFor,
+      city: publicCity(priced.city),
+      kind: priced.kind,
+      distanceM: priced.route.distanceM,
+      durationS: priced.route.durationS === null ? null : Math.round(priced.route.durationS),
+      routeSource: priced.route.source,
+      options: [],
+      fares: priced.fares,
+      ...this.paymentOptions(q.scheduledFor),
+      owedFee: q.forRider ? await this.owedFeeLine(user.userId) : null,
+      waiting: priced.tariff.waiting,
+      cancellationFee: priced.tariff.cancellation_fee,
+      availability: q.scheduledFor ? null : await this.availability.near(q.pickup, user.userId),
+      route: null,
+      pool: RidesService.NO_POOL,
+      womenOnly: null,
+      delivery: {
+        percent: q.delivery.percent,
+        maxWeightKg: q.delivery.maxWeightKg,
+        parcel: q.delivery.parcel,
+        /** POST rides needs `recipient {name, phone}`: the driver calls them. */
+        recipientRequired: true,
+      },
+    };
+  }
+
+  /**
+   * A cargo quote: every cargo class priced (src/lib/cargo.ts) with the loaders asked for,
+   * fixed now like taxi fares. The ride keeps the class's loading minutes and per-minute
+   * price as its waiting rules (the tariff snapshot's `cargo_waiting`).
+   */
+  private async cargoQuote(
+    user: AuthUser,
+    input: QuoteInput,
+    scheduledFor: Date | null,
+    now: Date,
+    opts: { forRider: boolean },
+  ) {
+    const rules = await this.settings.cargo();
+    if (!rules.enabled) throw new BadRequestException('Yuk tashish hozircha ishlamaydi');
+    const details: CargoDetails = {
+      loaders: input.cargo?.loaders ?? 0,
+      riderRides: input.cargo?.riderRides ?? false,
+      description: input.cargo?.description ?? null,
+      weightKg: input.cargo?.weightKg ?? null,
+    };
+    if (details.loaders > rules.max_loaders) {
+      throw new BadRequestException(msg('Yukchilar {0} tadan ko‘p bo‘lmaydi', rules.max_loaders));
+    }
+    const found = await this.geo.serviceCity(input.pickup);
+    if (!found) {
+      const where = await this.geo.resolve(input.pickup);
+      throw new UnprocessableEntityException({
+        message: 'Bu hududda hozircha ishlamaymiz',
+        resolved: where,
+      });
+    }
+    const { pickup, dropoff } = input;
+    if (distanceM(pickup.lat, pickup.lng, dropoff.lat, dropoff.lng) < MIN_TRIP_M) {
+      throw new BadRequestException('Olib ketish va borish manzillari juda yaqin');
+    }
+    const road = await this.routing.route(pickup, dropoff);
+    const at = this.calendar.at(scheduledFor ?? now);
+    const fares = Object.fromEntries(
+      CARGO_CLASSES.map((cargoClass) => [
+        cargoClass,
+        computeCargoFare(
+          { roadM: road.distanceM, cargoClass, loaders: details.loaders, at },
+          rules,
+        ),
+      ]),
+    ) as Record<CargoClass, CargoFare>;
+    // the taxi tariff (cancellation) with each class's loading minutes as its waiting
+    const tariff = {
+      ...found.tariff,
+      cargo_waiting: Object.fromEntries(
+        CARGO_CLASSES.map((c) => [c, cargoRideTariff(found.tariff, rules, c).waiting]),
+      ),
+    };
+    const id = uuidv7();
+    const expiresAt = new Date(now.getTime() + QUOTE_TTL_SECONDS * 1000);
+    const durationS = road.durationS === null ? null : Math.round(road.durationS);
+    await this.db.kysely
+      .insertInto('quotes')
+      .values({
+        id,
+        user_id: user.userId,
+        city_id: found.city.id,
+        pickup_lat: pickup.lat,
+        pickup_lng: pickup.lng,
+        dropoff_lat: dropoff.lat,
+        dropoff_lng: dropoff.lng,
+        options: [],
+        distance_m: road.distanceM,
+        duration_s: durationS,
+        route_source: road.source,
+        kind: fares.cargo_s.kind,
+        fares: JSON.stringify(fares),
+        tariff: JSON.stringify(tariff),
+        expires_at: expiresAt,
+        scheduled_for: scheduledFor,
+        route: null,
+        service: 'cargo',
+        cargo: JSON.stringify(details),
+      })
+      .execute();
+    const small = rules.classes.cargo_s;
+    return {
+      quoteId: id,
+      service: 'cargo' as const,
+      expiresAt,
+      scheduledFor,
+      city: publicCity(found.city),
+      kind: fares.cargo_s.kind,
+      distanceM: road.distanceM,
+      durationS,
+      routeSource: road.source,
+      options: [],
+      // keyed by cargo class (taxi quotes keep economy/comfort)
+      fares,
+      ...this.paymentOptions(scheduledFor),
+      owedFee: opts.forRider ? await this.owedFeeLine(user.userId) : null,
+      // the small class's loading rules; every class's are in cargo.classes
+      waiting: { free_minutes: small.included_minutes, per_minute: small.per_minute },
+      cancellationFee: found.tariff.cancellation_fee,
+      availability: scheduledFor ? null : await this.availability.nearCargo(pickup, user.userId),
+      route: null,
+      pool: RidesService.NO_POOL,
+      womenOnly: null,
+      cargo: {
+        ...details,
+        maxLoaders: rules.max_loaders,
+        loaderPrice: rules.loader_price,
+        /** The customer may ride in the cab: one person, nobody in the cargo bay. */
+        maxRiders: 1,
+        classes: Object.fromEntries(
+          CARGO_CLASSES.map((c) => {
+            const t = rules.classes[c];
+            return [
+              c,
+              {
+                maxPayloadKg: t.max_payload_kg,
+                includedKm: t.included_km,
+                includedMinutes: t.included_minutes,
+                perKm: t.per_km,
+                intercityPerKm: t.intercity_per_km,
+                perMinute: t.per_minute,
+                /** The load's weight (when given) is within the class's payload. */
+                fits: details.weightKg === null || details.weightKg <= t.max_payload_kg,
+              },
+            ];
+          }),
+        ) as Record<CargoClass, unknown>,
+      },
     };
   }
 
@@ -442,7 +715,7 @@ export class RidesService {
         distanceM: quote.distance_m,
         durationS: quote.duration_s,
         fare: how.fare,
-        tariff: quote.tariff,
+        tariff: how.tariff ?? quote.tariff,
         paymentMethod: input.paymentMethod,
         scheduledFor: quote.scheduled_for,
         passengers: how.passengers,
@@ -452,6 +725,10 @@ export class RidesService {
         fareMode: how.fareMode,
         routeFareId: how.fare.fixed?.routeFareId ?? null,
         startPin: how.startPin,
+        service: how.service,
+        cargo: how.cargo,
+        parcel: how.parcel,
+        recipient: how.recipient,
       });
     });
     return { created: true, ride: await this.riderView(user, id) };
@@ -463,10 +740,34 @@ export class RidesService {
    * the quote and the platform rules; the fare is the quote's (or the route's seat price).
    */
   private async rideTerms(
-    quote: { fares: unknown; route: unknown; tariff: unknown; scheduled_for: Date | null },
+    quote: {
+      fares: unknown;
+      route: unknown;
+      tariff: unknown;
+      scheduled_for: Date | null;
+      service: RideService;
+      cargo: unknown;
+    },
     input: OrderInput,
     riderGender: 'female' | 'male' | null,
-  ) {
+  ): Promise<{
+    passengers: number;
+    fareMode: 'car' | 'seat';
+    shareable: boolean;
+    womenOnly: boolean;
+    fare: Fare | CargoFare;
+    startPin: string | null;
+    service: RideService;
+    /** The ride's own tariff snapshot when it differs from the quote's (cargo waiting). */
+    tariff?: unknown;
+    cargo?: CargoDetails | null;
+    parcel?: ParcelDetails | null;
+    recipient?: { name: string; phone: string } | null;
+  }> {
+    if (quote.service !== 'taxi') return this.serviceTerms(quote, input);
+    if (!isTaxiClass(input.class)) {
+      throw new BadRequestException('Taksi uchun economy yoki comfort sinfini tanlang');
+    }
     const passengers = input.passengers ?? 1;
     if (!Number.isInteger(passengers) || passengers < 1 || passengers > MAX_PASSENGERS) {
       throw new BadRequestException(
@@ -512,7 +813,97 @@ export class RidesService {
       night || shareable || womenOnly || fare.kind === 'intercity'
         ? String(randomInt(0, 10_000)).padStart(4, '0')
         : null;
-    return { passengers, fareMode, shareable, womenOnly, fare, startPin };
+    return { passengers, fareMode, shareable, womenOnly, fare, startPin, service: 'taxi' };
+  }
+
+  /**
+   * Cargo and delivery orders: never shared, no seats sold, no woman-driver option. Cargo
+   * takes a cargo class (the load must fit its payload) and keeps the class's loading
+   * minutes as its waiting; a delivery needs the recipient's name and phone.
+   */
+  private async serviceTerms(
+    quote: {
+      fares: unknown;
+      tariff: unknown;
+      scheduled_for: Date | null;
+      service: RideService;
+      cargo: unknown;
+    },
+    input: OrderInput,
+  ) {
+    if (input.shareable || input.womenOnly || (input.fareMode ?? 'car') !== 'car') {
+      throw new BadRequestException(
+        quote.service === 'cargo'
+          ? 'Yuk tashishda hamroh, o‘rindiq va ayol haydovchi tanlovlari yo‘q'
+          : 'Posilka boshqa yo‘lovchilar bilan birga yuborilmaydi',
+      );
+    }
+    if ((input.passengers ?? 1) !== 1) {
+      throw new BadRequestException('Bu xizmatda yo‘lovchilar soni tanlanmaydi');
+    }
+    const tariff = Tariff.parse(quote.tariff);
+    const pin = (fare: { kind: string }) =>
+      isNight(this.calendar.at(quote.scheduled_for ?? new Date()), tariff.night) ||
+      fare.kind === 'intercity'
+        ? String(randomInt(0, 10_000)).padStart(4, '0')
+        : null;
+    const common = {
+      passengers: 1,
+      fareMode: 'car' as const,
+      shareable: false,
+      womenOnly: false,
+      service: quote.service,
+    };
+    if (quote.service === 'cargo') {
+      if (!isCargoClass(input.class)) {
+        throw new BadRequestException('Yuk mashinasi turini tanlang: cargo_s yoki cargo_m');
+      }
+      const fare = (quote.fares as Record<CargoClass, CargoFare>)[input.class];
+      const quoted = quote.cargo as CargoDetails;
+      const cargo: CargoDetails = {
+        ...quoted,
+        description: input.cargo?.description ?? quoted.description,
+        weightKg: input.cargo?.weightKg ?? quoted.weightKg,
+      };
+      if (cargo.weightKg !== null && cargo.weightKg > fare.cargo.maxPayloadKg) {
+        throw new BadRequestException(
+          msg(
+            'Bu mashina {0} kg gacha yuk oladi: kattaroq mashina tanlang',
+            fare.cargo.maxPayloadKg,
+          ),
+        );
+      }
+      const waiting = (
+        quote.tariff as { cargo_waiting?: Partial<Record<CargoClass, Tariff['waiting']>> }
+      ).cargo_waiting?.[input.class];
+      return {
+        ...common,
+        fare,
+        startPin: pin(fare),
+        tariff: waiting ? { ...tariff, waiting } : tariff,
+        cargo,
+      };
+    }
+    if (!isTaxiClass(input.class)) {
+      throw new BadRequestException('Yetkazib berish uchun economy yoki comfort sinfini tanlang');
+    }
+    if (!input.recipient) {
+      throw new BadRequestException('Qabul qiluvchining ismi va telefon raqamini kiriting');
+    }
+    const fare = (quote.fares as Record<RideClass, Fare>)[input.class];
+    const quoted = (quote.cargo ?? { description: null, weightKg: null }) as ParcelDetails;
+    const parcel: ParcelDetails = {
+      description: input.parcel?.description ?? quoted.description,
+      weightKg: input.parcel?.weightKg ?? quoted.weightKg,
+    };
+    await this.deliveryRules(parcel);
+    return {
+      ...common,
+      fare,
+      startPin: pin(fare),
+      parcel,
+      recipient: input.recipient,
+    };
   }
 
   /**
@@ -557,6 +948,9 @@ export class RidesService {
         .executeTakeFirst();
       if (!quote) throw new NotFoundException('Narx topilmadi: qayta hisoblang');
       if (quote.expires_at <= now) throw new GoneException('Narx eskirdi: qayta hisoblang');
+      if (quote.service !== 'taxi') {
+        throw new BadRequestException('Telefon orqali hozircha faqat taksi buyurtma qilinadi');
+      }
       priced = {
         cityId: quote.city_id,
         pickup: { lat: quote.pickup_lat, lng: quote.pickup_lng, ...placeText(input.pickup) },
@@ -838,14 +1232,14 @@ export class RidesService {
       clientRequestId: string | null;
       quoteId: string | null;
       cityId: string;
-      rideClass: RideClass;
+      rideClass: RideClass | CargoClass;
       pickup: PlaceInput;
       dropoff: PlaceInput;
       options: RideOption[];
       comment: string | null;
       distanceM: number;
       durationS: number | null;
-      fare: Fare;
+      fare: Fare | CargoFare;
       tariff: unknown;
       paymentMethod: PaymentMethod;
       scheduledFor?: Date | null;
@@ -856,6 +1250,10 @@ export class RidesService {
       fareMode?: 'car' | 'seat';
       routeFareId?: string | null;
       startPin?: string | null;
+      service?: RideService;
+      cargo?: CargoDetails | null;
+      parcel?: ParcelDetails | null;
+      recipient?: { name: string; phone: string } | null;
     },
   ): Promise<string> {
     const id = uuidv7();
@@ -903,6 +1301,11 @@ export class RidesService {
         fare_mode: r.fareMode ?? 'car',
         route_fare_id: r.routeFareId ?? null,
         start_pin: r.startPin ?? null,
+        service: r.service ?? 'taxi',
+        cargo: r.cargo ? JSON.stringify(r.cargo) : null,
+        parcel: r.parcel ? JSON.stringify(r.parcel) : null,
+        recipient_name: r.recipient?.name ?? null,
+        recipient_phone: r.recipient?.phone ?? null,
         status,
         updated_at: new Date(),
       })
@@ -916,6 +1319,7 @@ export class RidesService {
       ...(r.shareable ? { shareable: true } : {}),
       ...(r.womenOnly ? { womenOnly: true } : {}),
       ...(r.fareMode === 'seat' ? { fareMode: 'seat' } : {}),
+      ...(r.service && r.service !== 'taxi' ? { service: r.service } : {}),
     });
     // fees owed from cancelled cash rides are paid with this cash fare (a separate line)
     if (r.paymentMethod === 'cash') await this.attachOwedFees(trx, r.riderId, id);
@@ -969,11 +1373,34 @@ export class RidesService {
     const driver = await trx
       .selectFrom('drivers as d')
       .innerJoin('vehicles as v', 'v.driver_id', 'd.user_id')
-      .select(['d.user_id', 'd.status', 'v.make', 'v.model', 'v.colour', 'v.plate', 'v.class'])
+      .select([
+        'd.user_id',
+        'd.status',
+        'v.make',
+        'v.model',
+        'v.colour',
+        'v.plate',
+        'v.class',
+        'v.body',
+        'v.cargo_class',
+      ])
       .where('d.user_id', '=', driverId)
       .forUpdate('d')
       .executeTakeFirst();
     if (!driver || driver.status !== 'active') throw new ConflictException('Haydovchi faol emas');
+    // a cargo car takes cargo rides of a class it fits, a taxi car everything else (operators too)
+    const fits =
+      ride.service === 'cargo'
+        ? driver.cargo_class !== null &&
+          carClassesFor(ride.class as CargoClass).includes(driver.cargo_class)
+        : driver.cargo_class === null;
+    if (!fits) {
+      throw new ConflictException(
+        ride.service === 'cargo'
+          ? 'Bu haydovchining mashinasi bu yukka mos emas'
+          : 'Yuk mashinasi yo‘lovchi va posilka buyurtmalarini olmaydi',
+      );
+    }
     if (driverId === ride.rider_id)
       throw new ConflictException('O‘zingizning buyurtmangizni ololmaysiz');
     const busy = by.poolId
@@ -999,6 +1426,8 @@ export class RidesService {
           colour: driver.colour,
           plate: driver.plate,
           class: driver.class,
+          // a cargo car: its body and class (taxi snapshots stay as they were)
+          ...(driver.cargo_class ? { body: driver.body, cargoClass: driver.cargo_class } : {}),
         }),
         assigned_at: now,
         pool_id: by.poolId ?? null,
@@ -1931,6 +2360,17 @@ export class RidesService {
       fareMode: ride.fare_mode,
       pool: ride.pool_id ? { id: ride.pool_id, sharedM: ride.pool_shared_m } : null,
       hasStartPin: ride.start_pin !== null,
+      /** Cargo rides: loaders, the customer riding along, the load (null otherwise). */
+      cargo: ride.cargo,
+      /** Deliveries: the parcel and who receives it (the driver calls them). */
+      delivery:
+        ride.service === 'delivery'
+          ? {
+              parcel: ride.parcel,
+              recipientName: ride.recipient_name,
+              recipientPhone: ride.recipient_phone,
+            }
+          : null,
       paymentMethod: ride.payment_method,
       paymentStatus: ride.payment_status,
       vehicle,
@@ -2095,7 +2535,8 @@ export class RidesService {
     q?: string;
     driverId?: string;
     riderId?: string;
-    class?: RideClass;
+    class?: RideClass | CargoClass;
+    service?: RideService;
     from?: string;
     to?: string;
     cursor?: string;
@@ -2114,6 +2555,7 @@ export class RidesService {
       .$if(Boolean(filter.driverId), (q) => q.where('driver_id', '=', filter.driverId!))
       .$if(Boolean(filter.riderId), (q) => q.where('rider_id', '=', filter.riderId!))
       .$if(Boolean(filter.class), (q) => q.where('class', '=', filter.class!))
+      .$if(Boolean(filter.service), (q) => q.where('service', '=', filter.service!))
       // ids are time-ordered (uuid v7) and a ride's id never comes after its request time (a
       // ride for later or a card ride is requested at most ~a day after it was created): the
       // id bounds let the newest-first scan start and stop at the right days
@@ -2218,6 +2660,10 @@ const LIST_COLUMNS = [
   'pool_discount',
   'deposit_amount',
   'start_pin',
+  'cargo',
+  'parcel',
+  'recipient_name',
+  'recipient_phone',
   'requested_at',
   'assigned_at',
   'arrived_at',

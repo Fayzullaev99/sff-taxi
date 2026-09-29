@@ -15,7 +15,8 @@ import type { Response } from 'express';
 import { z } from 'zod';
 import { AdminOnly, type AuthUser, CurrentUser, Public } from '../../core/auth/auth-context.js';
 import { UzPhone } from '../../core/auth/phone.js';
-import { RIDE_STATUSES } from '../../core/db/schema.js';
+import { RIDE_SERVICES, RIDE_STATUSES } from '../../core/db/schema.js';
+import { CARGO_CLASSES } from '../../lib/cargo.js';
 import { RateLimit } from '../../core/http/rate-limit.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
 import { REASON_LABELS } from '../../lib/reasons.js';
@@ -41,10 +42,29 @@ const PlaceText = z
 const Options = z.array(z.enum(RIDE_OPTIONS)).max(4).default([]);
 const Comment = z.string().trim().min(1).max(500).nullable().default(null);
 
+const LoadText = z.string().trim().min(1).max(300).nullable().default(null);
 const QuoteBody = z.object({
   pickup: PointBody,
   dropoff: PointBody,
   options: Options,
+  /** taxi (default), cargo ("Yuk tashish") or delivery (a parcel carried by a taxi car). */
+  service: z.enum(RIDE_SERVICES).default('taxi'),
+  /** Cargo: loaders ("yukchi") are priced; the customer may ride in the cab (one person). */
+  cargo: z
+    .object({
+      loaders: z.number().int().min(0).max(4).default(0),
+      riderRides: z.boolean().default(false),
+      description: LoadText,
+      weightKg: z.number().int().min(1).max(20_000).nullable().default(null),
+    })
+    .optional(),
+  /** Delivery: a small parcel (the weight limit is a setting, 10 kg by default). */
+  parcel: z
+    .object({
+      description: LoadText,
+      weightKg: z.number().int().min(1).max(50).nullable().default(null),
+    })
+    .optional(),
   /** Order for later: 30 minutes to 24 hours ahead, cash (dispatch starts 15 min before). */
   scheduledFor: z.iso
     .datetime({ offset: true })
@@ -54,7 +74,26 @@ const QuoteBody = z.object({
 });
 const OrderBody = z.object({
   quoteId: z.uuid(),
-  class: z.enum(RIDE_CLASSES),
+  /** economy/comfort (taxi, delivery) or cargo_s/cargo_m (a cargo quote). */
+  class: z.enum([...RIDE_CLASSES, ...CARGO_CLASSES]),
+  /** Cargo: the load described more precisely than in the quote (the price stays). */
+  cargo: z
+    .object({
+      description: LoadText.optional(),
+      weightKg: z.number().int().min(1).max(20_000).nullable().optional(),
+    })
+    .optional(),
+  /** Delivery: the parcel and who receives it (required for a delivery). */
+  parcel: z
+    .object({
+      description: LoadText.optional(),
+      weightKg: z.number().int().min(1).max(50).nullable().optional(),
+    })
+    .optional(),
+  recipient: z
+    .object({ name: z.string().trim().min(1).max(100), phone: UzPhone })
+    .nullable()
+    .default(null),
   paymentMethod: z.enum(['cash', 'card']).default('cash'),
   pickup: PlaceText,
   dropoff: PlaceText,
@@ -119,7 +158,8 @@ const AdminListQuery = z.object({
   q: z.string().trim().min(1).max(20).optional(),
   driverId: z.uuid().optional(),
   riderId: z.uuid().optional(),
-  class: z.enum(RIDE_CLASSES).optional(),
+  class: z.enum([...RIDE_CLASSES, ...CARGO_CLASSES]).optional(),
+  service: z.enum(RIDE_SERVICES).optional(),
   from: DayString.optional(),
   to: DayString.optional(),
   /** The last id of the previous page. */
