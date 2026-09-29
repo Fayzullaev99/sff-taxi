@@ -30,6 +30,7 @@ import {
   needsDriver,
   placeLine,
 } from '../lib/rides';
+import { type CarLoad, carLoad, rideTags } from '../lib/pool';
 import type { MapLayers, MarkerKind, MarkerSpec } from '../map/adapter';
 import { GeoMap, useGeoConfig } from '../map/GeoMap';
 import { cityLayers } from '../map/places';
@@ -97,7 +98,17 @@ function RideRow({
         <span className="live-ride-place">{placeLine(ride.pickup)}</span>
         <span className="muted small">
           → {placeLine(ride.dropoff)} · {CLASSES[ride.class]} · {som(ride.fare.quoted)}
+          {(ride.passengers ?? 1) > 1 && ` · ${ride.passengers} kishi`}
         </span>
+        {rideTags(ride).length > 0 && (
+          <span className="live-ride-tags">
+            {rideTags(ride).map((t) => (
+              <Badge key={t.label} tone={t.tone}>
+                {t.label}
+              </Badge>
+            ))}
+          </span>
+        )}
         <span className="muted small">
           {ride.riderName ?? 'Yo‘lovchi'} {formatPhone(ride.riderPhone)}
         </span>
@@ -108,10 +119,12 @@ function RideRow({
 
 function DriverCard({
   driver,
+  load,
   onClose,
   onOpenRide,
 }: {
   driver: LiveDriver;
+  load: CarLoad | null;
   onClose: () => void;
   onOpenRide: (id: string) => void;
 }) {
@@ -139,6 +152,20 @@ function DriverCard({
         Liniyada {ago(driver.onlineSince)} · GPS {driver.locatedAt ? ago(driver.locatedAt) : 'yo‘q'}
         {stale && ' (eskirgan: takliflar bormaydi)'}
       </p>
+      {load && load.rides.length > 0 && (
+        <p className="small">
+          {load.shared && <Badge tone="blue">Hamroh</Badge>} Mashinada {load.rides.length} ta
+          buyurtma, {load.passengers} kishi:{' '}
+          {load.rides.map((r, i) => (
+            <span key={r.id}>
+              {i > 0 && ', '}
+              <button type="button" className="link-btn" onClick={() => onOpenRide(r.id)}>
+                #{r.number}
+              </button>
+            </span>
+          ))}
+        </p>
+      )}
       <div className="row-actions">
         {rideId && (
           <Button size="sm" onClick={() => onOpenRide(rideId)}>
@@ -185,19 +212,26 @@ export default function LiveDispatch() {
   const waiting = live.data?.rides.filter(needsDriver).length ?? 0;
   const searching = live.data?.rides.filter((r) => r.status === 'searching').length ?? 0;
   const selectedDriver = live.data?.drivers.find((d) => d.id === driverId) ?? null;
+  const selectedLoad = selectedDriver && live.data ? carLoad(live.data, selectedDriver.id) : null;
   const noGps = board?.drivers.filter((d) => d.lat === null || d.lng === null).length ?? 0;
 
   const layers = useMemo<MapLayers>(() => {
-    if (!board || !geo.data) return {};
+    if (!board || !live.data || !geo.data) return {};
     const markers: MarkerSpec[] = [];
     for (const d of board.drivers) {
       if (d.lat === null || d.lng === null) continue;
       const stale = d.locatedAt ? minutesSince(d.locatedAt) >= STALE_GPS_MINUTES : true;
+      // a shared car: the number of riders it carries on the marker
+      const load = carLoad(live.data, d.id);
+      const shared = load.shared
+        ? ` · hamroh: ${load.rides.length} buyurtma, ${load.passengers} kishi`
+        : '';
       markers.push({
         id: `d-${d.id}`,
         point: { lat: d.lat, lng: d.lng },
         kind: DRIVER_KIND[d.state],
-        title: `${d.name} · ${d.plate} · ${DRIVER_STATE[d.state]}${stale ? ' · GPS eskirgan' : ''}`,
+        ...(load.rides.length > 1 ? { text: String(load.rides.length) } : {}),
+        title: `${d.name} · ${d.plate} · ${DRIVER_STATE[d.state]}${shared}${stale ? ' · GPS eskirgan' : ''}`,
         selected: d.id === driverId,
         onClick: () => setDriverId(d.id),
       });
@@ -216,7 +250,7 @@ export default function LiveDispatch() {
     }
     return { polygons: cityLayers(geo.data), markers };
     // openRide only changes the URL; the layers follow the board and the selection
-  }, [board, geo.data, driverId, rideId]);
+  }, [board, live.data, geo.data, driverId, rideId]);
 
   // fit the map to everything once when the board first loads, then only on request
   useEffect(() => {
@@ -325,6 +359,7 @@ export default function LiveDispatch() {
           {selectedDriver && (
             <DriverCard
               driver={selectedDriver}
+              load={selectedLoad}
               onClose={() => setDriverId(null)}
               onOpenRide={openRide}
             />
@@ -375,6 +410,9 @@ export default function LiveDispatch() {
             </li>
             <li>
               <span className="dot dot-busy" /> Buyurtmada
+            </li>
+            <li>
+              <span className="dot dot-busy" /> 2 — hamroh: mashinada 2 buyurtma
             </li>
             <li>
               <span className="dot dot-ride" /> Buyurtma (olib ketish joyi)

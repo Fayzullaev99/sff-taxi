@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router';
 import type { AdminRideItem } from '../api/types';
 import { CLASSES, dateTime, RIDE_STATUS_SHORT, RIDE_STATUS_TONE, som } from '../lib/format';
 import { formatPhone } from '../lib/phone';
+import { rideTags } from '../lib/pool';
 import { needsDriver, placeLine } from '../lib/rides';
 import { Badge } from '../ui/controls';
 import { LoadMore } from '../ui/LoadMore';
@@ -51,7 +52,13 @@ function RideRow({
         <span className="muted small">
           {CLASSES[r.class]}
           {r.kind === 'intercity' && ' · shaharlararo'}
+          {(r.passengers ?? 1) > 1 && ` · ${r.passengers} kishi`}
         </span>
+        {rideTags(r).map((t) => (
+          <Badge key={t.label} tone={t.tone}>
+            {t.label}
+          </Badge>
+        ))}
       </td>
       {showDriver && (
         <td>
@@ -59,7 +66,12 @@ function RideRow({
           {r.vehicle && <div className="muted small plate-inline">{r.vehicle.plateFormatted}</div>}
         </td>
       )}
-      <td className="num">{som(r.fare.total ?? r.fare.quoted)}</td>
+      <td className="num">
+        {som(r.fare.total ?? r.fare.quoted)}
+        {r.fare.total === null && (r.fare.poolDiscount ?? 0) > 0 && (
+          <div className="muted small">to‘laydi {som(r.fare.pays ?? r.fare.quoted)}</div>
+        )}
+      </td>
     </tr>
   );
 }

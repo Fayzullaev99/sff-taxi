@@ -302,6 +302,8 @@ export const EVENTS: Record<string, string> = {
   cancelled: 'Bekor qilindi',
   rated: 'Baho qo‘yildi',
   sos: 'SOS signali',
+  pool_joined: 'Hamroh: mashinaga yo‘lovchi qo‘shildi',
+  pool_left: 'Hamroh: yo‘lovchi chiqdi',
 };
 
 export const LICENCE_STATUS: Record<LicenceStatus, string> = {
