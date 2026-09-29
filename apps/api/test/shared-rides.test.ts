@@ -83,6 +83,7 @@ describe('shared rides, women drivers, fixed routes (wave 4)', () => {
     const offers = (await d.http.get('/v1/driver/offers').expect(200)).body as {
       id: string;
       ride: { id: string };
+      distanceM: number | null;
       along: { detourS: number; stops: { rideId: string; type: string }[] } | null;
     }[];
     return offers[0] ?? null;
@@ -191,6 +192,8 @@ describe('shared rides, women drivers, fixed routes (wave 4)', () => {
       const offerB = await offerOf(d);
       expect(offerB!.ride.id).toBe(b.ride.id);
       expect(offerB!.along!.stops.map((s) => s.type)).toContain('pickup');
+      // "Mijozgacha …" on the driver's offer: the road to B, not 0 m (QA wave 4)
+      expect(offerB!.distanceM).toBeGreaterThan(3000);
       await d.http.post(`/v1/driver/offers/${offerB!.id}/accept`).expect(200);
 
       // both pay less: A shared half of the trip (the full 15%), B all of it

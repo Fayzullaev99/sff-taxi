@@ -317,7 +317,8 @@ export class DispatchService {
       ranked.push({
         ...d,
         etaS: fit.insertion.pickupEtaS,
-        distanceM: 0,
+        // the driver's "Mijozgacha …": along the car's plan, not 0
+        distanceM: fit.insertion.pickupM,
         plan: fit.insertion.stops,
         detourS: fit.insertion.addedS,
         inCar: fit.occupied,

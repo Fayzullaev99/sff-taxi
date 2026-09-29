@@ -128,6 +128,8 @@ export interface Insertion {
   stops: PlanStop[];
   /** Road time until the new rider is picked up. */
   pickupEtaS: number;
+  /** Road metres the car drives until the new rider is picked up (stops on the way included). */
+  pickupM: number;
   /** How much longer the whole plan became. */
   addedS: number;
   addedM: number;
@@ -305,6 +307,7 @@ export function bestInsertion(input: InsertionInput): Insertion | null {
         best = {
           stops: order.map(stopOf),
           pickupEtaS: Math.round(pickupEtaS),
+          pickupM: Math.round(w.at[posP]!.m),
           // straight roads give -0.4 s of float noise: never a negative detour
           addedS: Math.max(0, Math.round(addedS)),
           addedM: Math.max(0, Math.round(w.totalM - base.totalM)),

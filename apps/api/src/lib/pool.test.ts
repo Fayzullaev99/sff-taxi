@@ -90,6 +90,7 @@ describe('inserting a rider on the way', () => {
     expect(ins).not.toBeNull();
     expect(ins.stops[0]).toMatchObject({ rideId: 'B', type: 'pickup' });
     expect(ins.stops).toHaveLength(3);
+    expect(ins.pickupM).toBeGreaterThan(49_000);
     expect(ins.addedS).toBeLessThan(1);
     expect(ins.maxDelayS).toBeLessThan(1);
   });
