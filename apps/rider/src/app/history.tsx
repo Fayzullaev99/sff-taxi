@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { memo, useMemo } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -12,6 +13,7 @@ import type { RideSummary } from '../api/types';
 import { CLASS_LABELS } from '../lib/fare';
 import { formatDateTime, formatMoney, placeLine } from '../lib/format';
 import { rideScreen } from '../lib/ride-state';
+import { discountLine } from '../lib/sharing';
 import { Icon, T } from '../ui/primitives';
 import { EmptyView, ErrorView, LoadingView } from '../ui/states';
 import { colors, radius, space } from '../ui/theme';
@@ -19,7 +21,8 @@ import { colors, radius, space } from '../ui/theme';
 /** Past and current rides, newest first, 30 per page. */
 export default function HistoryScreen() {
   const history = useHistory();
-  const items = history.data?.pages.flatMap((p) => p.items) ?? [];
+  const pages = history.data?.pages;
+  const items = useMemo(() => pages?.flatMap((p) => p.items) ?? [], [pages]);
 
   if (history.isPending) return <LoadingView />;
   if (history.isError && !items.length) {
@@ -32,8 +35,8 @@ export default function HistoryScreen() {
       data={items}
       keyExtractor={(r) => r.id}
       contentContainerStyle={items.length ? styles.list : styles.emptyList}
-      renderItem={({ item }) => <RideRow ride={item} />}
-      ItemSeparatorComponent={() => <View style={styles.separator} />}
+      renderItem={renderRide}
+      ItemSeparatorComponent={Separator}
       onEndReached={() => {
         if (history.hasNextPage && !history.isFetchingNextPage) void history.fetchNextPage();
       }}
@@ -61,6 +64,8 @@ export default function HistoryScreen() {
       }
       // light rows, no images: smooth on low-end phones
       initialNumToRender={10}
+      maxToRenderPerBatch={8}
+      updateCellsBatchingPeriod={60}
       windowSize={7}
       removeClippedSubviews
     />
@@ -73,7 +78,14 @@ const STATUS_COLOR: Record<string, string> = {
   no_driver: colors.warning,
 };
 
-function RideRow({ ride }: { ride: RideSummary }) {
+const renderRide = ({ item }: { item: RideSummary }) => <RideRow ride={item} />;
+
+function Separator() {
+  return <View style={styles.separator} />;
+}
+
+/** One ride; memoised, so pages loaded later or a refetch do not redraw unchanged rows. */
+const RideRow = memo(function RideRow({ ride }: { ride: RideSummary }) {
   const screen = rideScreen(ride);
   const amount =
     ride.status === 'completed'
@@ -81,7 +93,7 @@ function RideRow({ ride }: { ride: RideSummary }) {
         (ride.fare.total ?? ride.fare.quoted) + (ride.fare.owedFee ?? 0)
       : ride.fare.cancellationFee > 0
         ? ride.fare.cancellationFee
-        : ride.fare.quoted;
+        : (ride.fare.pays ?? ride.fare.quoted);
   const statusText =
     ride.status === 'completed'
       ? 'Yakunlangan'
@@ -119,11 +131,16 @@ function RideRow({ ride }: { ride: RideSummary }) {
         <T variant="smallStrong" color={STATUS_COLOR[screen.phase] ?? colors.brandText}>
           {statusText}
         </T>
+        {(ride.fare.poolDiscount ?? 0) > 0 ? (
+          <T variant="small" color={colors.success} numberOfLines={1}>
+            {discountLine(ride.fare.poolDiscount!)}
+          </T>
+        ) : null}
       </View>
       <T variant="bodyStrong">{formatMoney(amount)}</T>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },

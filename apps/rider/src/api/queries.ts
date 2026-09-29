@@ -1,6 +1,13 @@
-import { keepPreviousData, QueryClient, useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  onlineManager,
+  QueryClient,
+  useInfiniteQuery,
+  useQuery,
+} from '@tanstack/react-query';
 import { ApiError } from './client';
 import { endpoints } from './endpoints';
+import { isOnline, subscribeOnline } from './reachability';
 import { useIsSignedIn } from './session';
 import type { LatLng, Ride, RideOption } from './types';
 
@@ -12,11 +19,21 @@ export const queryClient = new QueryClient({
       // client errors will not get better by asking again; network trouble might
       retry: (count, error) =>
         error instanceof ApiError ? error.status >= 500 && count < 2 : count < 3,
-      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+      // exponential with jitter: phones that lost the network together do not come back
+      // in lockstep
+      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000) * (0.75 + Math.random() * 0.5),
     },
     mutations: { retry: false },
   },
 });
+
+/**
+ * React Native has no "online" event: the API client's reachability is the signal. While
+ * no request gets an answer, queries and their retries pause instead of piling up; when
+ * the connection is back (the offline banner's probe or any request answers), the stale
+ * queries on screen refetch once (`refetchOnReconnect`).
+ */
+onlineManager.setEventListener((setOnline) => subscribeOnline(() => setOnline(isOnline())));
 
 /** ~1 m precision is plenty and keeps cache keys stable. */
 const round = (n: number) => Math.round(n * 1e5) / 1e5;
@@ -27,6 +44,7 @@ export const keys = {
   me: ['me'] as const,
   config: ['app-config'] as const,
   geoConfig: ['geo-config'] as const,
+  routes: ['route-fares'] as const,
   tariff: (p: LatLng) => ['tariff', coarse(p.lat), coarse(p.lng)] as const,
   resolve: (p: LatLng) => ['geo-resolve', coarse(p.lat), coarse(p.lng)] as const,
   reverse: (p: LatLng) => ['geo-reverse', round(p.lat), round(p.lng)] as const,
@@ -83,6 +101,18 @@ export function useGeoConfig() {
     queryFn: endpoints.geoConfig,
     staleTime: 60 * 60_000,
     gcTime: 24 * 60 * 60_000,
+  });
+}
+
+/** Fixed prices between towns (operators change them rarely): the map's route chips. */
+export function useRouteFares() {
+  return useQuery({
+    queryKey: keys.routes,
+    queryFn: endpoints.routes,
+    staleTime: 30 * 60_000,
+    gcTime: 24 * 60 * 60_000,
+    // an older API has no /routes: no chips, no retries
+    retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 2,
   });
 }
 

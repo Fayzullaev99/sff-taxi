@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { describeError } from '../../api/client';
@@ -28,7 +28,10 @@ import {
   formatTime,
   placeLine,
 } from '../../lib/format';
+import { type EtaDisplay, fixIsStale, steadyEta } from '../../lib/car-motion';
 import { useNow } from '../../lib/hooks';
+import { discountLine, occupancyText, pinDigits, ridePrice } from '../../lib/sharing';
+import { SeatIcons } from '../../order/RideChoices';
 import { shareText } from '../../lib/links';
 import { newerEta, pickupEta, type RideScreen, rideScreen } from '../../lib/ride-state';
 import { searchStartsAt } from '../../lib/schedule';
@@ -42,6 +45,7 @@ import { DriverCard } from '../../ui/DriverCard';
 import { Banner, Button, Icon, IconButton, T } from '../../ui/primitives';
 import { SearchPulse } from '../../ui/Pulse';
 import { RideMap } from '../../ui/RideMap';
+import { useOnline } from '../../ui/OfflineBanner';
 import { ErrorView, LoadingView } from '../../ui/states';
 import { colors, radius, shadow, space } from '../../ui/theme';
 
@@ -101,7 +105,14 @@ export default function RideScreenRoute() {
     );
   }
 
-  return <LiveRide ride={ride} screen={screen!} onCheck={() => query.refetch()} />;
+  return (
+    <LiveRide
+      ride={ride}
+      screen={screen!}
+      updatedAt={query.dataUpdatedAt}
+      onCheck={() => query.refetch()}
+    />
+  );
 }
 
 function TopBar({ ride, overMap = false }: { ride: Ride; overMap?: boolean }) {
@@ -133,19 +144,28 @@ function TopBar({ ride, overMap = false }: { ride: Ride; overMap?: boolean }) {
 function LiveRide({
   ride,
   screen,
+  updatedAt,
   onCheck,
 }: {
   ride: Ride;
   screen: RideScreen;
+  /** When the ride was last fetched (a cold start offline shows the one kept on the phone). */
+  updatedAt: number;
   onCheck: () => Promise<unknown>;
 }) {
+  const online = useOnline();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const queryClient = useQueryClient();
   const live = useCarTrack(ride.id);
   // the API's trail since the assignment, continued by the fixes streamed since
   const track = useMemo(() => mergeTrail(ride.trail, live), [ride.trail, live]);
-  const car = screen.showDriver ? carPosition(track, ride.driver?.location ?? null) : null;
+  const driverLocation = ride.driver?.location ?? null;
+  // the same object while nothing moved: the memoised map is not re-rendered for nothing
+  const car = useMemo(
+    () => (screen.showDriver ? carPosition(track, driverLocation) : null),
+    [screen.showDriver, track, driverLocation],
+  );
   const rules = rideRules(ride);
   const [panelHeight, setPanelHeight] = useState(height * 0.45);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -259,13 +279,35 @@ function LiveRide({
         >
           <PhaseHeader ride={ride} screen={screen} car={car} rules={rules} />
 
+          {!online && updatedAt ? (
+            <T variant="small" color={colors.textMuted}>
+              Internet yo‘q: {formatTime(new Date(updatedAt).toISOString())} holatidagi ma’lumot
+              ko‘rsatilmoqda.
+            </T>
+          ) : null}
+
           {screen.phase === 'awaiting_payment' ? (
             <PaymentPanel ride={ride} onCheck={onCheck} />
           ) : null}
 
           {screen.phase === 'scheduled' ? <ScheduledInfo ride={ride} rules={rules} /> : null}
 
+          {(screen.phase === 'assigned' || screen.phase === 'arrived') &&
+          pinDigits(ride.startPin) ? (
+            <StartPin pin={ride.startPin!} />
+          ) : null}
+
           {screen.showDriver ? <DriverCard driver={ride.driver} vehicle={ride.vehicle} /> : null}
+
+          {screen.showDriver && ride.car && (ride.shareable || ride.car.riders > 1) ? (
+            <View style={styles.occupancy} accessible>
+              <SeatIcons car={ride.car} />
+              <T variant="smallStrong" style={styles.flex}>
+                {occupancyText(ride.car)}
+                {ride.passengers && ride.passengers > 1 ? ` · siz ${ride.passengers} kishi` : ''}
+              </T>
+            </View>
+          ) : null}
 
           {screen.phase === 'searching' ? <SearchingInfo ride={ride} /> : null}
 
@@ -359,21 +401,26 @@ function PhaseHeader({
   const now = useNow(15_000);
   const liveEta = useLiveEta(ride.id);
   const liveDestinationEta = useLiveDestinationEta(ride.id);
+  // the API's road ETA (fetched or streamed, whichever is newer); the estimate only without
+  const rawEta =
+    screen.phase === 'assigned'
+      ? (pickupEta(newerEta(ride.driverEta, liveEta), car, ride.pickup, now)?.minutes ?? null)
+      : screen.phase === 'on_trip'
+        ? (pickupEta(
+            newerEta(ride.destinationEta ?? null, liveDestinationEta),
+            car,
+            ride.dropoff,
+            now,
+          )?.minutes ?? null)
+        : null;
+  const eta = useSteadyEta(rawEta, screen.phase);
+  const carSilent =
+    (screen.phase === 'assigned' || screen.phase === 'on_trip') &&
+    fixIsStale(car?.at, now.getTime());
   let line: string | null = null;
   if (screen.phase === 'assigned') {
-    // the API's road ETA (fetched or streamed, whichever is newer); the estimate only without
-    const eta = pickupEta(newerEta(ride.driverEta, liveEta), car, ride.pickup, now);
-    line = eta
-      ? `Taxminan ${formatMinutes(eta.minutes)}da yetib keladi`
-      : 'Haydovchi yo‘lga chiqdi';
+    line = eta ? `Taxminan ${formatMinutes(eta)}da yetib keladi` : 'Haydovchi yo‘lga chiqdi';
   } else if (screen.phase === 'on_trip') {
-    // the API's road ETA to the destination; the straight-line estimate only without one
-    const eta = pickupEta(
-      newerEta(ride.destinationEta ?? null, liveDestinationEta),
-      car,
-      ride.dropoff,
-      now,
-    )?.minutes;
     line = `${placeLine(ride.dropoff)}${eta ? ` · ~${formatMinutes(eta)}` : ''}`;
   } else if (screen.phase === 'scheduled' && ride.scheduledFor) {
     line = `${formatDateTime(ride.scheduledFor)} ga`;
@@ -384,8 +431,17 @@ function PhaseHeader({
         {screen.title}
       </T>
       {line ? (
-        <T variant="body" color={colors.textMuted} numberOfLines={2}>
+        <T
+          variant={screen.phase === 'assigned' ? 'bodyStrong' : 'body'}
+          color={screen.phase === 'assigned' ? colors.text : colors.textMuted}
+          numberOfLines={2}
+        >
           {line}
+        </T>
+      ) : null}
+      {carSilent ? (
+        <T variant="small" color={colors.warning}>
+          Mashina joylashuvi yangilanmayapti — aloqa kutilmoqda…
         </T>
       ) : null}
       {screen.phase === 'arrived' ? <WaitingClock ride={ride} rules={rules} /> : null}
@@ -395,28 +451,87 @@ function PhaseHeader({
 }
 
 /**
+ * The ETA in minutes without flicker: a drop shows at once, a one-minute rise only once it
+ * held for 30 s (see steadyEta). Starts over when the phase changes.
+ */
+function useSteadyEta(minutes: number | null, phase: string): number | null {
+  const state = useRef<{ phase: string; eta: EtaDisplay }>({
+    phase,
+    eta: { shown: null, higherSince: null },
+  });
+  if (state.current.phase !== phase) {
+    state.current = { phase, eta: { shown: null, higherSince: null } };
+  }
+  state.current.eta = steadyEta(state.current.eta, minutes, Date.now());
+  return state.current.eta.shown;
+}
+
+/**
  * The price on the way and on the trip. A cash ride that also collects fees owed from
  * earlier cancelled rides says the total to hand over and what the extra is.
  */
 function FareLine({ ride }: { ride: Ride }) {
   const cash = cashToPay(ride);
-  if (cash.owedFee <= 0) {
-    return (
-      <T variant="smallStrong">
-        {formatMoney(ride.fare.quoted)} ·{' '}
-        {ride.paymentMethod === 'cash' ? 'naqd' : 'karta orqali to‘langan'} · narx o‘zgarmaydi
-      </T>
-    );
-  }
+  // a shared ride: the quoted price is the ceiling, co-riders lower it (live)
+  const price = ridePrice(ride.fare);
+  const cashRide = ride.paymentMethod === 'cash';
   return (
     <View style={styles.owed}>
-      <T variant="smallStrong">
-        Naqd: {formatMoney(ride.fare.quoted + cash.owedFee)} · narx o‘zgarmaydi
-      </T>
-      <T variant="small" color={colors.textMuted}>
-        Safar {formatMoney(ride.fare.quoted)} + {OWED_FEE_LABEL.toLowerCase()}{' '}
-        {formatMoney(cash.owedFee)} (bekor qilish to‘lovi)
-      </T>
+      <View style={styles.priceRow}>
+        {price.discount > 0 ? (
+          <T variant="smallStrong" color={colors.textMuted} style={styles.struck}>
+            {formatMoney(price.quoted)}
+          </T>
+        ) : null}
+        <T variant="smallStrong">
+          {formatMoney(price.pays)} · {cashRide ? 'naqd' : 'karta orqali to‘langan'} ·{' '}
+          {price.discount > 0 ? 'hamroh bilan arzonroq' : 'narx o‘zgarmaydi'}
+        </T>
+      </View>
+      {price.discount > 0 ? (
+        <T variant="small" color={colors.success}>
+          {discountLine(price.discount)}
+        </T>
+      ) : ride.shareable && ride.fareMode !== 'seat' ? (
+        <T variant="small" color={colors.textMuted}>
+          Hamroh qo‘shilsa, narx arzonlashadi — sizga xabar beramiz.
+        </T>
+      ) : null}
+      {price.deposit > 0 && cashRide ? (
+        <T variant="small" color={colors.textMuted}>
+          Oldindan to‘langan {formatMoney(price.deposit)} · qolgan {formatMoney(price.cashLeft)}{' '}
+          naqd
+        </T>
+      ) : null}
+      {cash.owedFee > 0 ? (
+        <T variant="small" color={colors.textMuted}>
+          Naqd jami {formatMoney(cash.total)}: safar {formatMoney(cash.fare)} +{' '}
+          {OWED_FEE_LABEL.toLowerCase()} {formatMoney(cash.owedFee)} (bekor qilish to‘lovi)
+        </T>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * The start code, big: the rider tells it to the driver, who starts the trip only with it
+ * (at night, shared, a woman driver, between towns) — the right rider in the right car.
+ */
+function StartPin({ pin }: { pin: string }) {
+  return (
+    <View
+      style={styles.pin}
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={`Boshlash kodi: ${pin.split('').join(' ')}. Haydovchiga ayting.`}
+    >
+      <Icon name="key-outline" size={22} color={colors.ink} />
+      <View style={styles.flex}>
+        <T variant="small" color={colors.textMuted}>
+          Haydovchiga ayting — safar shu kod bilan boshlanadi
+        </T>
+        <T variant="plate">{pinDigits(pin)}</T>
+      </View>
     </View>
   );
 }
@@ -566,5 +681,25 @@ const styles = StyleSheet.create({
   sos: { minWidth: 96 },
   searchInfo: { gap: space(2) },
   owed: { gap: 2 },
+  priceRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space(1.5) },
+  struck: { textDecorationLine: 'line-through' },
+  pin: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space(3),
+    padding: space(3.5),
+    borderRadius: radius.lg,
+    backgroundColor: colors.brandSoft,
+    borderWidth: 2,
+    borderColor: colors.brand,
+  },
+  occupancy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space(3),
+    padding: space(3),
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
   routeBox: { gap: 2 },
 });

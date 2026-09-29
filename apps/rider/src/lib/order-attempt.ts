@@ -47,8 +47,16 @@ export function orderKey(input: {
   pickup: { address: string | null; landmark: string | null };
   dropoff: { address: string | null; landmark: string | null };
   comment: string | null;
+  passengers?: number;
+  shareable?: boolean;
+  womenOnly?: boolean;
+  fareMode?: string;
 }): string {
   return JSON.stringify([
+    input.passengers ?? 1,
+    input.shareable ?? false,
+    input.womenOnly ?? false,
+    input.fareMode ?? 'car',
     input.quoteId,
     input.class,
     input.paymentMethod,

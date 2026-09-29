@@ -6,6 +6,7 @@ import type {
   Complaint,
   ComplaintListItem,
   ComplaintType,
+  Gender,
   GeoConfig,
   GeoResolve,
   GeoReverse,
@@ -26,6 +27,7 @@ import type {
   RideHistoryPage,
   RideOption,
   RideSummary,
+  RouteFare,
   SavedPlace,
   ShareLink,
   SosResult,
@@ -54,6 +56,9 @@ export const endpoints = {
   me: () => api.request<Me>('/v1/me'),
   updateMe: (fullName: string) =>
     api.request<Me>('/v1/me', { method: 'PATCH', body: { fullName } }),
+  /** 409 when it was changed within the last 30 days (`genderLockedUntil`). */
+  updateGender: (gender: Gender) =>
+    api.request<Me>('/v1/me', { method: 'PATCH', body: { gender } }),
 
   // Map (public)
   geoConfig: () => api.request<GeoConfig>('/v1/geo/config', { auth: 'none' }),
@@ -63,13 +68,19 @@ export const endpoints = {
     api.request<GeoReverse>('/v1/geo/reverse', {
       auth: 'none',
       query: { lat: p.lat, lng: p.lng, lang: 'uz' },
+      // the rider looks at "Manzil aniqlanmoqda…": short, once more on a flaky link
+      timeoutMs: 8_000,
+      retries: 1,
     }),
   geoSearch: (q: string, near: LatLng | null, signal?: AbortSignal) =>
     api.request<GeoSuggestion[]>('/v1/geo/search', {
       auth: 'none',
       query: { q, lat: near?.lat, lng: near?.lng, lang: 'uz' },
       signal,
+      timeoutMs: 8_000,
     }),
+  /** Fixed prices between towns (public): the map's route chips. */
+  routes: () => api.request<RouteFare[]>('/v1/routes', { auth: 'none' }),
   tariff: (p: LatLng) =>
     api.request<TariffInfo>('/v1/tariffs', { auth: 'none', query: { lat: p.lat, lng: p.lng } }),
 
@@ -179,5 +190,5 @@ export const endpoints = {
     api.request<void>(`/v1/devices/${id(token)}`, { method: 'DELETE' }),
 
   /** Root health check (no /v1): used to notice the connection is back. */
-  health: () => api.request<unknown>('/health', { auth: 'none' }),
+  health: () => api.request<unknown>('/health', { auth: 'none', timeoutMs: 5_000 }),
 };

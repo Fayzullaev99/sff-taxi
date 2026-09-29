@@ -6,6 +6,9 @@ import {
   MAX_BACKOFF_MS,
   mergeTrail,
   parseRealtimeEvent,
+  STREAM_DEAD_MS,
+  STREAM_OPEN_TIMEOUT_MS,
+  streamHealth,
   TRAIL_LENGTH,
   type TrackPoint,
 } from './realtime-logic';
@@ -149,5 +152,42 @@ describe('wave 3 stream events', () => {
       parseRealtimeEvent('{"type":"ride.refund","rideId":"r1","status":"refunded","amount":25000}'),
     ).toEqual({ type: 'ride.refund', rideId: 'r1', status: 'refunded', amount: 25000 });
     expect(parseRealtimeEvent('{"type":"ride.refund","status":"refunded"}')).toBeNull();
+  });
+});
+
+describe('co-riders', () => {
+  it('reads ride.changed (someone joined or left the car) as a ride update', () => {
+    expect(parseRealtimeEvent('{"type":"ride.changed","rideId":"r1"}')).toEqual({
+      type: 'ride.updated',
+      rideId: 'r1',
+      status: '',
+    });
+    expect(parseRealtimeEvent('{"type":"ride.changed"}')).toBeNull();
+  });
+});
+
+describe('stream watchdog', () => {
+  it('gives up on a stream that does not open within 15 s', () => {
+    const s = { startedAt: 0, openedAt: null, lastMessageAt: null };
+    expect(streamHealth(s, 10_000)).toBe('connecting');
+    expect(streamHealth(s, STREAM_OPEN_TIMEOUT_MS + 1)).toBe('dead');
+  });
+
+  it('calls an open stream dead after 25 s without a message or ping', () => {
+    expect(streamHealth({ startedAt: 0, openedAt: 1_000, lastMessageAt: null }, 20_000)).toBe(
+      'open',
+    );
+    expect(streamHealth({ startedAt: 0, openedAt: 1_000, lastMessageAt: 30_000 }, 50_000)).toBe(
+      'open',
+    );
+    expect(streamHealth({ startedAt: 0, openedAt: 1_000, lastMessageAt: null }, 27_000)).toBe(
+      'dead',
+    );
+    expect(
+      streamHealth(
+        { startedAt: 0, openedAt: 1_000, lastMessageAt: 30_000 },
+        30_000 + STREAM_DEAD_MS + 1,
+      ),
+    ).toBe('dead');
   });
 });

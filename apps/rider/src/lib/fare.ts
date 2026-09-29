@@ -79,7 +79,16 @@ export interface FareLine {
  */
 export function fareLines(fare: Fare, waiting = 0): FareLine[] {
   const lines: FareLine[] = [];
-  if (fare.kind === 'intercity') {
+  if (fare.fixed) {
+    // a fixed route price: per seat × people, or the whole car
+    lines.push({
+      label:
+        fare.fixed.mode === 'seat'
+          ? `Yo‘nalish narxi: o‘rindiq × ${fare.fixed.passengers}`
+          : 'Yo‘nalish narxi: butun mashina',
+      amount: fare.base,
+    });
+  } else if (fare.kind === 'intercity') {
     lines.push({ label: `Shaharlararo, ${formatDistance(fare.distanceM)}`, amount: fare.base });
   } else {
     lines.push({
@@ -253,14 +262,26 @@ export function quoteOwedFee(
  */
 export function cashToPay(ride: {
   paymentMethod: 'cash' | 'card';
-  fare: { quoted: number; waiting: number; total: number | null; owedFee?: number };
-}): { total: number; fare: number; owedFee: number } {
+  fare: {
+    quoted: number;
+    waiting: number;
+    total: number | null;
+    owedFee?: number;
+    poolDiscount?: number;
+    pays?: number;
+    deposit?: number;
+  };
+}): { total: number; fare: number; owedFee: number; deposit: number } {
   const owedFee = ride.fare.owedFee ?? 0;
+  // paid by card in advance (a ride booked for later): the driver takes the rest
+  const deposit = Math.max(0, ride.fare.deposit ?? 0);
+  // after the shared discount (the API's total already has it)
+  const pays = ride.fare.pays ?? ride.fare.quoted - (ride.fare.poolDiscount ?? 0);
   const fare =
     ride.paymentMethod === 'cash'
-      ? (ride.fare.total ?? ride.fare.quoted + ride.fare.waiting)
+      ? Math.max(0, (ride.fare.total ?? pays + ride.fare.waiting) - deposit)
       : ride.fare.waiting;
-  return { total: fare + owedFee, fare, owedFee };
+  return { total: fare + owedFee, fare, owedFee, deposit };
 }
 
 /** What happened to this ride's own cancellation fee, for the summary. */

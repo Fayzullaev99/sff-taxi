@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { LatLng, PaymentMethod, RideClass, RideOption } from '../api/types';
+import type { FareMode, LatLng, PaymentMethod, RideClass, RideOption } from '../api/types';
 
 /** A trip end as the rider chose it: a map pin with the address line we found for it. */
 export interface TripPoint extends LatLng {
@@ -21,6 +21,14 @@ export interface TripDraft {
   paymentMethod: PaymentMethod;
   /** A ride for later: when the car should come (ISO), else null (now). Cash only. */
   scheduledFor: string | null;
+  /** People riding (1–3: one in front, two in the back). */
+  passengers: number;
+  /** "Hamroh bilan": agrees to share the car (cash only); kept as a habit. */
+  shareable: boolean;
+  /** A woman driver only (women riders); kept as a habit. */
+  womenOnly: boolean;
+  /** A fixed route between towns: a seat (per person, shared) or the whole car. */
+  fareMode: FareMode;
   /** Asks the home map to move (a pickup chosen by search); the key repeats a move. */
   moveMap: { lat: number; lng: number; key: number } | null;
 }
@@ -34,6 +42,10 @@ const INITIAL: TripDraft = {
   rideClass: 'economy',
   paymentMethod: 'cash',
   scheduledFor: null,
+  passengers: 1,
+  shareable: false,
+  womenOnly: false,
+  fareMode: 'car',
   moveMap: null,
 };
 
@@ -69,6 +81,8 @@ export function resetAfterOrder(): void {
     comment: '',
     options: [],
     scheduledFor: null,
+    passengers: 1,
+    fareMode: 'car',
     moveMap: null,
   });
 }

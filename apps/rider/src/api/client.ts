@@ -50,6 +50,14 @@ export interface RequestOptions {
    */
   auth?: AuthMode;
   signal?: AbortSignal;
+  /** Gives up after this long (default: the client's). Short for lookups the rider waits on. */
+  timeoutMs?: number;
+  /**
+   * GET only (idempotent): tries again this many times, with back-off, when there was no
+   * answer or the gateway failed (502/503/504). Queries retry through React Query instead;
+   * this is for direct calls such as the pin's address.
+   */
+  retries?: number;
 }
 
 export interface ApiClientConfig {
@@ -68,6 +76,8 @@ export interface ApiClientConfig {
   refreshGate?: () => Promise<void>;
   /** The refresh request gets longer than ordinary requests before it is given up. */
   refreshTimeoutMs?: number;
+  /** Wait before GET retry number `attempt` (0-based); jittered exponential by default. */
+  retryDelayMs?: (attempt: number) => number;
 }
 
 type RefreshOutcome = 'ok' | 'rejected' | 'offline';
@@ -112,6 +122,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
   const doFetch = config.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
   const timeoutMs = config.timeoutMs ?? 20_000;
   const refreshTimeoutMs = config.refreshTimeoutMs ?? 60_000;
+  const retryDelayMs = config.retryDelayMs ?? defaultRetryDelayMs;
   let refreshing: Promise<RefreshOutcome> | null = null;
 
   async function send(
@@ -209,6 +220,23 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     path: string,
     options: RequestOptions = {},
   ): Promise<{ status: number; data: T }> {
+    const method = options.method ?? 'GET';
+    const retries = method === 'GET' ? Math.max(0, options.retries ?? 0) : 0;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await requestOnce<T>(path, options);
+      } catch (error) {
+        if (attempt >= retries || options.signal?.aborted || !retryable(error)) throw error;
+      }
+      await wait(retryDelayMs(attempt), options.signal);
+      if (options.signal?.aborted) throw abortError();
+    }
+  }
+
+  async function requestOnce<T>(
+    path: string,
+    options: RequestOptions,
+  ): Promise<{ status: number; data: T }> {
     const auth = options.auth ?? 'required';
     const url = buildUrl(config.baseUrl, path, options.query);
     const attempt = (token: string | null) =>
@@ -224,6 +252,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
           body: options.body === undefined ? undefined : JSON.stringify(options.body),
         },
         options.signal,
+        options.timeoutMs,
       );
 
     let token = auth !== 'none' ? (config.tokens.get()?.accessToken ?? null) : null;
@@ -261,6 +290,43 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
   }
 
   return { request, requestWithStatus, refresh, settled, baseUrl: config.baseUrl };
+}
+
+/** No answer, or a gateway in front of the API failed: asking again may work. */
+function retryable(error: unknown): boolean {
+  if (error instanceof OfflineError) return true;
+  return (
+    error instanceof ApiError &&
+    (error.status === 502 || error.status === 503 || error.status === 504)
+  );
+}
+
+/** 0.5 s, 1 s, 2 s … up to 8 s, each with up to half of it again at random (no herds). */
+export function defaultRetryDelayMs(attempt: number, random: number = Math.random()): number {
+  const base = Math.min(8_000, 500 * 2 ** Math.max(0, attempt));
+  return Math.round(base + base * 0.5 * random);
+}
+
+function abortError(): Error {
+  const error = new Error('Aborted');
+  error.name = 'AbortError';
+  return error;
+}
+
+function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted || ms <= 0) {
+      resolve();
+      return;
+    }
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener('abort', done);
+  });
 }
 
 /** Human-readable text for any error thrown by the client or a screen. */

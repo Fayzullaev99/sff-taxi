@@ -20,10 +20,16 @@ export interface CodeRequested {
   resendAfterSeconds: number;
 }
 
+export type Gender = 'female' | 'male';
+
 export interface Me {
   id: string;
   phone: string;
   fullName: string | null;
+  /** Declared by the rider (a woman driver is offered to women); older APIs: absent. */
+  gender?: Gender | null;
+  /** Until when the declared gender cannot be changed again (once per 30 days); null: now. */
+  genderLockedUntil?: string | null;
   isAdmin: boolean;
   driver: { status: string; statusReason: string | null; isOnline: boolean } | null;
 }
@@ -132,6 +138,69 @@ export interface Fare {
   options: Partial<Record<RideOption, number>>;
   total: number;
   seat: { rear: number; front: number } | null;
+  /** A fixed route price replaced the distance price (whole car, or seats × people). */
+  fixed?: FixedFare | null;
+}
+
+export type FareMode = 'car' | 'seat';
+
+export interface FixedFare {
+  routeFareId: string;
+  mode: FareMode;
+  price: number;
+  passengers: number;
+}
+
+/** Seats in a car: people, how many in front (1) and in the back (at most 2). */
+export interface SeatLayout {
+  occupied: number;
+  capacity: number;
+  front: number;
+  rear: number;
+  free: number;
+}
+
+/** A car already on its way that could take the rider too (before ordering). */
+export interface PoolCar extends SeatLayout {
+  /** Road seconds to the pickup. */
+  etaS: number;
+  /** Extra seconds the others in the car would ride for this pickup. */
+  detourS: number;
+  /** People in the car now. */
+  inCar: number;
+}
+
+export interface QuotePool {
+  available: boolean;
+  /** The discount when the whole trip (its full-discount share) is shared. */
+  discountPercent: number;
+  fullDiscountSharePercent: number;
+  cashOnly: boolean;
+  cars: PoolCar[];
+}
+
+export interface QuoteRoute {
+  from: { slug: string; name: string };
+  to: { slug: string; name: string };
+  prices: Partial<Record<RideClass, { seat: number | null; car: number | null }>>;
+}
+
+export interface QuoteWomenOnly {
+  available: boolean;
+  reason: 'profile_gender' | null;
+  /** Free verified women drivers near the pickup; null for a ride for later. */
+  drivers: { cars: number; etaS: number | null } | null;
+}
+
+/** A fixed price between towns (GET /routes). */
+export interface RouteFare {
+  id: string;
+  class: RideClass;
+  seatPrice: number | null;
+  carPrice: number | null;
+  isActive?: boolean;
+  from: { slug: string; name: string; lat: number; lng: number };
+  to: { slug: string; name: string; lat: number; lng: number };
 }
 
 export interface Quote {
@@ -158,6 +227,19 @@ export interface Quote {
    * ride collects on top of its fare (a card ride leaves it owed). Null: nothing owed.
    */
   owedFee?: OwedFeeLine | null;
+  /** The seating rule (wave 4): at most 3 people, 1 in front, 2 in the back. */
+  seats?: { max: number; front: number; rearMax: number };
+  /** A fixed price between these towns applies, else null. */
+  route?: QuoteRoute | null;
+  /** "Hamroh bilan": the discount and cars already going that way. */
+  pool?: QuotePool;
+  /** A woman driver: offered to women (profile), with the free ones nearby. */
+  womenOnly?: QuoteWomenOnly | null;
+  /**
+   * A ride booked for later is secured by a card deposit (another branch; shape tolerant):
+   * the amount, or a percent of the fare.
+   */
+  deposit?: { amount?: number | null; percent?: number | null } | number | null;
 }
 
 export interface OwedFeeLine {
@@ -296,8 +378,20 @@ export interface RideSummary {
     cancellationFeeStatus?: CancellationFeeStatus | null;
     /** Earlier rides' owed fees this cash ride collects, a separate line from the fare. */
     owedFee?: number;
+    /** The shared-ride discount (wave 4). */
+    poolDiscount?: number;
+    /** Paid by card in advance for a ride booked for later. */
+    deposit?: number;
+    /** What the rider pays for the trip now: after the discount, before waiting. */
+    pays?: number;
     breakdown: Fare;
   };
+  passengers?: number;
+  shareable?: boolean;
+  womenOnly?: boolean;
+  fareMode?: FareMode;
+  pool?: { id: string; sharedM: number } | null;
+  hasStartPin?: boolean;
   paymentMethod: PaymentMethod;
   paymentStatus: RidePaymentStatus;
   vehicle: RideVehicle | null;
@@ -327,6 +421,10 @@ export interface Ride extends RideSummary {
   destinationEta?: DriverEta | null;
   trail: TrailFix[];
   events: RideEvent[];
+  /** The 4-digit code the rider tells the driver before the trip starts (open rides). */
+  startPin?: string | null;
+  /** The car: people in it now and free seats (once a driver is assigned). */
+  car?: (SeatLayout & { inCar: number; riders: number }) | null;
 }
 
 export interface RideHistoryPage {
@@ -342,6 +440,14 @@ export interface OrderInput {
   dropoff: { address: string | null; landmark: string | null };
   comment: string | null;
   clientRequestId: string;
+  /** People riding (1–3); older APIs ignore it. */
+  passengers?: number;
+  /** Agrees to share the car ("Hamroh bilan"): cash only. */
+  shareable?: boolean;
+  /** A woman driver only (women riders). */
+  womenOnly?: boolean;
+  /** 'seat': a fixed route's per-person price in a shared car. */
+  fareMode?: FareMode;
 }
 
 export interface ShareLink {

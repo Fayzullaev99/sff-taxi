@@ -21,6 +21,11 @@ export function parseRealtimeEvent(raw: string): RealtimeEvent | null {
     case 'ready':
     case 'ping':
       return { type: d.type };
+    case 'ride.changed':
+      // a co-rider joined or left (the price changed): refetch like any ride update
+      return isStr(d.rideId)
+        ? { type: 'ride.updated', rideId: d.rideId, status: isStr(d.status) ? d.status : '' }
+        : null;
     case 'ride.updated':
       return isStr(d.rideId) && isStr(d.status)
         ? { type: 'ride.updated', rideId: d.rideId, status: d.status }
@@ -76,6 +81,33 @@ export const MAX_BACKOFF_MS = 30_000;
 /** Exponential back-off with jitter: 1 s, 2 s, 4 s ... up to 30 s. */
 export function backoffMs(attempt: number, random: number = Math.random()): number {
   return Math.min(MAX_BACKOFF_MS, 1000 * 2 ** Math.max(0, attempt)) + random * 500;
+}
+
+/**
+ * The API writes a ping every 10 s and a car on its way sends a fix every few seconds: a
+ * stream silent for 25 s (two missed pings and a slow 3G hop) is dead even if the socket
+ * was never closed (a phone moving between cells often keeps a half-open connection). Same
+ * idea as Uber's 4 s heartbeat / 7 s dead link, scaled to this API's heartbeat.
+ */
+export const STREAM_DEAD_MS = 25_000;
+/** A stream that has not opened this long after asking is given up and asked again. */
+export const STREAM_OPEN_TIMEOUT_MS = 15_000;
+
+export type StreamHealth = 'connecting' | 'open' | 'dead';
+
+/**
+ * The stream's state for the watchdog: dead when it never opened in time, or when nothing
+ * (not even a ping) came for STREAM_DEAD_MS.
+ */
+export function streamHealth(
+  s: { startedAt: number; openedAt: number | null; lastMessageAt: number | null },
+  now: number,
+): StreamHealth {
+  if (s.openedAt === null) {
+    return now - s.startedAt > STREAM_OPEN_TIMEOUT_MS ? 'dead' : 'connecting';
+  }
+  const last = Math.max(s.openedAt, s.lastMessageAt ?? 0);
+  return now - last > STREAM_DEAD_MS ? 'dead' : 'open';
 }
 
 export interface TrackPoint {
