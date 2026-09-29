@@ -58,6 +58,17 @@ React is hoisted to the repo root by another workspace later.
   quote is re-fetched. Quotes refresh every minute for a ride now (the nearest car moves),
   every 8 minutes for a ride for later (they live 10); a quote still loading after a change
   (options, time) cannot be ordered. The same idempotency is used for intercity bookings.
+- **Wave 4** ([src/lib/sharing.ts](src/lib/sharing.ts), [src/order/RideChoices.tsx](src/order/RideChoices.tsx),
+  [docs/shared-rides.md](../../docs/shared-rides.md)): people 1–3 (one in front, two in the back,
+  `passengers`); "Hamroh bilan" (`shareable`, cash only, the discount from `quote.pool` and the
+  cars already going that way with their free front/back seats); "Ayol haydovchi" (`womenOnly`,
+  women only: the profile's gender, changeable once per 30 days, 409 says until when; free women
+  drivers nearby); fixed route prices between towns (a seat per person, `fareMode: 'seat'`, or the
+  whole car) with route chips on the map (`GET /routes`, routes from the rider's town); the ride
+  shows the start code to tell the driver, who is in the car, the shared price (quoted struck
+  through, `fare.pays`, "Hamroh chegirmasi") updated live (`ride.changed`, `pool_joined` /
+  `pool_left` pushes), a ride for later's deposit ("Oldindan to‘lov (depozit)", the cash left).
+  All fields optional: an older API gets the plain order.
 - **Card rides** ([src/lib/payment.ts](src/lib/payment.ts), [src/ride/PaymentPanel.tsx](src/ride/PaymentPanel.tsx)):
   the order answers `awaiting_payment` with `payment.checkout.{payme,click}`; the ride screen
   shows the amount and the 10-minute window and opens the provider's page with
@@ -84,8 +95,8 @@ React is hoisted to the repo root by another workspace later.
   one) and, on the trip, `destinationEtaS` (the same for the destination; the ride's
   `destinationEta` when fetched), `ride.refund` refetches the ride, `intercity.updated` and
   `complaint.updated` refetch bookings and threads. A slow poll covers stream outages. A
-  watchdog reconnects a stream that did not open within 15 s or stayed silent for 45 s (the API
-  pings every 25 s; a half-open socket after a cell change never errors), and the back-off is
+  watchdog reconnects a stream that did not open within 15 s or stayed silent for 25 s (the API
+  pings every 10 s; a half-open socket after a cell change never errors), and the back-off is
   skipped once the network is back. The car glides between fixes over the time between them,
   turned by its heading ([src/lib/car-motion.ts](src/lib/car-motion.ts)); fixes implying more
   than 150 km/h are dropped once; the ETA only rises after it held 30 s (no "4 → 5 → 4").

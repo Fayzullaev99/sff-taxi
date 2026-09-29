@@ -155,6 +155,17 @@ describe('wave 3 stream events', () => {
   });
 });
 
+describe('co-riders', () => {
+  it('reads ride.changed (someone joined or left the car) as a ride update', () => {
+    expect(parseRealtimeEvent('{"type":"ride.changed","rideId":"r1"}')).toEqual({
+      type: 'ride.updated',
+      rideId: 'r1',
+      status: '',
+    });
+    expect(parseRealtimeEvent('{"type":"ride.changed"}')).toBeNull();
+  });
+});
+
 describe('stream watchdog', () => {
   it('gives up on a stream that does not open within 15 s', () => {
     const s = { startedAt: 0, openedAt: null, lastMessageAt: null };
@@ -162,12 +173,15 @@ describe('stream watchdog', () => {
     expect(streamHealth(s, STREAM_OPEN_TIMEOUT_MS + 1)).toBe('dead');
   });
 
-  it('calls an open stream dead after 45 s without a message or ping', () => {
-    expect(streamHealth({ startedAt: 0, openedAt: 1_000, lastMessageAt: null }, 40_000)).toBe(
+  it('calls an open stream dead after 25 s without a message or ping', () => {
+    expect(streamHealth({ startedAt: 0, openedAt: 1_000, lastMessageAt: null }, 20_000)).toBe(
       'open',
     );
-    expect(streamHealth({ startedAt: 0, openedAt: 1_000, lastMessageAt: 30_000 }, 70_000)).toBe(
+    expect(streamHealth({ startedAt: 0, openedAt: 1_000, lastMessageAt: 30_000 }, 50_000)).toBe(
       'open',
+    );
+    expect(streamHealth({ startedAt: 0, openedAt: 1_000, lastMessageAt: null }, 27_000)).toBe(
+      'dead',
     );
     expect(
       streamHealth(

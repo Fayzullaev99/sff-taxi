@@ -23,6 +23,8 @@ import { availabilityText } from '../lib/ride-state';
 import { schedulable, SCHEDULE_DISPATCH_BEFORE_MIN } from '../lib/schedule';
 import { askForPushAfterOrder } from '../notifications/push';
 import { OrderOptions } from '../order/OrderOptions';
+import { PassengersRow, RouteModeChoice, SharingRows } from '../order/RideChoices';
+import { orderChoices, quoteDeposit, routePrices, seatTotal, sharedFloor } from '../lib/sharing';
 import { ScheduleSheet } from '../ride/ScheduleSheet';
 import { resetAfterOrder, toggleOption, updateDraft, useDraft } from '../trip/draft';
 import { refreshRecentPlaces } from '../trip/places-store';
@@ -69,13 +71,38 @@ export default function OrderScreen() {
   // time): it must not be ordered, the API would take its options and its time
   const stale = quote.isPlaceholderData;
   const fare = q?.fares[draft.rideClass];
-  // rides for later are cash only (for now)
-  const cardAvailable = !later && (q?.paymentMethods.includes('card') ?? false);
+  // wave 4 (people, sharing, a woman driver, route seats): only sent to an API that knows it
+  const wave4 = Boolean(q && (q.seats || q.pool || q.route !== undefined || q.womenOnly));
+  // the rider's choices made consistent with the quote (a seat is shared, sharing is cash)
+  const choices = q
+    ? orderChoices(
+        {
+          passengers: draft.passengers,
+          shareable: draft.shareable,
+          womenOnly: draft.womenOnly,
+          fareMode: draft.fareMode,
+          paymentMethod: draft.paymentMethod,
+        },
+        q,
+        draft.rideClass,
+      )
+    : null;
+  const shared = choices?.shareable ?? false;
+  const seatPrice = choices?.fareMode === 'seat' ? routePrices(q, draft.rideClass)?.seat : null;
+  // the trip's price: seats × people on a fixed route, else the class's fixed price
+  const tripPrice = fare
+    ? seatPrice
+      ? seatTotal(seatPrice, choices!.passengers, fare.options)
+      : fare.total
+    : null;
+  const deposit = later && fare ? quoteDeposit(q?.deposit, tripPrice ?? fare.total) : null;
+  // rides for later are cash only (for now); shared rides too (a prepayment cannot be split)
+  const cardAvailable = !later && !shared && (q?.paymentMethods.includes('card') ?? false);
   // the quote says which providers take this payment; /config and /tariffs for older APIs
   const providers = q?.cardProviders ?? config?.cardProviders ?? tariff.data?.cardProviders ?? null;
   // fees owed from earlier cancelled cash rides: a cash ride collects them (a line apart)
   const owed = quoteOwedFee(q?.owedFee, draft.paymentMethod);
-  const toPay = fare ? fare.total + (owed?.collectedNow ? owed.amount : 0) : null;
+  const toPay = tripPrice !== null ? tripPrice + (owed?.collectedNow ? owed.amount : 0) : null;
   useEffect(() => {
     if (q && draft.paymentMethod === 'card' && !cardAvailable) {
       updateDraft({ paymentMethod: 'cash' });
@@ -88,13 +115,32 @@ export default function OrderScreen() {
       setError('Tanlangan vaqt juda yaqin qoldi. Boshqa vaqtni tanlang.');
       return;
     }
+    const terms = orderChoices(
+      {
+        passengers: draft.passengers,
+        shareable: draft.shareable,
+        womenOnly: draft.womenOnly,
+        fareMode: draft.fareMode,
+        paymentMethod: draft.paymentMethod,
+      },
+      current,
+      draft.rideClass,
+    );
     const input = {
       quoteId: current.quoteId,
       class: draft.rideClass,
-      paymentMethod: draft.paymentMethod,
+      paymentMethod: terms.paymentMethod,
       pickup: { address: pickup.address, landmark: draft.landmark.trim() || null },
       dropoff: { address: dropoff.address, landmark: null },
       comment: draft.comment.trim() || null,
+      ...(wave4
+        ? {
+            passengers: terms.passengers,
+            shareable: terms.shareable,
+            womenOnly: terms.womenOnly,
+            fareMode: terms.fareMode,
+          }
+        : {}),
     };
     const clientRequestId = attempts.idFor(orderKey(input));
     setBusy(true);
@@ -276,7 +322,15 @@ export default function OrderScreen() {
                 />
               ))}
             </View>
-            {fare && fare.night > 0 ? (
+            {fare && choices ? (
+              <RouteModeChoice
+                quote={q}
+                rideClass={draft.rideClass}
+                fareMode={choices.fareMode}
+                carTotal={fare.total}
+              />
+            ) : null}
+            {fare && fare.night > 0 && !seatPrice ? (
               <T variant="small" color={colors.textMuted}>
                 Tungi vaqt: narxga {formatMoney(fare.night)} qo‘shilgan (oldindan ma’lum,
                 o‘zgarmaydi).
@@ -331,7 +385,14 @@ export default function OrderScreen() {
         <T variant="h3" accessibilityRole="header" style={styles.section}>
           Qo‘shimcha
         </T>
-        <OrderOptions selected={draft.options} prices={optionPrices} onToggle={toggleOption} />
+        <OrderOptions selected={draft.options} prices={optionPrices} onToggle={toggleOption}>
+          {q && wave4 && choices ? (
+            <>
+              <PassengersRow quote={q} passengers={choices.passengers} />
+              <SharingRows quote={q} choices={choices} />
+            </>
+          ) : null}
+        </OrderOptions>
         {draft.options.length ? (
           <T variant="small" color={colors.textMuted}>
             Tanlangan qulayliklar mos mashinalarni kamaytiradi — qidiruv biroz uzoqroq bo‘lishi
@@ -358,15 +419,30 @@ export default function OrderScreen() {
             { value: 'cash', label: 'Naqd', icon: 'cash-outline' },
             {
               value: 'card',
-              label: cardAvailable ? cardLabel(providers) : later ? 'Karta' : 'Karta (tez orada)',
+              label: cardAvailable
+                ? cardLabel(providers)
+                : later || shared
+                  ? 'Karta'
+                  : 'Karta (tez orada)',
               icon: 'card-outline',
               disabled: !cardAvailable,
             },
           ]}
         />
+        {shared && !later ? (
+          <T variant="small" color={colors.textMuted}>
+            Hamroh bilan safar hozircha faqat naqd to‘lov bilan.
+          </T>
+        ) : null}
+        {deposit ? (
+          <T variant="small" color={colors.textMuted}>
+            Oldindan buyurtma uchun {formatMoney(deposit)} oldindan to‘lov (depozit) kartadan
+            olinadi, qolgani naqd. O‘z vaqtida bekor qilsangiz, depozit qaytariladi.
+          </T>
+        ) : null}
         {draft.paymentMethod === 'card' && cardAvailable ? (
           <T variant="small" color={colors.textMuted}>
-            Buyurtmadan keyin {formatMoney(fare?.total ?? 0)}ni 10 daqiqa ichida to‘laysiz, shundan
+            Buyurtmadan keyin {formatMoney(tripPrice ?? 0)}ni 10 daqiqa ichida to‘laysiz, shundan
             so‘ng haydovchi qidiriladi. Bekor qilsangiz, pul to‘liq qaytariladi.
           </T>
         ) : null}
@@ -393,10 +469,18 @@ export default function OrderScreen() {
                 {CLASS_LABELS[draft.rideClass]}
                 {later ? ` · ${formatDateTime(later)}` : ''}
               </T>
-              <T variant="small" color={colors.textMuted} numberOfLines={1}>
-                {later
-                  ? 'Oldindan buyurtma · naqd'
-                  : (availabilityText(q.availability?.[draft.rideClass]) ?? 'Narx o‘zgarmaydi')}
+              <T variant="small" color={colors.textMuted} numberOfLines={2}>
+                {footerNote({
+                  later: Boolean(later),
+                  deposit,
+                  seats: seatPrice ? choices!.passengers : null,
+                  sharedFloor:
+                    shared && !seatPrice && q.pool && tripPrice !== null
+                      ? sharedFloor(tripPrice, q.pool.discountPercent)
+                      : null,
+                  womenOnly: choices?.womenOnly ?? false,
+                  availability: availabilityText(q.availability?.[draft.rideClass]),
+                })}
               </T>
             </View>
             <T variant="price" style={stale ? styles.stalePrice : null}>
@@ -431,6 +515,28 @@ export default function OrderScreen() {
       />
     </KeyboardAvoider>
   );
+}
+
+/** The line under the class in the footer: what the price means, or the nearest car. */
+function footerNote(n: {
+  later: boolean;
+  deposit: number | null;
+  seats: number | null;
+  sharedFloor: number | null;
+  womenOnly: boolean;
+  availability: string | null;
+}): string {
+  if (n.later) {
+    return n.deposit
+      ? `Oldindan to‘lov ${formatMoney(n.deposit)} kartadan, qolgani naqd`
+      : 'Oldindan buyurtma · naqd';
+  }
+  if (n.seats) return `O‘rindiq × ${n.seats} · mashina hamroh bilan`;
+  if (n.sharedFloor !== null) {
+    return `Hamroh bilan: ${formatMoney(n.sharedFloor)}gacha arzonlashishi mumkin`;
+  }
+  if (n.womenOnly) return 'Ayol haydovchi';
+  return n.availability ?? 'Narx o‘zgarmaydi';
 }
 
 function RoutePoint({

@@ -21,6 +21,11 @@ export function parseRealtimeEvent(raw: string): RealtimeEvent | null {
     case 'ready':
     case 'ping':
       return { type: d.type };
+    case 'ride.changed':
+      // a co-rider joined or left (the price changed): refetch like any ride update
+      return isStr(d.rideId)
+        ? { type: 'ride.updated', rideId: d.rideId, status: isStr(d.status) ? d.status : '' }
+        : null;
     case 'ride.updated':
       return isStr(d.rideId) && isStr(d.status)
         ? { type: 'ride.updated', rideId: d.rideId, status: d.status }
@@ -79,12 +84,12 @@ export function backoffMs(attempt: number, random: number = Math.random()): numb
 }
 
 /**
- * The API writes a ping every 25 s and a car on its way sends a fix every few seconds: a
- * stream silent for 45 s (the heartbeat and a slow 3G hop) is dead even if the socket was
- * never closed (a phone moving between cells often keeps a half-open connection). Same
+ * The API writes a ping every 10 s and a car on its way sends a fix every few seconds: a
+ * stream silent for 25 s (two missed pings and a slow 3G hop) is dead even if the socket
+ * was never closed (a phone moving between cells often keeps a half-open connection). Same
  * idea as Uber's 4 s heartbeat / 7 s dead link, scaled to this API's heartbeat.
  */
-export const STREAM_DEAD_MS = 45_000;
+export const STREAM_DEAD_MS = 25_000;
 /** A stream that has not opened this long after asking is given up and asked again. */
 export const STREAM_OPEN_TIMEOUT_MS = 15_000;
 

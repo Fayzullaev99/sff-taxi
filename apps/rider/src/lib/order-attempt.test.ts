@@ -48,4 +48,14 @@ describe('order attempts', () => {
     expect(withComment).not.toBe(comfort);
     expect(orderKey(order)).toBe(orderKey({ ...order }));
   });
+
+  it('counts people, sharing, a woman driver and a seat as part of the order', () => {
+    const plain = orderKey(order);
+    // the defaults are the plain order (an older API gets the same key)
+    expect(orderKey({ ...order, passengers: 1, shareable: false, fareMode: 'car' })).toBe(plain);
+    expect(orderKey({ ...order, passengers: 2 })).not.toBe(plain);
+    expect(orderKey({ ...order, shareable: true })).not.toBe(plain);
+    expect(orderKey({ ...order, womenOnly: true })).not.toBe(plain);
+    expect(orderKey({ ...order, fareMode: 'seat' })).not.toBe(plain);
+  });
 });

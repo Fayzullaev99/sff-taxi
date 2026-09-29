@@ -3,13 +3,15 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { describeError } from '../api/client';
+import { ApiError, describeError } from '../api/client';
 import { endpoints } from '../api/endpoints';
 import { keys, useMe } from '../api/queries';
 import { signOut } from '../api/session';
 import { APP_VERSION, useFeature, useSupport } from '../api/support';
 import { confirm } from '../lib/dialogs';
 import { formatPhone } from '../lib/format';
+import { GENDER_LABELS, genderLock } from '../lib/sharing';
+import type { Gender, Me } from '../api/types';
 import { callPhone, openLink } from '../lib/links';
 import { usePushPermission } from '../notifications/PushManager';
 import {
@@ -21,10 +23,78 @@ import {
   type IconName,
   PressableRow,
   SectionTitle,
+  Segmented,
   T,
   TextField,
 } from '../ui/primitives';
 import { colors, space } from '../ui/theme';
+
+/**
+ * The declared gender: a woman driver is offered to women. Changeable once per 30 days
+ * (the API answers 409 before that and says until when).
+ */
+function GenderCard({ me }: { me: Me }) {
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState<Gender | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const lock = genderLock(me.genderLockedUntil, new Date());
+
+  const choose = async (gender: Gender) => {
+    if (gender === me.gender || busy) return;
+    const ok = await confirm({
+      title: `Jins: ${GENDER_LABELS[gender]}`,
+      message:
+        'Jinsni 30 kunda bir marta o‘zgartirish mumkin. Ayol haydovchi tanlovi faqat ayollar uchun.',
+      confirmText: 'Saqlash',
+      cancelText: 'Yo‘q',
+    });
+    if (!ok) return;
+    setBusy(gender);
+    setError(null);
+    try {
+      const updated = await endpoints.updateGender(gender);
+      queryClient.setQueryData(keys.me, updated);
+      // the order screen's "Ayol haydovchi" follows the profile
+      void queryClient.invalidateQueries({ queryKey: ['quote'] });
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        void queryClient.invalidateQueries({ queryKey: keys.me });
+      }
+      setError(describeError(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Card style={styles.card}>
+      <T variant="h3" accessibilityRole="header">
+        Jinsingiz
+      </T>
+      <T variant="small" color={colors.textMuted}>
+        Ayollar buyurtmada «Ayol haydovchi»ni tanlashi mumkin.
+      </T>
+      <Segmented
+        value={(me.gender ?? '') as Gender}
+        onChange={(g) => {
+          if (!lock.locked) void choose(g);
+        }}
+        options={(['female', 'male'] as const).map((g) => ({
+          value: g,
+          label: busy === g ? 'Saqlanmoqda…' : GENDER_LABELS[g],
+          icon: g === 'female' ? 'woman-outline' : 'man-outline',
+          disabled: lock.locked && me.gender !== g,
+        }))}
+      />
+      {lock.text ? (
+        <T variant="small" color={colors.textMuted}>
+          {lock.text}
+        </T>
+      ) : null}
+      {error ? <Banner tone="danger" message={error} /> : null}
+    </Card>
+  );
+}
 
 /** Name, the rider's places and lists, notifications, support contacts, sign-out. */
 export default function ProfileScreen() {
@@ -111,6 +181,8 @@ export default function ProfileScreen() {
           onPress={() => void saveName()}
         />
       </Card>
+
+      {me.data && me.data.gender !== undefined ? <GenderCard me={me.data} /> : null}
 
       <Card style={styles.menu}>
         <MenuRow

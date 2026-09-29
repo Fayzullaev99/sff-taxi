@@ -5,6 +5,7 @@ import { useSupport } from '../api/support';
 import type { Ride } from '../api/types';
 import { canComplain } from '../lib/complaints';
 import { cancellationFeeNote, CLASS_LABELS, fareLines, OWED_FEE_LABEL } from '../lib/fare';
+import { POOL_DISCOUNT_LABEL } from '../lib/sharing';
 import { driverGivenName, formatDateTime, formatMoney, placeLine } from '../lib/format';
 import { callPhone, openLink } from '../lib/links';
 import { cardMoneyNote } from '../lib/payment';
@@ -110,6 +111,13 @@ export function RideSummary({ ride }: { ride: Ride }) {
           {fareLines(ride.fare.breakdown, ride.fare.waiting).map((line) => (
             <KeyValue key={line.label} label={line.label} value={formatMoney(line.amount)} />
           ))}
+          {(ride.fare.poolDiscount ?? 0) > 0 ? (
+            <KeyValue
+              label={POOL_DISCOUNT_LABEL}
+              value={`−${formatMoney(ride.fare.poolDiscount!)}`}
+              valueColor={colors.success}
+            />
+          ) : null}
           {owedFee > 0 ? (
             <>
               <KeyValue label={OWED_FEE_LABEL} value={formatMoney(owedFee)} />
@@ -121,6 +129,12 @@ export function RideSummary({ ride }: { ride: Ride }) {
           ) : null}
           <Divider style={styles.divider} />
           <KeyValue label="Jami" value={formatMoney(total)} strong />
+          {(ride.fare.deposit ?? 0) > 0 ? (
+            <KeyValue
+              label="Shundan oldindan to‘langan (depozit)"
+              value={formatMoney(ride.fare.deposit!)}
+            />
+          ) : null}
           <T variant="small" color={colors.textMuted}>
             {ride.paymentMethod === 'cash'
               ? 'Naqd to‘lov haydovchiga.'

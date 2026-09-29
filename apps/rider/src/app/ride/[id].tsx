@@ -30,6 +30,8 @@ import {
 } from '../../lib/format';
 import { type EtaDisplay, fixIsStale, steadyEta } from '../../lib/car-motion';
 import { useNow } from '../../lib/hooks';
+import { discountLine, occupancyText, pinDigits, ridePrice } from '../../lib/sharing';
+import { SeatIcons } from '../../order/RideChoices';
 import { shareText } from '../../lib/links';
 import { newerEta, pickupEta, type RideScreen, rideScreen } from '../../lib/ride-state';
 import { searchStartsAt } from '../../lib/schedule';
@@ -290,7 +292,22 @@ function LiveRide({
 
           {screen.phase === 'scheduled' ? <ScheduledInfo ride={ride} rules={rules} /> : null}
 
+          {(screen.phase === 'assigned' || screen.phase === 'arrived') &&
+          pinDigits(ride.startPin) ? (
+            <StartPin pin={ride.startPin!} />
+          ) : null}
+
           {screen.showDriver ? <DriverCard driver={ride.driver} vehicle={ride.vehicle} /> : null}
+
+          {screen.showDriver && ride.car && (ride.shareable || ride.car.riders > 1) ? (
+            <View style={styles.occupancy} accessible>
+              <SeatIcons car={ride.car} />
+              <T variant="smallStrong" style={styles.flex}>
+                {occupancyText(ride.car)}
+                {ride.passengers && ride.passengers > 1 ? ` · siz ${ride.passengers} kishi` : ''}
+              </T>
+            </View>
+          ) : null}
 
           {screen.phase === 'searching' ? <SearchingInfo ride={ride} /> : null}
 
@@ -455,23 +472,66 @@ function useSteadyEta(minutes: number | null, phase: string): number | null {
  */
 function FareLine({ ride }: { ride: Ride }) {
   const cash = cashToPay(ride);
-  if (cash.owedFee <= 0) {
-    return (
-      <T variant="smallStrong">
-        {formatMoney(ride.fare.quoted)} ·{' '}
-        {ride.paymentMethod === 'cash' ? 'naqd' : 'karta orqali to‘langan'} · narx o‘zgarmaydi
-      </T>
-    );
-  }
+  // a shared ride: the quoted price is the ceiling, co-riders lower it (live)
+  const price = ridePrice(ride.fare);
+  const cashRide = ride.paymentMethod === 'cash';
   return (
     <View style={styles.owed}>
-      <T variant="smallStrong">
-        Naqd: {formatMoney(ride.fare.quoted + cash.owedFee)} · narx o‘zgarmaydi
-      </T>
-      <T variant="small" color={colors.textMuted}>
-        Safar {formatMoney(ride.fare.quoted)} + {OWED_FEE_LABEL.toLowerCase()}{' '}
-        {formatMoney(cash.owedFee)} (bekor qilish to‘lovi)
-      </T>
+      <View style={styles.priceRow}>
+        {price.discount > 0 ? (
+          <T variant="smallStrong" color={colors.textMuted} style={styles.struck}>
+            {formatMoney(price.quoted)}
+          </T>
+        ) : null}
+        <T variant="smallStrong">
+          {formatMoney(price.pays)} · {cashRide ? 'naqd' : 'karta orqali to‘langan'} ·{' '}
+          {price.discount > 0 ? 'hamroh bilan arzonroq' : 'narx o‘zgarmaydi'}
+        </T>
+      </View>
+      {price.discount > 0 ? (
+        <T variant="small" color={colors.success}>
+          {discountLine(price.discount)}
+        </T>
+      ) : ride.shareable && ride.fareMode !== 'seat' ? (
+        <T variant="small" color={colors.textMuted}>
+          Hamroh qo‘shilsa, narx arzonlashadi — sizga xabar beramiz.
+        </T>
+      ) : null}
+      {price.deposit > 0 && cashRide ? (
+        <T variant="small" color={colors.textMuted}>
+          Oldindan to‘langan {formatMoney(price.deposit)} · qolgan {formatMoney(price.cashLeft)}{' '}
+          naqd
+        </T>
+      ) : null}
+      {cash.owedFee > 0 ? (
+        <T variant="small" color={colors.textMuted}>
+          Naqd jami {formatMoney(cash.total)}: safar {formatMoney(cash.fare)} +{' '}
+          {OWED_FEE_LABEL.toLowerCase()} {formatMoney(cash.owedFee)} (bekor qilish to‘lovi)
+        </T>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * The start code, big: the rider tells it to the driver, who starts the trip only with it
+ * (at night, shared, a woman driver, between towns) — the right rider in the right car.
+ */
+function StartPin({ pin }: { pin: string }) {
+  return (
+    <View
+      style={styles.pin}
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={`Boshlash kodi: ${pin.split('').join(' ')}. Haydovchiga ayting.`}
+    >
+      <Icon name="key-outline" size={22} color={colors.ink} />
+      <View style={styles.flex}>
+        <T variant="small" color={colors.textMuted}>
+          Haydovchiga ayting — safar shu kod bilan boshlanadi
+        </T>
+        <T variant="plate">{pinDigits(pin)}</T>
+      </View>
     </View>
   );
 }
@@ -621,5 +681,25 @@ const styles = StyleSheet.create({
   sos: { minWidth: 96 },
   searchInfo: { gap: space(2) },
   owed: { gap: 2 },
+  priceRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space(1.5) },
+  struck: { textDecorationLine: 'line-through' },
+  pin: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space(3),
+    padding: space(3.5),
+    borderRadius: radius.lg,
+    backgroundColor: colors.brandSoft,
+    borderWidth: 2,
+    borderColor: colors.brand,
+  },
+  occupancy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space(3),
+    padding: space(3),
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
   routeBox: { gap: 2 },
 });

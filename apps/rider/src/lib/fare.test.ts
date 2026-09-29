@@ -208,13 +208,26 @@ describe('owed cancellation fees', () => {
         paymentMethod: 'cash',
         fare: { quoted: 20_000, waiting: 1000, total: null, owedFee: 5000 },
       }),
-    ).toEqual({ total: 26_000, fare: 21_000, owedFee: 5000 });
+    ).toEqual({ total: 26_000, fare: 21_000, owedFee: 5000, deposit: 0 });
     expect(
       cashToPay({
         paymentMethod: 'cash',
         fare: { quoted: 20_000, waiting: 1000, total: 21_000 },
       }),
-    ).toEqual({ total: 21_000, fare: 21_000, owedFee: 0 });
+    ).toEqual({ total: 21_000, fare: 21_000, owedFee: 0, deposit: 0 });
+    // a shared ride pays its discounted price; a deposit paid in advance is not cash again
+    expect(
+      cashToPay({
+        paymentMethod: 'cash',
+        fare: { quoted: 100_000, waiting: 0, total: null, poolDiscount: 15_000, pays: 85_000 },
+      }).total,
+    ).toBe(85_000);
+    expect(
+      cashToPay({
+        paymentMethod: 'cash',
+        fare: { quoted: 30_000, waiting: 500, total: 30_500, deposit: 6_000 },
+      }),
+    ).toEqual({ total: 24_500, fare: 24_500, owedFee: 0, deposit: 6_000 });
     // a card ride is prepaid: only the paid waiting is cash
     expect(
       cashToPay({
@@ -222,6 +235,21 @@ describe('owed cancellation fees', () => {
         fare: { quoted: 20_000, waiting: 1500, total: null, owedFee: 0 },
       }).total,
     ).toBe(1500);
+  });
+
+  it('names a fixed route price by seat or whole car', () => {
+    const fixed = (mode: 'seat' | 'car', passengers: number) =>
+      fareLines({
+        ...cityFare,
+        base: 20_000,
+        outside: 0,
+        night: 0,
+        options: {},
+        total: 20_000,
+        fixed: { routeFareId: 'r', mode, price: 10_000, passengers },
+      });
+    expect(fixed('seat', 2)[0]).toEqual({ label: 'Yo‘nalish narxi: o‘rindiq × 2', amount: 20_000 });
+    expect(fixed('car', 1)[0]!.label).toBe('Yo‘nalish narxi: butun mashina');
   });
 
   it('explains what happened to a cancelled ride own fee', () => {

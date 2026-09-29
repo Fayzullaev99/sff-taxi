@@ -1,5 +1,5 @@
 import { router, useFocusEffect, useIsFocused } from 'expo-router';
-import { memo, type RefObject, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import MapView, { type Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,6 +8,7 @@ import {
   useGeoConfig,
   useMe,
   useResolve,
+  useRouteFares,
   useScheduledRides,
   useTariffAt,
 } from '../api/queries';
@@ -24,6 +25,7 @@ import {
   savedAddress,
 } from '../lib/places';
 import { isOpenStatus } from '../lib/ride-state';
+import { routeChips } from '../lib/sharing';
 import { useAppActive } from '../lib/use-app-active';
 import { isGoodFix, MOVE_THRESHOLD_M, PRECISE } from '../location/fix';
 import { DEFAULT_CENTER, describePoint, knownPoint } from '../location/geo';
@@ -240,6 +242,19 @@ export default function HomeScreen() {
     : (pickup?.address ?? (lookingUp ? 'Manzil aniqlanmoqda…' : 'Pin qo‘yilgan joy'));
   const name = firstName(me?.fullName);
   const recent = places.recent.slice(0, QUICK_RECENT);
+  // fixed prices from the rider's town to others ("Yangiyer → Guliston · 10 000/kishi"):
+  // they work even where city rides have not started yet
+  const routeFares = useRouteFares().data;
+  const townLat = pickup ? pickup.lat.toFixed(2) : null;
+  const townLng = pickup ? pickup.lng.toFixed(2) : null;
+  const routes = useMemo(
+    () =>
+      routeChips(
+        routeFares,
+        townLat && townLng ? { lat: Number(townLat), lng: Number(townLng) } : null,
+      ),
+    [routeFares, townLat, townLng],
+  );
   // the map fills the screen above the panel (tucked under its rounded top): the pin in
   // its middle is never hidden behind the panel, whatever the screen or font size
   const mapBottom = Math.max(0, panelHeight - radius.xl);
@@ -413,6 +428,23 @@ export default function HomeScreen() {
               accessibilityLabel={`Yana borish: ${p.title}`}
               onPress={() => {
                 if (canOrder) goRecent(p);
+              }}
+            />
+          ))}
+          {routes.map((r) => (
+            <Chip
+              key={r.key}
+              icon="swap-horizontal"
+              label={r.label}
+              accessibilityLabel={`Belgilangan narx: ${r.label}`}
+              onPress={() => {
+                if (!pickup || moving) return;
+                updateDraft({
+                  dropoff: { lat: r.to.lat, lng: r.to.lng, address: r.to.name },
+                  // a seat price: the order screen starts on a seat (shared, cash)
+                  ...(r.seat ? { fareMode: 'seat' as const, paymentMethod: 'cash' as const } : {}),
+                });
+                router.push('/order');
               }}
             />
           ))}

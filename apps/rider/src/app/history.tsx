@@ -13,6 +13,7 @@ import type { RideSummary } from '../api/types';
 import { CLASS_LABELS } from '../lib/fare';
 import { formatDateTime, formatMoney, placeLine } from '../lib/format';
 import { rideScreen } from '../lib/ride-state';
+import { discountLine } from '../lib/sharing';
 import { Icon, T } from '../ui/primitives';
 import { EmptyView, ErrorView, LoadingView } from '../ui/states';
 import { colors, radius, space } from '../ui/theme';
@@ -92,7 +93,7 @@ const RideRow = memo(function RideRow({ ride }: { ride: RideSummary }) {
         (ride.fare.total ?? ride.fare.quoted) + (ride.fare.owedFee ?? 0)
       : ride.fare.cancellationFee > 0
         ? ride.fare.cancellationFee
-        : ride.fare.quoted;
+        : (ride.fare.pays ?? ride.fare.quoted);
   const statusText =
     ride.status === 'completed'
       ? 'Yakunlangan'
@@ -130,6 +131,11 @@ const RideRow = memo(function RideRow({ ride }: { ride: RideSummary }) {
         <T variant="smallStrong" color={STATUS_COLOR[screen.phase] ?? colors.brandText}>
           {statusText}
         </T>
+        {(ride.fare.poolDiscount ?? 0) > 0 ? (
+          <T variant="small" color={colors.success} numberOfLines={1}>
+            {discountLine(ride.fare.poolDiscount!)}
+          </T>
+        ) : null}
       </View>
       <T variant="bodyStrong">{formatMoney(amount)}</T>
     </Pressable>

@@ -541,7 +541,7 @@ const styles = StyleSheet.create({
     gap: space(1.5),
     paddingHorizontal: space(3.5),
     minHeight: 48,
-    maxWidth: 240,
+    maxWidth: 280,
     borderRadius: radius.pill,
   },
   chipText: { flexShrink: 1 },

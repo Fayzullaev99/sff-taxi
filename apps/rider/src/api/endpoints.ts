@@ -6,6 +6,7 @@ import type {
   Complaint,
   ComplaintListItem,
   ComplaintType,
+  Gender,
   GeoConfig,
   GeoResolve,
   GeoReverse,
@@ -26,6 +27,7 @@ import type {
   RideHistoryPage,
   RideOption,
   RideSummary,
+  RouteFare,
   SavedPlace,
   ShareLink,
   SosResult,
@@ -54,6 +56,9 @@ export const endpoints = {
   me: () => api.request<Me>('/v1/me'),
   updateMe: (fullName: string) =>
     api.request<Me>('/v1/me', { method: 'PATCH', body: { fullName } }),
+  /** 409 when it was changed within the last 30 days (`genderLockedUntil`). */
+  updateGender: (gender: Gender) =>
+    api.request<Me>('/v1/me', { method: 'PATCH', body: { gender } }),
 
   // Map (public)
   geoConfig: () => api.request<GeoConfig>('/v1/geo/config', { auth: 'none' }),
@@ -74,6 +79,8 @@ export const endpoints = {
       signal,
       timeoutMs: 8_000,
     }),
+  /** Fixed prices between towns (public): the map's route chips. */
+  routes: () => api.request<RouteFare[]>('/v1/routes', { auth: 'none' }),
   tariff: (p: LatLng) =>
     api.request<TariffInfo>('/v1/tariffs', { auth: 'none', query: { lat: p.lat, lng: p.lng } }),
 

@@ -44,6 +44,7 @@ export const keys = {
   me: ['me'] as const,
   config: ['app-config'] as const,
   geoConfig: ['geo-config'] as const,
+  routes: ['route-fares'] as const,
   tariff: (p: LatLng) => ['tariff', coarse(p.lat), coarse(p.lng)] as const,
   resolve: (p: LatLng) => ['geo-resolve', coarse(p.lat), coarse(p.lng)] as const,
   reverse: (p: LatLng) => ['geo-reverse', round(p.lat), round(p.lng)] as const,
@@ -100,6 +101,18 @@ export function useGeoConfig() {
     queryFn: endpoints.geoConfig,
     staleTime: 60 * 60_000,
     gcTime: 24 * 60 * 60_000,
+  });
+}
+
+/** Fixed prices between towns (operators change them rarely): the map's route chips. */
+export function useRouteFares() {
+  return useQuery({
+    queryKey: keys.routes,
+    queryFn: endpoints.routes,
+    staleTime: 30 * 60_000,
+    gcTime: 24 * 60 * 60_000,
+    // an older API has no /routes: no chips, no retries
+    retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 2,
   });
 }
 

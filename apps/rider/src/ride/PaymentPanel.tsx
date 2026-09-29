@@ -6,6 +6,7 @@ import { formatClock, formatMoney } from '../lib/format';
 import { useNow } from '../lib/hooks';
 import { openLink } from '../lib/links';
 import { checkoutLinks, paymentSecondsLeft } from '../lib/payment';
+import { depositPayment } from '../lib/sharing';
 import { Banner, Button, Icon, T } from '../ui/primitives';
 import { colors, radius, space } from '../ui/theme';
 
@@ -42,7 +43,9 @@ export function PaymentPanel({
   };
   const left = paymentSecondsLeft(ride.payment, now);
   const links = checkoutLinks(ride.payment);
-  const amount = ride.payment?.amount ?? ride.fare.quoted;
+  // a ride booked for later: only its deposit is paid by card now, the rest in cash
+  const deposit = depositPayment(ride);
+  const amount = ride.payment?.amount ?? deposit?.amount ?? ride.fare.quoted;
   const expired = left === 0;
 
   const pay = async (provider: CardProvider, url: string) => {
@@ -71,9 +74,14 @@ export function PaymentPanel({
         <Icon name="card" size={22} color={colors.ink} />
         <View style={styles.flex}>
           <T variant="small" color={colors.textMuted}>
-            To‘lanadigan summa
+            {deposit ? 'Oldindan to‘lov (depozit)' : 'To‘lanadigan summa'}
           </T>
           <T variant="price">{formatMoney(amount)}</T>
+          {deposit && deposit.cashLeft > 0 ? (
+            <T variant="small" color={colors.textMuted}>
+              Qolgan {formatMoney(deposit.cashLeft)} naqd haydovchiga
+            </T>
+          ) : null}
         </View>
         {left !== null && !expired ? (
           <View
