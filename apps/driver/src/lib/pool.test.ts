@@ -14,6 +14,7 @@ import {
   pinInput,
   poolRideIds,
   poolSettings,
+  rideTakenAway,
   preferencesError,
   ridePool,
   seatLayout,
@@ -126,6 +127,45 @@ describe('several riders', () => {
     expect(ridePool({ pool: { id: 'p', sharedM: 100 } })).toBeNull();
     expect(ridePool({ pool })?.stops).toHaveLength(3);
     expect(poolRideIds(ridePool({ pool }), 'R2')).toEqual(['r2', 'r1']);
+  });
+
+  it('does not call a rider in the car "taken away" when the next stop is another ride (QA wave 4)', () => {
+    const stops = [
+      {
+        rideId: 'A',
+        number: 1,
+        type: 'dropoff',
+        lat: 0,
+        lng: 0,
+        place: '',
+        riderName: '',
+        passengers: 1,
+        status: 'in_progress',
+      },
+      {
+        rideId: 'B',
+        number: 2,
+        type: 'dropoff',
+        lat: 0,
+        lng: 0,
+        place: '',
+        riderName: '',
+        passengers: 1,
+        status: 'in_progress',
+      },
+    ];
+    // B just started: the current ride is A (its drop-off comes first)
+    expect(rideTakenAway('B', 'in_progress', { id: 'A', pool: { stops } })).toBe(false);
+    expect(rideTakenAway('b', 'in_progress', { id: 'A', pool: { stops } })).toBe(false);
+    // an operator gave B to someone else: no longer among the car's stops
+    expect(rideTakenAway('B', 'driver_assigned', { id: 'A', pool: { stops: [stops[0]] } })).toBe(
+      true,
+    );
+    expect(rideTakenAway('B', 'driver_assigned', { id: 'A', pool: null })).toBe(true);
+    expect(rideTakenAway('B', 'searching', { id: 'B' })).toBe(true);
+    expect(rideTakenAway('B', 'driver_assigned', null)).toBe(true);
+    expect(rideTakenAway('B', 'completed', null)).toBe(false);
+    expect(rideTakenAway('B', 'in_progress', { id: 'B' })).toBe(false);
   });
 
   it('the button follows the stop', () => {

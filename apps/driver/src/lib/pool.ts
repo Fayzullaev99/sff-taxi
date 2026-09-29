@@ -264,3 +264,20 @@ export function parseRecent(raw: unknown): Destination[] {
     }))
     .slice(0, 5);
 }
+
+/**
+ * Whether a ride update means the ride was taken away from this driver (an operator gave it
+ * to someone else, it went back to the search). With several riders in the car the
+ * current ride follows the next stop: the ride is still this driver's while it is one of
+ * the car's stops, even when another rider's ride is "current" now.
+ */
+export function rideTakenAway(
+  mineId: string,
+  status: string,
+  still: { id: string; pool?: unknown } | null | undefined,
+): boolean {
+  if (status === 'completed' || status === 'cancelled') return false;
+  if (status === 'searching' || !still) return true;
+  if (still.id.toLowerCase() === mineId.toLowerCase()) return false;
+  return !poolRideIds(ridePool(still), still.id).includes(mineId.toLowerCase());
+}

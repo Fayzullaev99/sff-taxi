@@ -6,6 +6,7 @@ import { Alert, AppState } from 'react-native';
 import type { DriverRide, Topup } from '../api/types';
 import { keys, setStreamOpen } from '../data/queries';
 import type { RealtimeEvent } from '../lib/sse';
+import { rideTakenAway } from '../lib/pool';
 import { withPaidEvent } from '../lib/topup';
 import { announceOffer } from '../notifications/push';
 import { haptics } from '../ui/haptics';
@@ -90,8 +91,8 @@ async function onRideUpdated(
     return;
   }
   const still = qc.getQueryData<DriverRide | null>(keys.current);
-  if (event.status === 'searching' || (still && still.id !== mine.id) || !still) {
-    if (event.status === 'completed') return;
+  // (a shared car: the current ride follows the next stop, the rider is still in the car)
+  if (rideTakenAway(mine.id, event.status, still)) {
     haptics.warning();
     Alert.alert(
       `Buyurtma #${mine.number} sizdan olindi`,
