@@ -17,7 +17,14 @@ import {
   TRIP_STATUS,
   TRIP_TONE,
 } from '../lib/format';
-import { isLiveBooking, isOpenTrip } from '../lib/intercity';
+import {
+  BOOKING_CANCELLED_BY,
+  bookingMoney,
+  canCancelBooking,
+  holdsSeats,
+  isLiveBooking,
+  isOpenTrip,
+} from '../lib/intercity';
 import { Badge, Button, PageHeader, PhoneLink } from '../ui/controls';
 import { Empty, ErrorBox, Loading, useToast } from '../ui/feedback';
 import { TextDialog } from '../ui/TextDialog';
@@ -51,7 +58,9 @@ export default function TripPage() {
   const open = isOpenTrip(t.status);
   const departed = Date.parse(t.departureAt) <= Date.now();
   const live = t.bookings.filter((b) => isLiveBooking(b.status));
-  const cash = live.reduce((sum, b) => sum + b.price, 0);
+  const cash = live.reduce((sum, b) => sum + bookingMoney(b).cash, 0);
+  const deposits = live.reduce((sum, b) => sum + bookingMoney(b).deposit, 0);
+  const awaiting = t.bookings.filter((b) => b.status === 'awaiting_payment').length;
   const refresh = (updated?: AdminTrip) => {
     if (updated) queryClient.setQueryData(['intercity', 'trip', t.id], updated);
     void queryClient.invalidateQueries({ queryKey: ['intercity'] });
@@ -152,8 +161,19 @@ export default function TripPage() {
             )}
             <div>
               <dt>Faol bronlar summasi</dt>
-              <dd>{som(cash)} naqd</dd>
+              <dd>
+                {som(cash)} naqd
+                {deposits > 0 && (
+                  <div className="muted small">+ {som(deposits)} depozit (karta)</div>
+                )}
+              </dd>
             </div>
+            {awaiting > 0 && (
+              <div>
+                <dt>Depozit kutilmoqda</dt>
+                <dd>{awaiting} ta bron (joylar ushlab turiladi)</dd>
+              </div>
+            )}
             {t.boardingAt && (
               <div>
                 <dt>Chiqish boshlandi</dt>
@@ -212,19 +232,37 @@ export default function TripPage() {
                     {b.seats}
                     {b.front && <div className="muted small">old o‘rindiq bilan</div>}
                   </td>
-                  <td className="cell-text">{b.pickupNote ?? <span className="muted">—</span>}</td>
+                  <td className="cell-text">
+                    {b.alongTheWay && b.pickup && b.dropoff && (
+                      <div>
+                        <Badge tone="blue">Yo‘l ustida</Badge> {b.pickup.nameUz} →{' '}
+                        {b.dropoff.nameUz}
+                      </div>
+                    )}
+                    {b.pickupNote ?? (!b.alongTheWay && <span className="muted">—</span>)}
+                  </td>
                   <td className="num">
                     {som(b.price)}
+                    {bookingMoney(b).deposit > 0 && (
+                      <div className="muted small">
+                        depozit {som(bookingMoney(b).deposit)} · naqd {som(bookingMoney(b).cash)}
+                      </div>
+                    )}
                     {b.cancellationFee > 0 && (
                       <div className="muted small">jarima {som(b.cancellationFee)}</div>
                     )}
                   </td>
                   <td>
                     <Badge tone={BOOKING_TONE[b.status]}>{BOOKING_STATUS[b.status]}</Badge>
+                    {b.status === 'cancelled' && b.cancelledBy && (
+                      <div className="muted small">
+                        {BOOKING_CANCELLED_BY[b.cancelledBy] ?? b.cancelledBy}
+                      </div>
+                    )}
                     {b.cancelReason && <div className="muted small clamp-2">{b.cancelReason}</div>}
                   </td>
                   <td className="actions">
-                    {open && isLiveBooking(b.status) && (
+                    {open && canCancelBooking(b.status) && (
                       <Button size="sm" variant="ghost" onClick={() => setCancelBooking(b)}>
                         Bekor qilish
                       </Button>
@@ -243,8 +281,8 @@ export default function TripPage() {
           title={`#${t.number} qatnovini bekor qilish`}
           intro={
             <p>
-              {live.length
-                ? `${live.length} ta bron bekor bo‘ladi, yo‘lovchilarga xabar boradi.`
+              {t.bookings.some((b) => holdsSeats(b.status))
+                ? `${t.bookings.filter((b) => holdsSeats(b.status)).length} ta bron bekor bo‘ladi, yo‘lovchilarga xabar boradi; to‘langan depozitlar qaytarishga navbatga qo‘yiladi.`
                 : 'Bronlar yo‘q.'}
             </p>
           }

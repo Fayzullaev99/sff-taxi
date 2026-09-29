@@ -6,6 +6,7 @@ import {
   ExternalLink,
   HandCoins,
   MapPin,
+  Package,
   RefreshCw,
   UserCheck,
 } from 'lucide-react';
@@ -46,6 +47,7 @@ import {
   optionsText,
   placeLine,
 } from '../lib/rides';
+import { awaitingDeposit } from '../lib/cargo';
 import { rideTags, seatingText } from '../lib/pool';
 import type { MapLayers, MarkerSpec } from '../map/adapter';
 import { GeoMap, useGeoConfig } from '../map/GeoMap';
@@ -124,6 +126,58 @@ function OwedFeesSection({ ride }: { ride: AdminRide }) {
         </>
       )}
       {waiving && <WaiveFeeDialog ride={waiving} onClose={() => setWaiving(null)} />}
+    </section>
+  );
+}
+
+/** A cargo ride's load and loaders, or a delivery's parcel and recipient. */
+function ServiceSection({ ride }: { ride: AdminRide }) {
+  const cargo = ride.cargo ?? null;
+  const delivery = ride.delivery ?? null;
+  if (!cargo && !delivery) return null;
+  return (
+    <section className="detail-section">
+      <h3>
+        <Package size={16} aria-hidden /> {cargo ? 'Yuk' : 'Posilka'}
+      </h3>
+      {cargo && (
+        <dl className="facts">
+          <div>
+            <dt>Mashina sinfi</dt>
+            <dd>{CLASSES[ride.class] ?? ride.class}</dd>
+          </div>
+          <div>
+            <dt>Yukchilar</dt>
+            <dd>{cargo.loaders ? `${cargo.loaders} kishi` : 'kerak emas'}</dd>
+          </div>
+          <div>
+            <dt>Og‘irligi</dt>
+            <dd>{cargo.weightKg !== null ? `~${cargo.weightKg} kg` : '—'}</dd>
+          </div>
+          <div>
+            <dt>Buyurtmachi</dt>
+            <dd>{cargo.riderRides ? 'kabinada birga' : 'birga ketmaydi'}</dd>
+          </div>
+        </dl>
+      )}
+      {cargo?.description && <p className="small comment">“{cargo.description}”</p>}
+      {delivery && (
+        <>
+          <p>
+            Qabul qiluvchi: <strong>{delivery.recipientName ?? '—'}</strong>{' '}
+            <PhoneLink phone={delivery.recipientPhone} />
+          </p>
+          {delivery.parcel && (
+            <p className="small">
+              {delivery.parcel.description ?? 'Tavsifsiz'}
+              {delivery.parcel.weightKg !== null && ` · ~${delivery.parcel.weightKg} kg`}
+            </p>
+          )}
+          <p className="muted small">
+            Yuboruvchi mashinada emas: haydovchi qabul qiluvchiga qo‘ng‘iroq qiladi, u SMS oladi.
+          </p>
+        </>
+      )}
     </section>
   );
 }
@@ -340,6 +394,17 @@ export function RideDetail({
           daqiqa oldin boshlanadi.
         </div>
       )}
+      {awaitingDeposit(r) && (
+        <div className="alert alert-warn">
+          Depozit ({som(r.fare.deposit!)}) kartadan to‘lanishi kutilmoqda: to‘lanmasa, buyurtma
+          avtomatik bekor bo‘ladi.
+        </div>
+      )}
+      {(r.fare.deposit ?? 0) > 0 && r.paymentMethod === 'cash' && !awaitingDeposit(r) && (
+        <p className="muted small">
+          Depozit: <strong>{PAYMENT_STATUS[r.paymentStatus] ?? r.paymentStatus}</strong>
+        </p>
+      )}
       {r.paymentMethod === 'card' && (
         <p className="muted small">
           Karta orqali oldindan to‘lov:{' '}
@@ -525,6 +590,8 @@ export function RideDetail({
           </p>
         )}
       </section>
+
+      <ServiceSection ride={r} />
 
       <OwedFeesSection ride={r} />
 

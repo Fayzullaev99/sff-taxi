@@ -43,6 +43,12 @@ export function fiscalProblems(r: FiscalRules): Partial<Record<keyof FiscalRules
   if (city) out.city_item_name = city;
   const intercity = name(r.intercity_item_name);
   if (intercity) out.intercity_item_name = intercity;
+  // cargo and delivery names: absent on older API builds (their defaults apply)
+  for (const key of ['cargo_item_name', 'delivery_item_name'] as const) {
+    const v = r[key];
+    const problem = v === undefined ? null : name(v);
+    if (problem) out[key] = problem;
+  }
   if (!/^\d{17}$/.test(r.mxik_code)) out.mxik_code = 'MXIK kodi 17 ta raqam';
   if (!/^\d{1,10}$/.test(r.package_code)) out.package_code = 'Qadoq kodi: 1–10 ta raqam';
   if (!(r.vat_percent >= 0 && r.vat_percent <= 20)) out.vat_percent = '0 dan 20 gacha';

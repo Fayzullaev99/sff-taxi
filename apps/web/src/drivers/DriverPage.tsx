@@ -16,6 +16,8 @@ import { api, ApiError, errorText } from '../api/client';
 import { type RideFilters, useDriver, useDriverRides, useLive } from '../api/queries';
 import {
   type AdminDriver,
+  CARGO_CLASSES,
+  type CargoClass,
   type DriverDecision,
   type DriverDocument,
   type RideClass,
@@ -27,6 +29,7 @@ import { approvalChecks, approvalProblems, expiryState } from '../lib/drivers';
 import {
   ACTORS,
   ago,
+  CARGO_CLASS,
   CLASSES,
   date,
   dateTime,
@@ -43,9 +46,20 @@ import {
   RIDE_STATUS_SHORT,
   som,
   tashkentToday,
+  VEHICLE_BODY,
 } from '../lib/format';
+import { suggestedCargoClass } from '../lib/cargo';
 import { RideRows } from '../rides/RideRows';
-import { Badge, Button, Field, PageHeader, PhoneLink, Segmented, Toggle } from '../ui/controls';
+import {
+  Badge,
+  Button,
+  Field,
+  NumberInput,
+  PageHeader,
+  PhoneLink,
+  Segmented,
+  Toggle,
+} from '../ui/controls';
 import { Empty, ErrorBox, Loading, useToast } from '../ui/feedback';
 import { Modal } from '../ui/Modal';
 import { DocumentPreview, DocumentTile } from './Documents';
@@ -200,7 +214,17 @@ function VehicleEditor({ driver }: { driver: AdminDriver }) {
   const [rideClass, setRideClass] = useState<RideClass>(v.class);
   const [features, setFeatures] = useState<VehicleFeature[]>(v.features);
   const [cng, setCng] = useState(v.cngInTrunk ?? false);
+  // cargo cars: the payload measured at the inspection and the class it serves
+  const cargoCar = Boolean(v.cargoClass);
+  const [payloadKg, setPayloadKg] = useState<number | null>(v.payloadKg ?? null);
+  const [cargoClass, setCargoClass] = useState<CargoClass>(v.cargoClass ?? 'cargo_s');
+  const payloadError =
+    cargoCar && (payloadKg === null || payloadKg < 1 || payloadKg > 20_000)
+      ? '1 dan 20 000 kg gacha'
+      : null;
+  const suggested = payloadKg !== null ? suggestedCargoClass(payloadKg) : null;
   const changed =
+    (cargoCar && (payloadKg !== (v.payloadKg ?? null) || cargoClass !== v.cargoClass)) ||
     rideClass !== v.class ||
     cng !== (v.cngInTrunk ?? false) ||
     features.length !== v.features.length ||
@@ -209,7 +233,12 @@ function VehicleEditor({ driver }: { driver: AdminDriver }) {
     mutationFn: () =>
       api<AdminDriver>(`/v1/admin/drivers/${driver.id}/vehicle`, {
         method: 'PATCH',
-        body: { class: rideClass, features, cngInTrunk: cng },
+        body: {
+          class: rideClass,
+          features,
+          cngInTrunk: cng,
+          ...(cargoCar ? { payloadKg, cargoClass } : {}),
+        },
       }),
     onSuccess: (updated) => {
       queryClient.setQueryData(['driver', driver.id], updated);
@@ -218,6 +247,27 @@ function VehicleEditor({ driver }: { driver: AdminDriver }) {
   });
   return (
     <div className="vehicle-editor">
+      {cargoCar && (
+        <>
+          <Field
+            label="Yuk ko‘tarish (texnik ko‘rikda)"
+            hint={
+              suggested && suggested !== cargoClass
+                ? `Bu yukga mos sinf: ${CARGO_CLASS[suggested]}`
+                : 'Yuk sinfi shunga qarab: 800 kg gacha kichik, undan ortiq o‘rta'
+            }
+            error={payloadError}
+          >
+            {(p) => <NumberInput {...p} suffix="kg" value={payloadKg} onChange={setPayloadKg} />}
+          </Field>
+          <Segmented<CargoClass>
+            label="Yuk sinfi"
+            value={cargoClass}
+            onChange={setCargoClass}
+            options={CARGO_CLASSES.map((c) => ({ value: c, label: CARGO_CLASS[c] }))}
+          />
+        </>
+      )}
       <Segmented
         label="Avtomobil sinfi"
         value={rideClass}
@@ -252,7 +302,7 @@ function VehicleEditor({ driver }: { driver: AdminDriver }) {
       <Button
         size="sm"
         variant="primary"
-        disabled={!changed}
+        disabled={!changed || payloadError !== null}
         loading={save.isPending}
         onClick={() => save.mutate()}
       >
@@ -544,10 +594,23 @@ export default function DriverPage() {
                     {d.vehicle.colour} {d.vehicle.make} {d.vehicle.model}
                   </strong>{' '}
                   · {d.vehicle.year} · {d.vehicle.seats} o‘rin
+                  {d.vehicle.body && ` · ${VEHICLE_BODY[d.vehicle.body]}`}
+                  {d.vehicle.payloadKg ? ` · ${d.vehicle.payloadKg} kg yuk` : ''}
+                  {d.vehicle.grossKg ? ` (to‘la massa ${d.vehicle.grossKg} kg)` : ''}
                 </p>
                 <p>
-                  <span className="plate plate-lg">{d.vehicle.plateFormatted}</span>
+                  <span className="plate plate-lg">{d.vehicle.plateFormatted}</span>{' '}
+                  {d.vehicle.cargoClass ? (
+                    <Badge tone="amber">Yuk mashinasi · {CARGO_CLASS[d.vehicle.cargoClass]}</Badge>
+                  ) : (
+                    <Badge>Taksi</Badge>
+                  )}
                 </p>
+                {d.vehicle.cargoClass && (
+                  <p className="muted small">
+                    Faqat o‘z sinfidagi yuk buyurtmalarini oladi (taksi va posilka bormaydi).
+                  </p>
+                )}
                 <VehicleEditor key={JSON.stringify(d.vehicle)} driver={d} />
               </>
             ) : (

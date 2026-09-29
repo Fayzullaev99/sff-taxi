@@ -80,7 +80,7 @@ import { DriverTrackService } from '../geo/driver-track.service.js';
 import { PickupEtaService } from '../geo/pickup-eta.service.js';
 import { RouteFaresService, type RouteQuote } from '../geo/route-fares.service.js';
 import { AvailabilityService } from './availability.service.js';
-import { PoolService } from './pool.service.js';
+import { type Car, PoolService } from './pool.service.js';
 
 type Db = Tx | Database['kysely'];
 type Ride = Selectable<RidesTable>;
@@ -300,6 +300,26 @@ export class RidesService {
     ]);
     // a rider's ride for later is booked with part of the fare paid by card in advance
     const deposit = scheduledFor && opts.forRider ? this.depositBlock(priced.fares, booking) : null;
+    // the rider's owed fees, free cars, cars on the way and women drivers: independent reads
+    const [owedFee, availability, poolCars, womenDrivers] = await Promise.all([
+      opts.forRider ? this.owedFeeLine(user.userId) : null,
+      scheduledFor ? null : this.availability.near(input.pickup, user.userId),
+      poolRules.enabled && !scheduledFor
+        ? this.pool.preview({
+            riderId: user.userId,
+            riderGender: rider?.gender ?? null,
+            pickup: input.pickup,
+            dropoff: input.dropoff,
+            kind: priced.kind,
+            fare: priced.fares.economy.total,
+            distanceM: priced.route.distanceM,
+            tariff: priced.tariff,
+          })
+        : [],
+      opts.forRider && !scheduledFor
+        ? this.availability.womenDrivers(input.pickup, user.userId)
+        : null,
+    ]);
     return {
       quoteId: id,
       service: 'taxi' as const,
@@ -319,11 +339,11 @@ export class RidesService {
         : this.payments.methods(),
       // which card providers a card payment can go through (Payme, Click)
       cardProviders: scheduledFor ? [] : this.payments.providers(),
-      owedFee: opts.forRider ? await this.owedFeeLine(user.userId) : null,
+      owedFee,
       waiting: priced.tariff.waiting,
       cancellationFee: priced.tariff.cancellation_fee,
       // the nearest free car per class, by road: "~4 min" on the class buttons
-      availability: scheduledFor ? null : await this.availability.near(input.pickup, user.userId),
+      availability,
       // the seating rule: one in front, at most two in the back
       seats: { max: MAX_PASSENGERS, front: 1, rearMax: REAR_SEATS_MAX },
       // a fixed price between towns: per seat in a shared car, or the whole car
@@ -346,18 +366,7 @@ export class RidesService {
             discountPercent: poolRules.discount_percent,
             fullDiscountSharePercent: poolRules.full_discount_share_percent,
             cashOnly: true,
-            cars: scheduledFor
-              ? []
-              : await this.pool.preview({
-                  riderId: user.userId,
-                  riderGender: rider?.gender ?? null,
-                  pickup: input.pickup,
-                  dropoff: input.dropoff,
-                  kind: priced.kind,
-                  fare: priced.fares.economy.total,
-                  distanceM: priced.route.distanceM,
-                  tariff: priced.tariff,
-                }),
+            cars: poolCars,
           }
         : {
             available: false,
@@ -371,9 +380,7 @@ export class RidesService {
         ? {
             available: rider?.gender === 'female',
             reason: rider?.gender === 'female' ? null : 'profile_gender',
-            drivers: scheduledFor
-              ? null
-              : await this.availability.womenDrivers(input.pickup, user.userId),
+            drivers: womenDrivers,
           }
         : null,
     };
@@ -2330,8 +2337,11 @@ export class RidesService {
     return { driverEta, destinationEta, trail };
   }
 
-  /** The driver's view: the rider's name, phone and rating, the fare and deductions. */
-  async driverView(user: AuthUser, rideId: string) {
+  /**
+   * The driver's view: the rider's name, phone and rating, the fare and deductions. `car`:
+   * the driver's car when the caller just loaded it (the current ride), not loaded again.
+   */
+  async driverView(user: AuthUser, rideId: string, car?: Car) {
     const ride = await this.findRide(rideId);
     if (ride.driver_id !== user.userId) throw new NotFoundException('Buyurtma topilmadi');
     return {
@@ -2348,13 +2358,19 @@ export class RidesService {
         ride.waiting_fee +
         ride.owed_fee,
       // riders sharing the car: every stop ahead in order
-      pool: ride.driver_id && isActive(ride.status) ? await this.driverStops(ride.driver_id) : null,
+      pool:
+        ride.driver_id && isActive(ride.status)
+          ? await this.driverStops(
+              ride.driver_id,
+              car?.driverId === ride.driver_id ? car : undefined,
+            )
+          : null,
     };
   }
 
   /** The driver's stops ahead when the car carries several riders (null for one ride). */
-  async driverStops(driverId: string) {
-    const car = await this.pool.car(this.db.kysely, driverId);
+  async driverStops(driverId: string, loaded?: Car) {
+    const car = loaded ?? (await this.pool.car(this.db.kysely, driverId));
     if (!car || car.rides.length < 2) return null;
     const rides = await this.db.kysely
       .selectFrom('rides')
@@ -2651,7 +2667,7 @@ export class RidesService {
     const car = await this.pool.car(this.db.kysely, user.userId);
     if (!car?.rides.length) return null;
     const next = car.stops[0]?.rideId ?? car.rides[0]!.id;
-    return this.driverView(user, next);
+    return this.driverView(user, next, car);
   }
 
   async driverHistory(user: AuthUser, cursor?: string) {

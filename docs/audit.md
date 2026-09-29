@@ -100,8 +100,9 @@ Re-run it before launch and after any change to ordering, payments, the outbox o
 - **Collecting owed fees**: cash rides' cancellation fees are collected by the rider's next cash
   ride (a separate quote line, once per ride in the ledger, waivable; `wave3-driver-fees.test.ts`).
   Late seat cancellations are recorded only; card riders' fees are not kept from refunds.
-- **Load test**: run on 2026-09-27 (below); re-run after changes to dispatch, lists or the
-  ledger, and with 2 API replicas on the production host before launch.
+- **Load test**: run on 2026-09-27 and again for wave 4 on 2026-09-30 (below); re-run after
+  changes to dispatch, lists or the ledger, and with 2 API replicas on the production host
+  (not a shared laptop) before launch.
 
 ## Load test (2026-09-27)
 
@@ -150,3 +151,80 @@ Next when the fleet grows: dispatch eligibility sums every in-radius driver's le
 nearest ten are taken (18 ms with 553 online); above ~1 000 online drivers keep a running
 balance per driver (trigger-maintained) instead. The API is CPU-bound near 300 quotes/s per
 process: the production profile runs two replicas.
+
+## Load test (wave 4, 2026-09-30)
+
+Same database volumes and processes as above (a new throwaway database `taxi_load_w4`, seeded
+with the same volumes, dropped afterwards), `run.mjs` with the baseline parameters, then with
+`LOAD_WAVE4=1 LOAD_TRIP_S=30`: 60 of the 300 online drivers take shared rides
+(`PUT driver/preferences {poolEnabled}`), 20 of them heading ~4 km east; 30% of the orders
+agree to share (`shareable: true`, most going the same way), one driver in ten is a verified
+woman, 45% of the riders are women (a few women-only orders). Drivers follow their stop list
+(`GET driver/rides/current`, every 2 s on a trip), send the start code (it is night: every
+ride has one) and keep taking offers on their way; a trip lasts 30 s.
+
+**The laptop was shared** (other checkouts running tests and servers, CPU at 85-100%, commits
+up to 300 ms): latencies are noisier and higher than on 2026-09-27 for code that did not
+change. Before and after were therefore run alternately (6 wave 4 runs each, 2 baseline runs
+each; medians below), and the fixes are judged by work that does not depend on the neighbours:
+the dispatcher's tick (`dispatch_tick_seconds`, new on the worker's `/metrics`), database
+blocks per quote and per order (`pg_stat_database`) and `EXPLAIN ANALYZE` of the compiled
+queries.
+
+| Scenario (ms, p50 / p95)                              | 2026-09-27      | Baseline run, wave 4 code | Wave 4, before      | Wave 4, after      |
+| ----------------------------------------------------- | --------------- | ------------------------- | ------------------- | ------------------ |
+| `POST rides/quote` (+ pool preview, women drivers)    | 61 / 88         | 107 / 194                 | 98 / 182            | 105 / 173          |
+| `POST rides/quote` during the order cycle             | —               | 22 / 155                  | 34 / 149            | 22 / 128           |
+| `POST driver/location` (all phases)                   | 35 / 124        | 46 / 230                  | 52 / 207            | 49 / 225           |
+| `GET admin/dispatch/live`                             | 39 / 60         | 39 / 75                   | 33 / 62             | 36 / 66            |
+| `GET admin/rides` (open / all / month / driver / `q`) | 5 / 9 … 25 / 42 | 9 / 21 … 41 / 86          | 7 / 16 … 38 / 74    | 8 / 18 … 38 / 81   |
+| `GET admin/drivers`                                   | 20 / 34         | 31 / 60                   | 27 / 48             | 26 / 46            |
+| `POST rides` (order)                                  | 20 / 79         | 26 / 175                  | 29 / 138            | 30 / 129           |
+| `GET driver/offers`                                   | —               | —                         | 5 / 17              | 5 / 17             |
+| `POST driver/offers/:id/accept` (a free car)          | 19 / 34         | 33 / 121                  | 36 / 172            | 37 / 140           |
+| ... a car heading somewhere (along)                   | —               | —                         | 44 / 88 (19)        | 44 / 116 (31)      |
+| ... joining a car with riders (join)                  | —               | —                         | 63 / 88 (17)        | 89 / 125 (28)      |
+| `GET driver/rides/current`                            | —               | —                         | 15 / 109            | 10 / 77            |
+| ... with `pool.stops` (2-3 riders)                    | —               | —                         | 20 / 97             | 14 / 101           |
+| `complete`                                            | 24 / 43         | 31 / 97                   | 32 / 124            | 31 / 119           |
+| order → first offer                                   | 390 / 844       | 457 / 1 319               | 596 / 1 637         | 520 / 1 472        |
+| ... shareable orders                                  | —               | —                         | 584 / 1 436         | 492 / 1 342        |
+| order → assigned (incl. ~2.5 s the driver reads)      | 3 029 / 4 117   | 3 434 / 4 538             | 3 514 / 4 739       | 3 457 / 4 655      |
+| **dispatch tick** during the order cycle (mean)       | —               | 89 / 326                  | **134 / 465 (152)** | **75 / 373 (100)** |
+| database blocks per quote / per order                 | —               | —                         | 605 / 8 990         | 455 / 7 017        |
+
+Numbers in brackets: samples (joins are few: random trips rarely fit another car's way; 45
+joins and 50 other accepts on the way in 12 runs; the join path did not change, its
+p50 moves with so few samples). About 2 orders per run found no driver
+within 45 s, before and after alike (not investigated further). No 5xx in any run; three 409s
+(an offer on the way that was no longer valid).
+
+What the profile and the plans showed, and the fixes (`3f1f704`, behaviour unchanged, API
+suite green):
+
+- **Eligibility summed the ledger of every driver in the radius** before taking the nearest
+  ten (217 sums of ~250 rows for one ride; the note above predicted it), now for every rank
+  twice (free cars, then cars on their way). The candidate list is now built without the
+  balance and fenced (`OFFSET 0`); the balance is summed in the outer query, row by row in
+  distance order, only until the limit is reached; the row is locked there (skip locked, as
+  before) and online/fresh/in-radius are checked again on it. Compiled query: free cars 18.7 →
+  3.8 ms, cars on their way 1.5 → 0.7 ms. This is the tick's halving.
+- **N+1 in `rank()`**: each car on its way cost 2-3 queries in the transaction, one after the
+  other (up to 6 cars), and its route check after that. `PoolService.cars()` loads them in 3
+  queries; their routing matrices run at once (at most 6: bounded). Billing and pool rules are
+  read once per rank instead of four times (still inside the transaction).
+- **Quotes**: owed fees, free cars, shared cars and women drivers were awaited one after the
+  other; now in parallel. The preview's cars are loaded in one batch. The quote's API CPU is
+  ~5 ms either way (spread over ~9 queries: Kysely building 15%, sockets 7%, no single hot
+  spot); caching the preview per rider was not needed.
+- **`driver/rides/current`** loaded the car twice (for the next stop and for the stop list).
+- **Indexes** (`migrations/0018_wave4_indexes.sql`): cars on their way are a few of the online
+  drivers, but the planner expected one row and joined every vehicle per driver (19 ms with 300
+  online); a partial index `WHERE is_online AND (pool_enabled OR destination_lat IS NOT NULL)`
+  gives it the right plan (2 ms; the quote's preview uses it too). The quote's women-driver
+  count scanned every registered driver: a partial index on online verified women
+  (1.4 → 0.4 ms). No other new query needed one.
+
+Next: the quote is now ~5 ms of API CPU (about 200 quotes/s per process on this laptop, 300 on
+2026-09-27 with fewer reads); two replicas cover the launch. Above ~1 000 online drivers keep
+the running balance per driver as noted above.

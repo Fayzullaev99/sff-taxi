@@ -19,6 +19,8 @@ export interface MarkerSpec {
   title?: string;
   /** A few characters drawn inside the marker (a ride number, "A"/"B"). */
   text?: string;
+  /** A cargo car: a square marker, coloured by state like the others. */
+  cargo?: boolean;
   /** Emphasised (the selected ride or driver). */
   selected?: boolean;
   draggable?: boolean;

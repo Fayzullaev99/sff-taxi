@@ -275,6 +275,12 @@ function BookTab({ points }: { points: IntercityPoint[] }) {
             <li key={t.id} className="card trip-card">
               <div className="trip-card-main">
                 <strong className="trip-time">{dateTime(t.departureAt)}</strong>
+                {t.alongTheWay && (
+                  <span className="small">
+                    <Badge tone="blue">Yo‘l ustida</Badge> {t.from.nameUz} → {t.to.nameUz} qatnovi
+                    {t.share !== undefined && ` · yo‘lning ${Math.round(t.share * 100)}%`}
+                  </span>
+                )}
                 <span>
                   {t.vehicle.colour} {t.vehicle.make} {t.vehicle.model} · {CLASSES[t.class]}
                 </span>
@@ -293,6 +299,9 @@ function BookTab({ points }: { points: IntercityPoint[] }) {
                   {som(t.price.rear)}
                   {t.seats.frontFree && ` · old ${som(t.price.front)}`}
                 </span>
+                {t.alongTheWay && t.fullPrice && (
+                  <span className="muted small">butun yo‘l {som(t.fullPrice.rear)}</span>
+                )}
                 <Button size="sm" variant="primary" onClick={() => setBooking(t)}>
                   Bron qilish
                 </Button>

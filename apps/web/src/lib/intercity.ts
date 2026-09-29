@@ -6,6 +6,26 @@ export const isOpenTrip = (s: TripStatus) => s === 'scheduled' || s === 'boardin
 /** Bookings that still hold seats (the API's LIVE_BOOKING). */
 export const isLiveBooking = (s: BookingStatus) => s === 'booked' || s === 'boarded';
 
+/** Bookings holding seats: the live ones and those waiting for their deposit (API HOLDING). */
+export const holdsSeats = (s: BookingStatus) => s === 'awaiting_payment' || isLiveBooking(s);
+
+/** Operators cancel a booking not boarded yet, a deposit pending or paid (the API's rule). */
+export const canCancelBooking = (s: BookingStatus) => s === 'booked' || s === 'awaiting_payment';
+
+/** The card deposit and the cash to the driver (older API builds: all of it cash). */
+export function bookingMoney(b: { price: number; depositAmount?: number; payCash?: number }) {
+  const deposit = b.depositAmount ?? 0;
+  return { deposit, cash: b.payCash ?? b.price - deposit };
+}
+
+/** Who cancelled a booking, for operators. */
+export const BOOKING_CANCELLED_BY: Record<string, string> = {
+  rider: 'yo‘lovchi',
+  driver: 'haydovchi',
+  operator: 'operator',
+  system: 'tizim (depozit vaqtida to‘lanmadi)',
+};
+
 /** What a booking costs: the front seat at its price, the rest at the rear price (as the API). */
 export function bookingPrice(seats: number, front: boolean, prices: SeatPrices): number {
   return front ? (seats - 1) * prices.rear + prices.front : seats * prices.rear;

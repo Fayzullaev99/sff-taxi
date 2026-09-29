@@ -12,7 +12,11 @@ import { priority } from '../../lib/priority.js';
 import { RoutingService } from '../geo/routing.service.js';
 import { PoolService } from '../rides/pool.service.js';
 import { RidesService } from '../rides/rides.service.js';
-import { type DispatchRules, SettingsService } from '../settings/settings.module.js';
+import {
+  type BillingRules,
+  type DispatchRules,
+  SettingsService,
+} from '../settings/settings.module.js';
 
 type Ride = Selectable<RidesTable>;
 
@@ -271,10 +275,15 @@ export class DispatchService {
     limit: number,
     lock = true,
   ): Promise<Candidate[]> {
+    // read once per ranking (both lists and every car on its way use them)
+    const billing = await this.settings.billing(trx);
+    const poolRules = await this.settings.pool(trx);
     const nearest = await this.eligible(
       trx,
       ride,
       rules,
+      billing,
+      poolRules.enabled,
       radiusM,
       exclude,
       Math.max(limit, rules.candidates),
@@ -298,20 +307,32 @@ export class DispatchService {
     // cars already going that way (shared rides, drivers heading home): each checked
     // with the detour limits and the seating rule; a car carrying riders is preferred
     // (it fills a seat instead of taking another car off the street)
-    const poolRules = await this.settings.pool(trx);
     const along = await this.eligible(
       trx,
       ride,
       rules,
+      billing,
+      poolRules.enabled,
       poolRules.search_radius_m,
       exclude,
       6,
       lock,
       'along',
     );
-    for (const d of along) {
-      const car = await this.pool.car(trx, d.driverId);
-      const fit = car ? await this.pool.fit(car, ride, poolRules) : null;
+    // the cars in one batch of queries; their routing matrices at once (at most 6)
+    const cars = await this.pool.cars(
+      trx,
+      along.map((d) => d.driverId),
+    );
+    const fits = await Promise.all(
+      along.map((d) => {
+        const car = cars.get(d.driverId);
+        return car ? this.pool.fit(car, ride, poolRules) : null;
+      }),
+    );
+    for (const [i, d] of along.entries()) {
+      const car = cars.get(d.driverId);
+      const fit = fits[i];
       if (!car || !fit) continue;
       const carries = car.rides.length > 0 || car.extra > 0;
       ranked.push({
@@ -338,34 +359,24 @@ export class DispatchService {
     db: Tx | Database['kysely'],
     ride: Ride,
     rules: DispatchRules,
+    billing: BillingRules,
+    poolEnabled: boolean,
     radiusM: number,
     exclude: Exclude,
     limit: number,
     lock: boolean,
     mode: Mode,
   ): Promise<Omit<Candidate, 'etaS' | 'distanceM'>[]> {
-    const billing = await this.settings.billing(db);
-    const poolOn = mode === 'along' && ride.shareable && (await this.settings.pool(db)).enabled;
+    const poolOn = mode === 'along' && ride.shareable && poolEnabled;
     const features = [
       ...new Set(ride.options.map((o) => OPTION_FEATURE[o]).filter(Boolean)),
     ] as string[];
     const straight = sql<number>`taxi_distance_m(d.lat, d.lng, ${ride.pickup_lat}, ${ride.pickup_lng})`;
     const freshSince = new Date(Date.now() - rules.location_max_age_seconds * 1000);
-    let q = db
+    const candidates = db
       .selectFrom('drivers as d')
       .innerJoin('vehicles as v', 'v.driver_id', 'd.user_id')
-      .select([
-        'd.user_id',
-        'd.full_name',
-        'd.lat',
-        'd.lng',
-        'd.offers_received',
-        'd.offers_accepted',
-        'd.rides_cancelled',
-        'd.rating_sum',
-        'd.rating_count',
-        straight.as('straight'),
-      ])
+      .select(['d.user_id', straight.as('straight')])
       .where('d.is_online', '=', true)
       .where('d.status', '=', 'active')
       .where('d.lat', 'is not', null)
@@ -437,12 +448,37 @@ export class DispatchService {
           ),
         ),
       )
+      .orderBy(straight)
+      // a fence: the balance below is not pushed into this list, so it is summed (~250
+      // ledger rows each) only for the nearest drivers until the limit is reached, not for
+      // every driver in the radius
+      .offset(0);
+    let q = db
+      .selectFrom(candidates.as('c'))
+      .innerJoin('drivers as d', 'd.user_id', 'c.user_id')
+      .select([
+        'd.user_id',
+        'd.full_name',
+        'd.lat',
+        'd.lng',
+        'd.offers_received',
+        'd.offers_accepted',
+        'd.rides_cancelled',
+        'd.rating_sum',
+        'd.rating_count',
+        'c.straight',
+      ])
+      // checked again on the row being locked (a driver who went offline or moved meanwhile)
+      .where('d.is_online', '=', true)
+      .where('d.status', '=', 'active')
+      .where('d.located_at', '>=', freshSince)
+      .where(straight, '<=', radiusM)
       .where(
         sql<number>`(select coalesce(sum(l.amount), 0) from driver_ledger l where l.driver_id = d.user_id)`,
         '>=',
         billing.min_balance,
       )
-      .orderBy(straight)
+      .orderBy('c.straight')
       .limit(limit);
     if (lock) q = q.forUpdate('d').skipLocked();
     const rows = await q.execute();

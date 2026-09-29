@@ -582,6 +582,7 @@ export class IntentsService {
         'r.number as rideNumber',
         'i.booking_id as bookingId',
         'b.number as bookingNumber',
+        'b.trip_id as tripId',
         'i.driver_id as driverId',
         'd.full_name as driverName',
         'i.user_id as userId',
@@ -660,6 +661,7 @@ export class IntentsService {
         'r.number as rideNumber',
         'b.id as bookingId',
         'b.number as bookingNumber',
+        'b.trip_id as tripId',
         (eb) => eb.fn.coalesce('r.rider_phone', 'b.rider_phone').as('riderPhone'),
         (eb) => eb.fn.coalesce('r.cancel_reason', 'b.cancel_reason').as('cancelReason'),
       ])
