@@ -142,5 +142,10 @@ export function firstName(fullName: string | null | undefined): string | null {
  */
 export function driverGivenName(fullName: string | null | undefined): string | null {
   const words = fullName?.trim().split(/\s+/).filter(Boolean) ?? [];
-  return words[1] ?? words[0] ?? null;
+  // a word that does not look like a surname or a patronymic wins (the API's rule too):
+  // "Aziz Karimov" and "Karimov Aziz" both give "Aziz"
+  return words.find((w) => !SURNAME_OR_PATRONYMIC.test(w)) ?? words[1] ?? words[0] ?? null;
 }
+
+const SURNAME_OR_PATRONYMIC =
+  /(ov|ev|yov|ova|eva|yova|iy|aya|vich|vna|qizi|o['‘’`]?g['‘’`]?li|ogli)$/i;

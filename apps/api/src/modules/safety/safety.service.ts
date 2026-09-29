@@ -1,3 +1,4 @@
+import { driverGivenName } from '../../lib/names.js';
 import {
   ConflictException,
   GoneException,
@@ -199,7 +200,7 @@ export class SafetyService {
       status: ride.status,
       pickup: { ...ride.pickup, lat: ride.pickup_lat, lng: ride.pickup_lng },
       dropoff: { ...ride.dropoff, lat: ride.dropoff_lat, lng: ride.dropoff_lng },
-      driver: driver ? { name: driver.name.split(' ')[0], rating: driver.rating } : null,
+      driver: driver ? { name: driverGivenName(driver.name), rating: driver.rating } : null,
       vehicle: ride.vehicle
         ? {
             make: ride.vehicle.make,

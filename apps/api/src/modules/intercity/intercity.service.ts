@@ -1,3 +1,4 @@
+import { driverGivenName } from '../../lib/names.js';
 import {
   BadRequestException,
   ConflictException,
@@ -942,7 +943,7 @@ export class IntercityService {
       price: { rear: trip.price_rear, front: trip.price_front },
       driver: {
         // the first name only, until a seat is booked
-        name: driver.full_name.split(' ')[0],
+        name: driverGivenName(driver.full_name),
         rating: stars,
         ridesCompleted: driver.rides_completed,
         photoUrl: await this.uploads.readUrl(driver.photo_upload_id),

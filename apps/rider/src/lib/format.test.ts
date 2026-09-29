@@ -76,6 +76,8 @@ describe('format', () => {
     expect(driverGivenName('Qodirov Sherzodbek Abdumalikovich')).toBe('Sherzodbek');
     expect(driverGivenName(' Aliyev  Vali ')).toBe('Vali');
     expect(driverGivenName('Sherzod')).toBe('Sherzod');
+    expect(driverGivenName('Aziz Karimov')).toBe('Aziz');
+    expect(driverGivenName('Toshmatov Bobur Anvar o‘g‘li')).toBe('Bobur');
     expect(driverGivenName('')).toBeNull();
     expect(driverGivenName(null)).toBeNull();
   });
