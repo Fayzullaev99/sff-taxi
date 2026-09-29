@@ -14,6 +14,10 @@ export const DRIVER_RULES = {
   maxComfortAgeYears: 5,
   /** at most 4 passenger seats besides the driver */
   maxSeats: 4,
+  /** cargo cars (not passenger taxis): at most 25 years old */
+  maxCargoVehicleAgeYears: 25,
+  /** above this total (gross) mass a category C licence is needed; up to it B is enough */
+  maxCategoryBGrossKg: 3500,
 } as const;
 
 /**
@@ -65,6 +69,9 @@ export function normalizeLicenceNumber(input: string): string {
   return input.replace(/[\s-]/g, '').toUpperCase();
 }
 
+/** Bodies of cargo cars (src/lib/cargo.ts CARGO_BODIES): never a passenger taxi. */
+const CARGO_BODY: readonly string[] = ['van', 'pickup', 'truck'];
+
 /** Van-type cars may not work as taxis (Res. 200). */
 export function isVanType(make: string, model: string): boolean {
   return /\b(damas|labo)\b/i.test(`${make} ${model}`);
@@ -98,6 +105,11 @@ export interface VehicleFacts {
   seats: number;
   class: 'economy' | 'comfort';
   features: string[];
+  /** What the car works for: a passenger taxi (Resolution 200) or cargo. Default taxi. */
+  service?: 'taxi' | 'cargo';
+  body?: string;
+  payloadKg?: number | null;
+  grossKg?: number | null;
 }
 
 export interface RuleProblem {
@@ -135,13 +147,28 @@ export function checkApplicant(a: ApplicantFacts, today: string): RuleProblem[] 
   return problems;
 }
 
-export function checkVehicle(v: VehicleFacts, today: string): RuleProblem[] {
+/**
+ * The car's rules. A passenger taxi follows Resolution 200 (no vans, at most 4 seats, at
+ * most 15 years old); a cargo car does not carry passengers for money and follows the cargo
+ * rules instead (checkCargoVehicle). `licenceCategories`: the driver's, for cargo.
+ */
+export function checkVehicle(
+  v: VehicleFacts,
+  today: string,
+  licenceCategories: string[] = ['B'],
+): RuleProblem[] {
+  if (v.service === 'cargo') return checkCargoVehicle(v, today, licenceCategories);
   const problems: RuleProblem[] = [];
   const year = Number(today.slice(0, 4));
   if (isVanType(v.make, v.model)) {
     problems.push({
       path: 'vehicle.model',
       message: 'Furgon turidagi avtomobillar taksi bo‘la olmaydi',
+    });
+  } else if (v.body && CARGO_BODY.includes(v.body)) {
+    problems.push({
+      path: 'vehicle.body',
+      message: 'Yuk kuzovli avtomobil taksi bo‘la olmaydi: yuk tashish uchun ariza bering',
     });
   }
   if (v.year > year + 1 || year - v.year > DRIVER_RULES.maxVehicleAgeYears) {
@@ -166,6 +193,58 @@ export function checkVehicle(v: VehicleFacts, today: string): RuleProblem[] {
     if (!v.features.includes('ac')) {
       problems.push({ path: 'vehicle.class', message: 'Komfort uchun konditsioner kerak' });
     }
+  }
+  return problems;
+}
+
+/**
+ * A cargo car: a van, pickup or truck body with a payload, at most 25 years old; a car of
+ * more than 3.5 t total mass needs a category C licence (B is enough up to 3.5 t). Seats are
+ * the cab's besides the driver (the customer may ride along; the table allows 1-4).
+ */
+export function checkCargoVehicle(
+  v: VehicleFacts,
+  today: string,
+  licenceCategories: string[],
+): RuleProblem[] {
+  const problems: RuleProblem[] = [];
+  const year = Number(today.slice(0, 4));
+  if (!v.body || !CARGO_BODY.includes(v.body)) {
+    problems.push({
+      path: 'vehicle.body',
+      message: 'Yuk mashinasi furgon, pikap yoki yuk kuzovli bo‘lishi kerak',
+    });
+  }
+  if (!v.payloadKg || v.payloadKg <= 0) {
+    problems.push({ path: 'vehicle.payloadKg', message: 'Yuk ko‘tarish quvvatini kiriting (kg)' });
+  }
+  if (v.year > year + 1 || year - v.year > DRIVER_RULES.maxCargoVehicleAgeYears) {
+    problems.push({
+      path: 'vehicle.year',
+      message: `Yuk mashinasi ${DRIVER_RULES.maxCargoVehicleAgeYears} yildan eski bo‘lmasligi kerak`,
+    });
+  }
+  if (v.seats < 1 || v.seats > DRIVER_RULES.maxSeats) {
+    problems.push({
+      path: 'vehicle.seats',
+      message: `Kabinada ${DRIVER_RULES.maxSeats} tadan ortiq o‘rindiq bo‘lmasligi kerak`,
+    });
+  }
+  if (
+    v.grossKg &&
+    v.grossKg > DRIVER_RULES.maxCategoryBGrossKg &&
+    !licenceCategories.includes('C')
+  ) {
+    problems.push({
+      path: 'licenceCategories',
+      message: '3,5 tonnadan og‘ir mashina uchun C toifali guvohnoma kerak',
+    });
+  }
+  if (v.grossKg && v.payloadKg && v.payloadKg >= v.grossKg) {
+    problems.push({
+      path: 'vehicle.grossKg',
+      message: 'To‘liq massa yuk ko‘tarish quvvatidan katta bo‘lishi kerak',
+    });
   }
   return problems;
 }

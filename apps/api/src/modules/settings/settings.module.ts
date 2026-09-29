@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { AdminOnly } from '../../core/auth/auth-context.js';
 import { Database, type Tx } from '../../core/db/database.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
+import { CargoRules, DEFAULT_CARGO } from '../../lib/cargo.js';
 import { DEFAULT_POOL, PoolRules } from '../../lib/pool.js';
 import { DEFAULT_TARIFF, Tariff } from '../../lib/tariff.js';
 
@@ -124,6 +125,14 @@ export const FiscalRules = z.object({
   /** Item names on the receipt. */
   city_item_name: z.string().trim().min(3).max(128),
   intercity_item_name: z.string().trim().min(3).max(128),
+  /** Cargo and delivery orders (optional in a stored document: the defaults apply). */
+  cargo_item_name: z.string().trim().min(3).max(128).default('Yuk tashish xizmati'),
+  delivery_item_name: z
+    .string()
+    .trim()
+    .min(3)
+    .max(128)
+    .default('Yetkazib berish xizmati (posilka)'),
   /** MXIK (IKPU): the 17-digit product/service classifier code of passenger transport. */
   mxik_code: z.string().regex(/^\d{17}$/, '17 ta raqam'),
   /** The package (unit) code the classifier gives for the MXIK code. */
@@ -136,6 +145,8 @@ export type FiscalRules = z.infer<typeof FiscalRules>;
 export const DEFAULT_FISCAL: FiscalRules = {
   city_item_name: 'Taksi xizmati (yo‘lovchi tashish)',
   intercity_item_name: 'Shaharlararo yo‘lovchi tashish (o‘rindiq)',
+  cargo_item_name: 'Yuk tashish xizmati',
+  delivery_item_name: 'Yetkazib berish xizmati (posilka)',
   // placeholders: no receipt is sent while FISCAL_PROVIDER=none
   mxik_code: '00000000000000000',
   package_code: '0000000',
@@ -149,6 +160,7 @@ const RULES = {
   intercity: { key: 'intercity', schema: IntercityRules, fallback: DEFAULT_INTERCITY },
   fiscal: { key: 'fiscal', schema: FiscalRules, fallback: DEFAULT_FISCAL },
   pool: { key: 'pool', schema: PoolRules, fallback: DEFAULT_POOL },
+  cargo: { key: 'cargo', schema: CargoRules, fallback: DEFAULT_CARGO },
 } as const;
 type RuleName = keyof typeof RULES;
 type RuleValue<N extends RuleName> = z.infer<(typeof RULES)[N]['schema']>;
@@ -220,6 +232,10 @@ export class SettingsService {
   pool(db?: Db) {
     return this.get('pool', db);
   }
+
+  cargo(db?: Db) {
+    return this.get('cargo', db);
+  }
 }
 
 @Controller('admin/settings')
@@ -287,6 +303,17 @@ export class SettingsController {
   @Put('pool')
   setPool(@Body(new ZodPipe(PoolRules)) body: PoolRules) {
     return this.settings.set('pool', body);
+  }
+
+  /** Cargo and delivery: cargo class prices, loaders, the delivery share (src/lib/cargo.ts). */
+  @Get('cargo')
+  cargo() {
+    return this.settings.cargo();
+  }
+
+  @Put('cargo')
+  setCargo(@Body(new ZodPipe(CargoRules)) body: CargoRules) {
+    return this.settings.set('cargo', body);
   }
 }
 
