@@ -568,6 +568,8 @@ export class DriversService {
         'v.make',
         'v.model',
         'v.class',
+        'v.cargo_class as cargoClass',
+        'v.body',
         'd.lat',
         'd.lng',
         'd.located_at as locatedAt',
