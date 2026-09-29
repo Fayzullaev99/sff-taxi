@@ -40,6 +40,7 @@ import {
   reasonLabel,
   RELEASE_REASONS,
 } from '../../lib/reasons.js';
+import { depositAmount } from '../../lib/deposit.js';
 import { MAX_PASSENGERS, REAR_SEATS_MAX } from '../../lib/pool.js';
 import {
   computeFare,
@@ -96,6 +97,11 @@ export const SCHEDULE_MIN_AHEAD_MINUTES = 30;
 export const SCHEDULE_MAX_AHEAD_HOURS = 24;
 export const SCHEDULE_DISPATCH_BEFORE_MINUTES = 15;
 export const SCHEDULED_PER_RIDER = 3;
+/**
+ * A ride for later booked with a deposit: cancelled at least this long before its time (and
+ * before a driver took it) the deposit comes back; later, it is the driver's compensation.
+ */
+export const SCHEDULED_FREE_CANCEL_MINUTES = 60;
 
 export interface OrderInput {
   quoteId: string;
@@ -230,7 +236,7 @@ export class RidesService {
         route: priced.fixedRoute ? JSON.stringify(priced.fixedRoute) : null,
       })
       .execute();
-    const [poolRules, rider] = await Promise.all([
+    const [poolRules, rider, booking] = await Promise.all([
       this.settings.pool(),
       opts.forRider
         ? this.db.kysely
@@ -239,7 +245,22 @@ export class RidesService {
             .where('id', '=', user.userId)
             .executeTakeFirst()
         : Promise.resolve(undefined),
+      this.settings.booking(),
     ]);
+    // a rider's ride for later is booked with part of the fare paid by card in advance
+    const deposit =
+      scheduledFor && opts.forRider
+        ? {
+            percent: booking.deposit_percent,
+            min: booking.deposit_min,
+            amount: depositAmount(priced.fares.economy.total, booking),
+            amounts: Object.fromEntries(
+              RIDE_CLASSES.map((c) => [c, depositAmount(priced.fares[c].total, booking)]),
+            ),
+            freeCancelMinutes: SCHEDULED_FREE_CANCEL_MINUTES,
+            cardProviders: this.payments.providers(),
+          }
+        : null;
     return {
       quoteId: id,
       expiresAt,
@@ -251,6 +272,7 @@ export class RidesService {
       routeSource: priced.route.source,
       options: [...new Set(input.options)],
       fares: priced.fares,
+      deposit: deposit && deposit.amount > 0 ? deposit : null,
       // rides for later are cash only (a card ride is prepaid before dispatch)
       paymentMethods: scheduledFor
         ? this.payments.methods().filter((m) => m === 'cash')
@@ -411,6 +433,12 @@ export class RidesService {
       .where('id', '=', user.userId)
       .executeTakeFirstOrThrow();
     const how = await this.rideTerms(quote, input, rider.gender);
+    const deposit = quote.scheduled_for
+      ? depositAmount(how.fare.total, await this.settings.booking())
+      : 0;
+    if (deposit > 0 && !this.intents.cardAvailable()) {
+      throw new BadRequestException('Oldindan bron uchun karta orqali to‘lov hali ulanmagan');
+    }
     const id = await this.db.transaction(async (trx) => {
       // a double tap racing the check above lands on the unique key: answer with that ride
       await sql`select pg_advisory_xact_lock(hashtext(${user.userId}))`.execute(trx);
@@ -452,6 +480,7 @@ export class RidesService {
         fareMode: how.fareMode,
         routeFareId: how.fare.fixed?.routeFareId ?? null,
         startPin: how.startPin,
+        deposit,
       });
     });
     return { created: true, ride: await this.riderView(user, id) };
@@ -651,6 +680,9 @@ export class RidesService {
       .select(['id', 'number'])
       .where('rider_id', '=', riderId)
       .where('status', 'in', [...UNFINISHED_RIDE_STATUSES])
+      .where((eb) =>
+        eb.or([eb('status', '!=', 'awaiting_payment'), eb('scheduled_for', 'is', null)]),
+      )
       .executeTakeFirst();
     if (open) {
       throw new ConflictException({
@@ -665,7 +697,13 @@ export class RidesService {
       .selectFrom('rides')
       .select((eb) => eb.fn.countAll<string>().as('n'))
       .where('rider_id', '=', riderId)
-      .where('status', '=', 'scheduled')
+      .where((eb) =>
+        eb.or([
+          eb('status', '=', 'scheduled'),
+          // booked for later, the deposit not paid yet
+          eb.and([eb('status', '=', 'awaiting_payment'), eb('scheduled_for', 'is not', null)]),
+        ]),
+      )
       .executeTakeFirstOrThrow();
     if (Number(waiting.n) >= SCHEDULED_PER_RIDER) {
       throw new ConflictException(
@@ -856,17 +894,21 @@ export class RidesService {
       fareMode?: 'car' | 'seat';
       routeFareId?: string | null;
       startPin?: string | null;
+      /** Paid by card before a ride for later is booked; the rest is cash. */
+      deposit?: number;
     },
   ): Promise<string> {
     const id = uuidv7();
     const place = (p: PlaceInput): Place => ({ address: p.address, landmark: p.landmark });
     // a card ride is dispatched once its fixed fare is prepaid (docs/payments.md)
     // a ride for later waits until 15 minutes before its time
-    const status = r.scheduledFor
-      ? 'scheduled'
-      : r.paymentMethod === 'card'
+    const deposit = r.deposit ?? 0;
+    const status =
+      r.paymentMethod === 'card' || deposit > 0
         ? 'awaiting_payment'
-        : 'searching';
+        : r.scheduledFor
+          ? 'scheduled'
+          : 'searching';
     await trx
       .insertInto('rides')
       .values({
@@ -903,6 +945,7 @@ export class RidesService {
         fare_mode: r.fareMode ?? 'car',
         route_fare_id: r.routeFareId ?? null,
         start_pin: r.startPin ?? null,
+        deposit_amount: deposit,
         status,
         updated_at: new Date(),
       })
@@ -920,7 +963,11 @@ export class RidesService {
     // fees owed from cancelled cash rides are paid with this cash fare (a separate line)
     if (r.paymentMethod === 'cash') await this.attachOwedFees(trx, r.riderId, id);
     if (status === 'awaiting_payment') {
-      await this.intents.createForRide(trx, { id, riderId: r.riderId, amount: r.fare.total });
+      await this.intents.createForRide(trx, {
+        id,
+        riderId: r.riderId,
+        amount: deposit > 0 ? deposit : r.fare.total,
+      });
     } else if (status === 'scheduled') {
       await emit(trx, 'ride.status_changed', { rideId: id, from: null, to: 'scheduled' });
     } else {
@@ -1135,6 +1182,16 @@ export class RidesService {
           note: `Karta orqali to‘langan safar #${ride.number}`,
         });
       }
+      if (ride.deposit_amount > 0) {
+        // the platform holds the deposit paid in advance: it is the driver's money
+        await this.ledger.post(trx, {
+          driverId: ride.driver_id!,
+          kind: 'deposit',
+          amount: ride.deposit_amount,
+          rideId: ride.id,
+          note: `#${ride.number} oldindan to‘langan qism`,
+        });
+      }
       await trx
         .updateTable('drivers')
         .set((eb) => ({ rides_completed: eb('rides_completed', '+', 1) }))
@@ -1267,12 +1324,29 @@ export class RidesService {
     // riders sharing the car: the plan and their shared prices follow without this one
     if (ride.pool_id && isActive(ride.status))
       await this.pool.left(trx, ride, { keepPoolId: true });
-    // a card ride's unpaid intent closes; a paid one is queued for a full refund
+    // a deposit lost by cancelling late (or not coming out) is the driver's compensation
+    const forfeit = ride.deposit_amount > 0 && this.depositForfeited(ride, by, fee, now);
+    if (forfeit) {
+      fee = ride.deposit_amount;
+      if (ride.driver_id) {
+        await this.ledger.post(trx, {
+          driverId: ride.driver_id,
+          kind: 'deposit',
+          amount: ride.deposit_amount,
+          rideId: ride.id,
+          note: `#${ride.number} oldindan to‘lov (yo‘lovchi kech bekor qildi)`,
+        });
+      }
+    }
+    // a card ride's (or a deposit's) unpaid intent closes; a paid one is queued for a full
+    // refund, unless the deposit was lost
     const paymentStatus =
       opts.paymentStatus ??
-      (ride.payment_method === 'card'
-        ? await this.intents.onRideCancelled(trx, ride.id)
-        : 'not_charged');
+      (forfeit
+        ? 'paid'
+        : ride.payment_method === 'card' || ride.deposit_amount > 0
+          ? await this.intents.onRideCancelled(trx, ride.id)
+          : 'not_charged');
     await trx
       .updateTable('rides')
       .set({
@@ -1283,8 +1357,11 @@ export class RidesService {
         payment_status: paymentStatus,
         cancelled_at: now,
         updated_at: now,
-        // a cash ride's fee is owed until the rider's next cash ride collects it
-        ...(fee > 0 && ride.payment_method === 'cash' ? { fee_status: 'owed' as const } : {}),
+        // a cash ride's fee is owed until the rider's next cash ride collects it (a lost
+        // deposit is already paid)
+        ...(fee > 0 && ride.payment_method === 'cash' && !forfeit
+          ? { fee_status: 'owed' as const }
+          : {}),
         // fees this ride was to collect stay owed, for the next ride
         owed_fee: 0,
       })
@@ -1312,6 +1389,22 @@ export class RidesService {
       ...(ride.driver_id ? { driverId: ride.driver_id } : {}),
     });
     await emit(trx, 'ride.status_changed', { rideId: ride.id, from: ride.status, to: 'cancelled' });
+  }
+
+  /**
+   * Whether a ride's deposit is lost: the rider cancelled late (within the free window
+   * before the time, or once a driver took it) or did not come out. Cancellations by the
+   * platform or an operator always give it back.
+   */
+  private depositForfeited(ride: Ride, by: RideActor, fee: number, now: Date): boolean {
+    if (ride.payment_status !== 'paid') return false;
+    if (by === 'driver') return fee > 0;
+    if (by !== 'rider') return false;
+    if (ride.driver_id) return true;
+    return (
+      ride.scheduled_for !== null &&
+      ride.scheduled_for.getTime() - now.getTime() < SCHEDULED_FREE_CANCEL_MINUTES * 60_000
+    );
   }
 
   /** Takes the driver off a ride that has not started: it goes back to dispatch. */
@@ -1373,6 +1466,9 @@ export class RidesService {
       const ride = await this.lockRide(trx, rideId);
       if (ride.driver_id !== user.userId)
         throw new NotFoundException('Sizda bunday faol buyurtma yo‘q');
+      // a step repeated after a lost answer (poor network): already done (or passed)
+      const order: RideStatus[] = ['driver_assigned', 'driver_arrived', 'in_progress', 'completed'];
+      if (order.indexOf(ride.status) >= order.indexOf(to) && order.indexOf(to) > 0) return;
       if (ride.status !== from) {
         throw new ConflictException(msg('Buyurtma holati mos emas: {0}', ride.status));
       }
@@ -1462,6 +1558,9 @@ export class RidesService {
         .select('id')
         .where('rider_id', '=', user.id)
         .where('status', 'in', [...UNFINISHED_RIDE_STATUSES])
+        .where((eb) =>
+          eb.or([eb('status', '!=', 'awaiting_payment'), eb('scheduled_for', 'is', null)]),
+        )
         .executeTakeFirst(),
       this.db.kysely
         .selectFrom('rides')
@@ -1525,7 +1624,13 @@ export class RidesService {
       .selectFrom('rides')
       .select(LIST_COLUMNS)
       .where('rider_id', '=', user.userId)
-      .where('status', '=', 'scheduled')
+      .where((eb) =>
+        eb.or([
+          eb('status', '=', 'scheduled'),
+          // booked for later, the deposit not paid yet
+          eb.and([eb('status', '=', 'awaiting_payment'), eb('scheduled_for', 'is not', null)]),
+        ]),
+      )
       .orderBy('scheduled_for')
       .execute();
     return rows.map((r) => this.baseView(r));
@@ -1567,6 +1672,9 @@ export class RidesService {
           .select('id')
           .where('rider_id', '=', ride.rider_id)
           .where('status', 'in', [...UNFINISHED_RIDE_STATUSES])
+          .where((eb) =>
+            eb.or([eb('status', '!=', 'awaiting_payment'), eb('scheduled_for', 'is', null)]),
+          )
           .executeTakeFirst();
         if (busy) {
           await this.cancel(trx, ride, 'system', null, 'Boshqa safaringiz davom etmoqda', 0);
@@ -2066,6 +2174,9 @@ export class RidesService {
       .select('id')
       .where('rider_id', '=', user.userId)
       .where('status', 'in', [...UNFINISHED_RIDE_STATUSES])
+      .where((eb) =>
+        eb.or([eb('status', '!=', 'awaiting_payment'), eb('scheduled_for', 'is', null)]),
+      )
       .executeTakeFirst();
     return open ? this.riderView(user, open.id) : null;
   }

@@ -241,7 +241,10 @@ describe('rides', () => {
           tax: Math.round((quoted + 2000) / 100),
         },
       });
-      await driver.http.post(`/v1/driver/rides/${id}/complete`).expect(409);
+      // a repeat after a lost answer is not an error: the ride is simply shown again
+      const again = await driver.http.post(`/v1/driver/rides/${id}/complete`).expect(200);
+      expect(again.body.fare.total).toBe(quoted + 2000);
+      await driver.http.post(`/v1/driver/rides/${id}/arrive`).expect(200);
 
       const view = await r.get(`/v1/rides/${id}`).expect(200);
       expect(view.body.events.map((e: { type: string }) => e.type)).toEqual([

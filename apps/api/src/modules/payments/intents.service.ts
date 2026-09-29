@@ -328,10 +328,21 @@ export class IntentsService {
       }
       return;
     }
-    // the search starts now, not when the rider opened the payment page
+    // a ride for later with its deposit paid waits for its time; any other ride searches
+    // now, not from when the rider opened the payment page
+    const { scheduled_for: scheduledFor } = await trx
+      .selectFrom('rides')
+      .select('scheduled_for')
+      .where('id', '=', intent.rideId!)
+      .executeTakeFirstOrThrow();
     await trx
       .updateTable('rides')
-      .set({ status: 'searching', payment_status: 'paid', requested_at: now, updated_at: now })
+      .set({
+        status: scheduledFor ? 'scheduled' : 'searching',
+        payment_status: 'paid',
+        ...(scheduledFor ? {} : { requested_at: now }),
+        updated_at: now,
+      })
       .where('id', '=', intent.rideId!)
       .execute();
     await trx
@@ -348,9 +359,9 @@ export class IntentsService {
     await emit(trx, 'ride.status_changed', {
       rideId: intent.rideId,
       from: 'awaiting_payment',
-      to: 'searching',
+      to: scheduledFor ? 'scheduled' : 'searching',
     });
-    await emit(trx, 'ride.requested', { rideId: intent.rideId });
+    if (!scheduledFor) await emit(trx, 'ride.requested', { rideId: intent.rideId });
   }
 
   /**

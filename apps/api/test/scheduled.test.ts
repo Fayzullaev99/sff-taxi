@@ -13,7 +13,10 @@ import {
   quiesce,
   type Session,
   signIn,
+  signInAdmin,
 } from './helpers.js';
+import { payWithPayme } from './payments-helpers.js';
+import { DEFAULT_BOOKING } from '../src/modules/settings/settings.module.js';
 
 const inMinutes = (m: number) => new Date(Date.now() + m * 60_000);
 
@@ -21,11 +24,20 @@ describe('scheduled rides', () => {
   let app: INestApplication;
   let dispatch: DispatchService;
 
+  let admin: ReturnType<typeof api>;
+
   beforeAll(async () => {
     app = await createTestApp();
     dispatch = app.get(DispatchService);
+    admin = api(app, (await signInAdmin(app)).accessToken);
+    // these rides for later are booked without a deposit (its own tests are at the end)
+    await admin
+      .put('/v1/admin/settings/booking')
+      .send({ ...DEFAULT_BOOKING, deposit_percent: 0 })
+      .expect(200);
   });
   afterAll(async () => {
+    await admin.put('/v1/admin/settings/booking').send(DEFAULT_BOOKING).expect(200);
     await quiesce(app);
     app.get(BusinessCalendar).pin(new Date(process.env.TEST_CALENDAR_AT!));
     await app.close();
@@ -129,6 +141,69 @@ describe('scheduled rides', () => {
       status: 'cancelled',
       cancelledBy: 'system',
       cancelReason: 'Boshqa safaringiz davom etmoqda',
+    });
+  });
+
+  describe('with a deposit (part of the fare paid in advance)', () => {
+    beforeAll(async () => {
+      await admin.put('/v1/admin/settings/booking').send(DEFAULT_BOOKING).expect(200);
+    });
+
+    async function bookAndPay(rider: Session, at: Date) {
+      const http = api(app, rider.accessToken);
+      const quote = await http
+        .post('/v1/rides/quote')
+        .send({ pickup: GULISTON, dropoff: MID, scheduledFor: at.toISOString() })
+        .expect(200);
+      expect(quote.body.deposit).toMatchObject({ percent: 20, freeCancelMinutes: 60 });
+      const ordered = (await schedule(rider, at)).body;
+      expect(ordered).toMatchObject({ status: 'awaiting_payment', paymentMethod: 'cash' });
+      expect(ordered.fare.deposit).toBe(quote.body.deposit.amount);
+      expect(ordered.payment).toMatchObject({ amount: ordered.fare.deposit, status: 'pending' });
+      // not a ride now: the rider may still ride meanwhile
+      expect((await http.get('/v1/rides/current').expect(200)).body.ride).toBeNull();
+      await payWithPayme(app, ordered.payment.id, ordered.fare.deposit);
+      const paid = (await http.get(`/v1/rides/${ordered.id}`).expect(200)).body;
+      expect(paid).toMatchObject({ status: 'scheduled', paymentStatus: 'paid' });
+      return paid;
+    }
+
+    it('books a ride for later only once the deposit is paid; the driver collects the rest', async () => {
+      const rider = await signIn(app);
+      const ride = await bookAndPay(rider, inMinutes(40));
+      const driver = await createDriver(app);
+      await dispatch.tick(inMinutes(30));
+      const offer = (await driver.http.get('/v1/driver/offers').expect(200)).body[0];
+      expect(offer.ride.id).toBe(ride.id);
+      const taken = (await driver.http.post(`/v1/driver/offers/${offer.id}/accept`).expect(200))
+        .body;
+      expect(taken.collectCash).toBe(ride.fare.quoted - ride.fare.deposit);
+      await driver.http.post(`/v1/driver/rides/${ride.id}/arrive`).expect(200);
+      const pin = (await api(app, rider.accessToken).get(`/v1/rides/${ride.id}`)).body.startPin;
+      await driver.http.post(`/v1/driver/rides/${ride.id}/start`).send({ pin }).expect(200);
+      await driver.http.post(`/v1/driver/rides/${ride.id}/complete`).expect(200);
+      const ledger = (await admin.get(`/v1/admin/billing/drivers/${driver.id}/ledger`).expect(200))
+        .body;
+      const entries = (ledger.items ?? ledger.entries ?? ledger) as {
+        kind: string;
+        amount: number;
+      }[];
+      expect(entries.find((e) => e.kind === 'deposit')?.amount).toBe(ride.fare.deposit);
+    });
+
+    it('refunds the deposit when cancelled in time, keeps it when cancelled late', async () => {
+      const rider = await signIn(app);
+      const http = api(app, rider.accessToken);
+      const early = await bookAndPay(rider, inMinutes(180));
+      const cancelled = (await http.post(`/v1/rides/${early.id}/cancel`).send({}).expect(200)).body;
+      expect(cancelled).toMatchObject({ status: 'cancelled', paymentStatus: 'refund_pending' });
+      const late = await bookAndPay(rider, inMinutes(45));
+      const lost = (await http.post(`/v1/rides/${late.id}/cancel`).send({}).expect(200)).body;
+      expect(lost).toMatchObject({
+        status: 'cancelled',
+        paymentStatus: 'paid',
+        fare: { cancellationFee: late.fare.deposit, cancellationFeeStatus: null },
+      });
     });
   });
 });

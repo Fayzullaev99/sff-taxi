@@ -551,6 +551,8 @@ export class DispatchService {
         .where('id', '=', offerId)
         .forUpdate()
         .executeTakeFirstOrThrow();
+      // an accept repeated after a lost answer: the ride is already this driver's
+      if (offer.status === 'accepted' && ride.driver_id === user.userId) return ride.id;
       if (offer.status !== 'pending' || offer.expires_at <= new Date()) {
         throw new ConflictException('Taklif endi amal qilmaydi');
       }
