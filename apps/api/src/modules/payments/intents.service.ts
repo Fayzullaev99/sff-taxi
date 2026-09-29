@@ -50,8 +50,9 @@ export type Unpayable = 'missing' | 'paid' | 'closed';
 
 export interface PayableIntent {
   id: string;
-  purpose: 'ride' | 'topup';
+  purpose: 'ride' | 'topup' | 'booking';
   rideId: string | null;
+  bookingId: string | null;
   driverId: string | null;
   /** so'm */
   amount: number;
@@ -231,6 +232,7 @@ export class IntentsService {
       id: i.id,
       purpose: i.purpose,
       rideId: i.ride_id,
+      bookingId: i.booking_id,
       driverId: i.driver_id,
       amount: i.amount,
     };

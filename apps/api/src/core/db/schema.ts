@@ -15,8 +15,13 @@ export interface UsersTable {
   rider_rating_sum: Generated<number>;
   rider_rating_count: Generated<number>;
   no_show_count: Generated<number>;
+  /** Self-declared; the female-driver option is offered to women. */
+  gender: Gender | null;
+  gender_set_at: Timestamp | null;
   created_at: CreatedAt;
 }
+
+export type Gender = 'female' | 'male';
 
 export interface AdminsTable {
   user_id: string;
@@ -119,7 +124,9 @@ export type LedgerKind =
   /** A cash ride's owed cancellation fee, credited to the driver it is owed to. */
   | 'cancel_fee'
   /** The owed fees a driver collected in cash on top of a fare (debited: not theirs). */
-  | 'cancel_fee_collected';
+  | 'cancel_fee_collected'
+  /** A deposit the rider lost by cancelling late: the waiting driver's compensation. */
+  | 'deposit';
 export type RideClassColumn = 'economy' | 'comfort';
 
 /** Dates (Postgres `date`) are read as "YYYY-MM-DD" strings: see database.ts. */
@@ -154,6 +161,21 @@ export interface DriversTable {
   photo_upload_id: string | null;
   licence_status: Generated<'unverified' | 'valid' | 'invalid'>;
   licence_checked_at: Timestamp | null;
+  /** From the application; verified by an operator against the passport. */
+  gender: Gender | null;
+  gender_verified_at: Timestamp | null;
+  gender_verified_by: string | null;
+  /** A verified woman driver taking women riders only. */
+  women_riders_only: Generated<boolean>;
+  /** Takes riders who agreed to share while carrying someone. */
+  pool_enabled: Generated<boolean>;
+  /** People in the car without the app (the driver's own count). */
+  extra_passengers: Generated<number>;
+  /** Where the driver is heading: offers only on the way. */
+  destination: NullableJson<Place & { lat: number; lng: number }>;
+  destination_lat: number | null;
+  destination_lng: number | null;
+  destination_set_at: Timestamp | null;
   created_at: CreatedAt;
   updated_at: Timestamp;
 }
@@ -240,6 +262,9 @@ export const UNFINISHED_RIDE_STATUSES = ['awaiting_payment', ...OPEN_RIDE_STATUS
 export type RidePaymentStatus =
   'pending' | 'paid' | 'not_charged' | 'failed' | 'refund_pending' | 'refunded';
 export type RideActor = 'rider' | 'driver' | 'operator' | 'system';
+export const RIDE_SERVICES = ['taxi', 'cargo', 'delivery'] as const;
+export type RideService = (typeof RIDE_SERVICES)[number];
+export type FareMode = 'car' | 'seat';
 export type OfferStatus = 'pending' | 'accepted' | 'declined' | 'expired' | 'withdrawn';
 export type DispatchStage = 'direct' | 'broadcast' | 'operator';
 
@@ -278,6 +303,8 @@ export interface QuotesTable {
   expires_at: Timestamp;
   /** A quote for later: priced at this time (night add-on). */
   scheduled_for: Timestamp | null;
+  /** The fixed route between the ends, when there is one (RouteQuote). */
+  route: NullableJson<Record<string, unknown>>;
   created_at: CreatedAt;
 }
 
@@ -333,6 +360,26 @@ export interface RidesTable {
   fee_waive_note: string | null;
   /** Owed fees of earlier rides this ride collects in cash on top of its fare. */
   owed_fee: Generated<number>;
+  service: Generated<RideService>;
+  /** People riding (1-3: one in front, at most two in the back). */
+  passengers: Generated<number>;
+  /** The rider agreed to share the car with riders going the same way. */
+  shareable: Generated<boolean>;
+  /** A woman driver only. */
+  women_only: Generated<boolean>;
+  rider_gender: Gender | null;
+  /** car: the whole car; seat: a fixed per-person price in a shared car. */
+  fare_mode: Generated<FareMode>;
+  route_fare_id: string | null;
+  pool_id: string | null;
+  /** Road metres shared with other app riders (planned). */
+  pool_shared_m: Generated<number>;
+  /** The shared-ride discount off the quoted fare. */
+  pool_discount: Generated<number>;
+  /** Paid by card in advance (a ride booked for later); the rest is cash. */
+  deposit_amount: Generated<number>;
+  /** The code the rider tells the driver before the trip starts. */
+  start_pin: string | null;
   requested_at: Generated<Date>;
   assigned_at: Timestamp | null;
   arrived_at: Timestamp | null;
@@ -365,6 +412,33 @@ export interface RideOffersTable {
   expires_at: Timestamp;
   responded_at: Timestamp | null;
   decline_reason: string | null;
+  /** A car already carrying riders: the stops the driver would follow (src/lib/pool.ts). */
+  pool_plan: NullableJson<unknown[]>;
+  /** How much longer the car's plan gets with this ride. */
+  detour_s: number | null;
+}
+
+export interface RidePoolsTable {
+  id: string;
+  driver_id: string;
+  status: Generated<'open' | 'closed'>;
+  /** Stops ahead, in order (src/lib/pool.ts PlanStop). */
+  plan: Json<unknown[]>;
+  created_at: CreatedAt;
+  updated_at: Timestamp;
+  closed_at: Timestamp | null;
+}
+
+export interface RouteFaresTable {
+  id: Generated<string>;
+  from_point_id: string;
+  to_point_id: string;
+  class: Generated<RideClassColumn>;
+  seat_price: number | null;
+  car_price: number | null;
+  is_active: Generated<boolean>;
+  updated_by: string | null;
+  updated_at: Generated<Date>;
 }
 
 export interface RatingsTable {
@@ -463,8 +537,10 @@ export type PaymentIntentStatus =
 
 export interface PaymentIntentsTable {
   id: string;
-  purpose: 'ride' | 'topup';
+  purpose: 'ride' | 'topup' | 'booking';
   ride_id: string | null;
+  /** A trip-board booking's deposit. */
+  booking_id: string | null;
   driver_id: string | null;
   user_id: string;
   amount: number;
@@ -516,6 +592,8 @@ export interface IntercityPointsTable {
   meeting_point: string;
   is_active: Generated<boolean>;
   sort: Generated<number>;
+  /** The zone around the point for fixed route fares (beyond the town boundary). */
+  zone_radius_m: Generated<number>;
 }
 
 export interface IntercityFaresTable {
@@ -528,7 +606,14 @@ export interface IntercityFaresTable {
 
 export const TRIP_STATUSES = ['scheduled', 'boarding', 'departed', 'arrived', 'cancelled'] as const;
 export type TripStatus = (typeof TRIP_STATUSES)[number];
-export const BOOKING_STATUSES = ['booked', 'boarded', 'completed', 'cancelled', 'no_show'] as const;
+export const BOOKING_STATUSES = [
+  'awaiting_payment',
+  'booked',
+  'boarded',
+  'completed',
+  'cancelled',
+  'no_show',
+] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 
 export interface IntercityTripsTable {
@@ -576,12 +661,14 @@ export interface IntercityBookingsTable {
   price: number;
   pickup_note: string | null;
   status: Generated<BookingStatus>;
-  cancelled_by: 'rider' | 'driver' | 'operator' | null;
+  cancelled_by: 'rider' | 'driver' | 'operator' | 'system' | null;
   cancel_reason: string | null;
   cancellation_fee: Generated<number>;
   commission: Generated<number>;
   commission_note: string | null;
   tax: Generated<number>;
+  /** Paid by card to book; the rest is cash to the driver. */
+  deposit_amount: Generated<number>;
   created_at: CreatedAt;
   boarded_at: Timestamp | null;
   completed_at: Timestamp | null;
@@ -710,6 +797,8 @@ export interface DB {
   rides: RidesTable;
   ride_events: RideEventsTable;
   ride_offers: RideOffersTable;
+  ride_pools: RidePoolsTable;
+  route_fares: RouteFaresTable;
   ratings: RatingsTable;
   sos_events: SosEventsTable;
   tax_withholdings: TaxWithholdingsTable;

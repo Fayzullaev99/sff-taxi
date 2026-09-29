@@ -21,7 +21,7 @@ export function enabledProviders(env: Env): PaymentProvider[] {
   return out;
 }
 
-export type IntentPurpose = 'ride' | 'topup';
+export type IntentPurpose = 'ride' | 'topup' | 'booking';
 
 /**
  * Where the provider's page sends the payer back: the purpose's own URL (a ride payment to
@@ -29,7 +29,7 @@ export type IntentPurpose = 'ride' | 'topup';
  */
 export function returnUrl(env: Env, purpose: IntentPurpose, intentId: string): string | null {
   const template =
-    (purpose === 'ride' ? env.PAYMENT_RETURN_URL_RIDE : env.PAYMENT_RETURN_URL_TOPUP) ??
+    (purpose === 'topup' ? env.PAYMENT_RETURN_URL_TOPUP : env.PAYMENT_RETURN_URL_RIDE) ??
     env.PAYMENT_RETURN_URL;
   return template?.replaceAll('{intentId}', intentId) ?? null;
 }
