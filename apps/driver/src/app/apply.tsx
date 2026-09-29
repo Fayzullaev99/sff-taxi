@@ -15,6 +15,7 @@ import {
   formFromProfile,
   LICENCE_CATEGORIES,
   POPULAR_CARS,
+  RULES,
   CARGO_BODIES,
   CARGO_BODY_LABELS,
   CARGO_CARS,
@@ -273,7 +274,12 @@ export default function Apply() {
               { value: 'cargo' as const, label: 'Yuk tashish' },
             ]}
             selected={[form.service]}
-            onToggle={(v) => set('service', v)}
+            onToggle={(v) => {
+              set('service', v);
+              // a cargo cab has 1-2 seats besides the driver, a taxi 4
+              if (v === 'cargo' && Number(form.seats) > RULES.maxCargoCabSeats) set('seats', '1');
+              if (v === 'taxi' && form.service === 'cargo') set('seats', '4');
+            }}
           />
           {cargo ? (
             <Banner
@@ -294,6 +300,7 @@ export default function Apply() {
                 set('body', c.body);
                 set('payloadKg', String(c.payloadKg));
                 set('grossKg', String(c.grossKg));
+                set('seats', String(c.seats));
               }}
             />
           ) : (

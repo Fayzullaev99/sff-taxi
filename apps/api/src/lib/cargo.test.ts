@@ -169,6 +169,17 @@ describe('cargo cars (not Resolution 200 taxis)', () => {
     expect(checkVehicle(heavy, today, ['B', 'C'])).toEqual([]);
   });
 
+  it('a cargo car has 1-2 seats in the cab besides the driver', () => {
+    const gazel = { ...damas, model: 'Gazel', body: 'truck', payloadKg: 1500, grossKg: 3500 };
+    expect(checkVehicle({ ...gazel, seats: 2 }, today)).toEqual([]);
+    const four = checkVehicle({ ...damas, seats: 4 }, today);
+    expect(four.map((p) => p.path)).toEqual(['vehicle.seats']);
+    expect(four[0]!.message).toMatch(/1 yoki 2/);
+    expect(checkVehicle({ ...damas, seats: 0 }, today).map((p) => p.path)).toEqual([
+      'vehicle.seats',
+    ]);
+  });
+
   it('a taxi with a cargo body is refused', () => {
     const pickup = {
       ...damas,

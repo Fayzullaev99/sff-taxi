@@ -14,6 +14,11 @@ export const DRIVER_RULES = {
   maxComfortAgeYears: 5,
   /** at most 4 passenger seats besides the driver */
   maxSeats: 4,
+  /**
+   * cargo cars: the cab's seats besides the driver (Damas/Labo 1, Gazel/Porter/Isuzu 2); the
+   * customer may ride along, one order at a time (riderRides)
+   */
+  maxCargoCabSeats: 2,
   /** cargo cars (not passenger taxis): at most 25 years old */
   maxCargoVehicleAgeYears: 25,
   /** above this total (gross) mass a category C licence is needed; up to it B is enough */
@@ -200,7 +205,7 @@ export function checkVehicle(
 /**
  * A cargo car: a van, pickup or truck body with a payload, at most 25 years old; a car of
  * more than 3.5 t total mass needs a category C licence (B is enough up to 3.5 t). Seats are
- * the cab's besides the driver (the customer may ride along; the table allows 1-4).
+ * the cab's besides the driver: 1-2 (the customer may ride along).
  */
 export function checkCargoVehicle(
   v: VehicleFacts,
@@ -224,10 +229,10 @@ export function checkCargoVehicle(
       message: `Yuk mashinasi ${DRIVER_RULES.maxCargoVehicleAgeYears} yildan eski bo‘lmasligi kerak`,
     });
   }
-  if (v.seats < 1 || v.seats > DRIVER_RULES.maxSeats) {
+  if (v.seats < 1 || v.seats > DRIVER_RULES.maxCargoCabSeats) {
     problems.push({
       path: 'vehicle.seats',
-      message: `Kabinada ${DRIVER_RULES.maxSeats} tadan ortiq o‘rindiq bo‘lmasligi kerak`,
+      message: `Kabinada haydovchidan tashqari 1 yoki ${DRIVER_RULES.maxCargoCabSeats} o‘rin bo‘ladi`,
     });
   }
   if (

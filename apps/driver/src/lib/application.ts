@@ -13,6 +13,8 @@ export const RULES = {
   maxVehicleAgeYears: 15,
   maxComfortAgeYears: 5,
   maxSeats: 4,
+  /** A cargo car's cab seats besides the driver: Damas/Labo 1, Gazel/Porter/Isuzu 2. */
+  maxCargoCabSeats: 2,
   /** Cargo cars (not passenger taxis): at most 25 years old. */
   maxCargoVehicleAgeYears: 25,
   /** Above this total (gross) mass a category C licence is needed. */
@@ -34,11 +36,12 @@ export const CARGO_BODY_LABELS: Record<CargoBody, string> = {
 
 /** Common cargo cars with typical figures (the driver corrects them from the tech passport). */
 export const CARGO_CARS = [
-  { make: 'Chevrolet', model: 'Damas', body: 'van', payloadKg: 550, grossKg: 1400 },
-  { make: 'Chevrolet', model: 'Labo', body: 'pickup', payloadKg: 550, grossKg: 1400 },
-  { make: 'GAZ', model: 'Gazel', body: 'truck', payloadKg: 1500, grossKg: 3500 },
-  { make: 'Hyundai', model: 'Porter', body: 'truck', payloadKg: 1000, grossKg: 2900 },
-  { make: 'Isuzu', model: 'NLR', body: 'truck', payloadKg: 1500, grossKg: 3500 },
+  // seats: the cab's besides the driver (a Damas has one next to the driver)
+  { make: 'Chevrolet', model: 'Damas', body: 'van', payloadKg: 550, grossKg: 1400, seats: 1 },
+  { make: 'Chevrolet', model: 'Labo', body: 'pickup', payloadKg: 550, grossKg: 1400, seats: 1 },
+  { make: 'GAZ', model: 'Gazel', body: 'truck', payloadKg: 1500, grossKg: 3500, seats: 2 },
+  { make: 'Hyundai', model: 'Porter', body: 'truck', payloadKg: 1000, grossKg: 2900, seats: 2 },
+  { make: 'Isuzu', model: 'NLR', body: 'truck', payloadKg: 1500, grossKg: 3500, seats: 2 },
 ] as const;
 
 /** Which cargo orders the car gets, by its payload. */
@@ -250,10 +253,11 @@ export function validateApplication(f: ApplicationForm, today: string): FormErro
       : `Avtomobil ${maxAge} yildan eski bo‘lmasligi kerak`;
   }
   const seats = Number(f.seats);
-  if (!Number.isInteger(seats) || seats < 1 || seats > RULES.maxSeats) {
+  const maxSeats = cargo ? RULES.maxCargoCabSeats : RULES.maxSeats;
+  if (!Number.isInteger(seats) || seats < 1 || seats > maxSeats) {
     e.seats = cargo
-      ? `Kabinadagi o‘rindiqlar 1 dan ${RULES.maxSeats} tagacha`
-      : `Yo‘lovchi o‘rindiqlari 1 dan ${RULES.maxSeats} tagacha`;
+      ? `Kabinada haydovchidan tashqari 1 yoki ${maxSeats} o‘rin`
+      : `Yo‘lovchi o‘rindiqlari 1 dan ${maxSeats} tagacha`;
   }
   if (cargo) {
     Object.assign(e, cargoProblems(f));

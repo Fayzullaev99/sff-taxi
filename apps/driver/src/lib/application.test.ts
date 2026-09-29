@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   type ApplicationForm,
+  CARGO_CARS,
+  RULES,
   EMPTY_FORM,
   firstStepWithError,
   formFromProfile,
@@ -191,6 +193,14 @@ describe('cargo car application', () => {
       grossKg: 1400,
       cngInTrunk: false,
     });
+  });
+
+  it('has 1-2 cab seats besides the driver, and the quick picks say so', () => {
+    expect(validateApplication({ ...DAMAS, seats: '4' }, TODAY).seats).toMatch(/1 yoki 2/);
+    expect(validateApplication({ ...DAMAS, seats: '2' }, TODAY).seats).toBeUndefined();
+    expect(CARGO_CARS.find((c) => c.model === 'Damas')!.seats).toBe(1);
+    expect(CARGO_CARS.find((c) => c.model === 'Gazel')!.seats).toBe(2);
+    expect(CARGO_CARS.every((c) => c.seats >= 1 && c.seats <= RULES.maxCargoCabSeats)).toBe(true);
   });
 
   it('still refuses a Damas as a taxi', () => {
