@@ -10,6 +10,8 @@ export class DispatchJob {
   private readonly logger = new Logger(DispatchJob.name);
   private running = false;
   private loop: Promise<void> | null = null;
+  /** Called with every tick's duration in seconds (the worker's Prometheus histogram). */
+  onTick: ((seconds: number) => void) | null = null;
 
   constructor(
     private readonly dispatch: DispatchService,
@@ -30,8 +32,10 @@ export class DispatchJob {
 
   private async run(): Promise<void> {
     while (this.running) {
+      const started = performance.now();
       try {
         await this.dispatch.tick(new Date());
+        this.onTick?.((performance.now() - started) / 1000);
       } catch (error) {
         this.logger.error(`Dispatch tick failed: ${(error as Error).message}`);
         reportError(error);

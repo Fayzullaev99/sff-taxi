@@ -102,9 +102,8 @@ export class PoolService {
     private readonly settings: SettingsService,
   ) {}
 
-  /** The driver's car now; with `lock`, the driver's active rides and pool are locked. */
-  async car(db: Db, driverId: string, lock = false): Promise<Car | null> {
-    const d = await db
+  private carDrivers(db: Db, driverIds: string[]) {
+    return db
       .selectFrom('drivers as d')
       .leftJoin('vehicles as v', 'v.driver_id', 'd.user_id')
       .select([
@@ -120,8 +119,13 @@ export class PoolService {
         'd.women_riders_only',
         'v.seats',
       ])
-      .where('d.user_id', '=', driverId)
-      .executeTakeFirst();
+      .where('d.user_id', 'in', driverIds)
+      .execute();
+  }
+
+  /** The driver's car now; with `lock`, the driver's active rides and pool are locked. */
+  async car(db: Db, driverId: string, lock = false): Promise<Car | null> {
+    const [d] = await this.carDrivers(db, [driverId]);
     if (!d) return null;
     let q = db
       .selectFrom('rides')
@@ -138,6 +142,67 @@ export class PoolService {
       if (lock) pq = pq.forUpdate();
       plan = ((await pq.executeTakeFirst())?.plan ?? []) as PlanStop[];
     }
+    return this.assemble(d, rides, plan);
+  }
+
+  /**
+   * Several drivers' cars at once (nothing locked): three queries instead of three per car,
+   * for the cars dispatch and the quote's preview check on their way.
+   */
+  async cars(db: Db, driverIds: string[]): Promise<Map<string, Car>> {
+    const cars = new Map<string, Car>();
+    if (!driverIds.length) return cars;
+    const drivers = await this.carDrivers(db, driverIds);
+    if (!drivers.length) return cars;
+    const rides = await db
+      .selectFrom('rides')
+      .selectAll()
+      .where(
+        'driver_id',
+        'in',
+        drivers.map((d) => d.user_id),
+      )
+      .where('status', 'in', [...ACTIVE_RIDE_STATUSES])
+      .orderBy('assigned_at')
+      .execute();
+    const byDriver = new Map<string, Ride[]>();
+    for (const r of rides) {
+      const list = byDriver.get(r.driver_id!) ?? [];
+      list.push(r);
+      byDriver.set(r.driver_id!, list);
+    }
+    // each car's pool is the first of its rides (by assignment) that has one
+    const poolOf = new Map<string, string>();
+    for (const [driverId, list] of byDriver) {
+      const poolId = list.find((r) => r.pool_id)?.pool_id;
+      if (poolId) poolOf.set(driverId, poolId);
+    }
+    const plans = new Map<string, PlanStop[]>();
+    if (poolOf.size) {
+      const rows = await db
+        .selectFrom('ride_pools')
+        .select(['id', 'plan'])
+        .where('id', 'in', [...new Set(poolOf.values())])
+        .execute();
+      for (const p of rows) plans.set(p.id, (p.plan ?? []) as PlanStop[]);
+    }
+    for (const d of drivers) {
+      const poolId = poolOf.get(d.user_id);
+      cars.set(
+        d.user_id,
+        this.assemble(d, byDriver.get(d.user_id) ?? [], poolId ? (plans.get(poolId) ?? []) : []),
+      );
+    }
+    return cars;
+  }
+
+  private assemble(
+    d: Awaited<ReturnType<PoolService['carDrivers']>>[number],
+    rides: Ride[],
+    plan: PlanStop[],
+  ): Car {
+    const driverId = d.user_id;
+    const poolId = rides.find((r) => r.pool_id)?.pool_id ?? null;
     const carRides = rides.map(toCarRide);
     return {
       driverId,
@@ -419,9 +484,13 @@ export class PoolService {
       fare_mode: 'car',
       tariff: trip.tariff,
     } as unknown as Ride;
+    const cars = await this.cars(
+      this.db.kysely,
+      rows.map((r) => r.user_id),
+    );
     const found = await Promise.all(
       rows.map(async ({ user_id }) => {
-        const car = await this.car(this.db.kysely, user_id);
+        const car = cars.get(user_id) ?? null;
         const fit = car ? await this.fit(car, probe, rules).catch(() => null) : null;
         if (!car || !fit) return null;
         const booked = car.extra + car.rides.reduce((s, r) => s + r.passengers, 0);
