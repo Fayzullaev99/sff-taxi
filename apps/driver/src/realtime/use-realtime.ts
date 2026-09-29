@@ -1,4 +1,4 @@
-import { type QueryClient, useQueryClient } from '@tanstack/react-query';
+import { hashKey, type QueryClient, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import NetInfo from '@react-native-community/netinfo';
@@ -6,7 +6,9 @@ import { Alert, AppState } from 'react-native';
 import type { DriverRide, Topup } from '../api/types';
 import { keys, setStreamOpen } from '../data/queries';
 import type { RealtimeEvent } from '../lib/sse';
-import { rideTakenAway } from '../lib/pool';
+import { driver } from '../api/driver';
+import { isApiError } from '../lib/api-client';
+import { type CarRide, carRides, endingOf, goneRides, rideEndedAlert } from '../lib/ride-ended';
 import { withPaidEvent } from '../lib/topup';
 import { announceOffer } from '../notifications/push';
 import { haptics } from '../ui/haptics';
@@ -21,7 +23,7 @@ type Router = ReturnType<typeof useRouter>;
 const endedHere = new Set<string>();
 
 export function markRideEndedHere(rideId: string): void {
-  endedHere.add(rideId);
+  endedHere.add(rideId.toLowerCase());
 }
 
 // Offers closed by the server (taken by another driver, withdrawn, expired), so an open
@@ -63,43 +65,73 @@ export function onTopupPaid(
   void qc.invalidateQueries({ queryKey: keys.me });
 }
 
-async function onRideUpdated(
-  qc: QueryClient,
-  router: Router,
-  event: { rideId: string; status: string },
-) {
-  const mine = qc.getQueryData<DriverRide | null>(keys.current);
+/** The last status the stream reported per ride (a fallback when the ride cannot be read). */
+const lastStatus = new Map<string, string>();
+/** Rides whose end the driver was told about already. */
+const announced = new Set<string>();
+
+function onRideUpdated(qc: QueryClient, event: { rideId: string; status: string }) {
+  lastStatus.set(event.rideId.toLowerCase(), event.status);
+  if (lastStatus.size > 50) lastStatus.delete(lastStatus.keys().next().value!);
   void qc.invalidateQueries({ queryKey: keys.ride(event.rideId) });
   void qc.invalidateQueries({ queryKey: keys.me });
   if (event.status === 'completed' || event.status === 'cancelled') {
     void qc.invalidateQueries({ queryKey: keys.rides });
     void qc.invalidateQueries({ queryKey: keys.balance });
   }
-  await qc.refetchQueries({ queryKey: keys.current });
-  if (!mine || mine.id !== event.rideId) return;
-  if (endedHere.has(mine.id)) return;
+  // the current ride refetched: a ride that left the car is announced by watchCarRides
+  void qc.refetchQueries({ queryKey: keys.current });
+}
 
-  if (event.status === 'cancelled') {
-    haptics.warning();
-    Alert.alert(
-      `Buyurtma #${mine.number} bekor qilindi`,
-      mine.status === 'driver_arrived'
-        ? 'Yo‘lovchi bekor qildi. Bepul kutish tugagan bo‘lsa, bekor qilish haqi sizga yoziladi (naqd safarda — yo‘lovchi keyingi safarida to‘laganda).'
-        : 'Yo‘lovchi yoki operator buyurtmani bekor qildi. Liniyada qolasiz.',
-      [{ text: 'Tushunarli', onPress: () => router.navigate('/') }],
-    );
-    return;
+/**
+ * A ride leaving the car without the driver ending it: "bekor qilindi" (the rider or the
+ * operator cancelled) or "sizdan olindi" (given to another driver). Told once per ride,
+ * whether the stream, a push or the poll brought the new current ride (the stream alone
+ * missed it when a poll had already cleared the ride: the screen said "Faol safar yo‘q").
+ */
+async function announceGone(qc: QueryClient, router: Router, ride: CarRide) {
+  if (endedHere.has(ride.id) || announced.has(ride.id)) return;
+  let now: { status: string } | 'missing';
+  try {
+    now = await driver.ride(ride.id);
+    qc.setQueryData(keys.ride(ride.id), now);
+  } catch (e) {
+    if (isApiError(e, 404)) now = 'missing';
+    else if (lastStatus.get(ride.id) === 'cancelled') now = { status: 'cancelled' };
+    else return;
   }
-  const still = qc.getQueryData<DriverRide | null>(keys.current);
-  // (a shared car: the current ride follows the next stop, the rider is still in the car)
-  if (rideTakenAway(mine.id, event.status, still)) {
-    haptics.warning();
-    Alert.alert(
-      `Buyurtma #${mine.number} sizdan olindi`,
-      'Operator buyurtmani boshqa haydovchiga berdi. Unga bormang.',
-      [{ text: 'Tushunarli', onPress: () => router.navigate('/') }],
-    );
+  const ending = endingOf(now);
+  if (!ending || endedHere.has(ride.id) || announced.has(ride.id)) return;
+  announced.add(ride.id);
+  if (ending === 'cancelled') {
+    void qc.invalidateQueries({ queryKey: keys.rides });
+    void qc.invalidateQueries({ queryKey: keys.balance });
   }
+  const { title, text } = rideEndedAlert(ride, ending);
+  haptics.warning();
+  // still in the car (a shared ride): the driver carries on with the others
+  const left = carRides(qc.getQueryData<DriverRide | null>(keys.current));
+  Alert.alert(title, text, [
+    {
+      text: 'Tushunarli',
+      onPress: () => (left.length ? undefined : router.navigate('/')),
+    },
+  ]);
+}
+
+const currentHash = hashKey(keys.current);
+
+/** Watches the current ride as it changes and announces rides that left the car. */
+function watchCarRides(qc: QueryClient, router: () => Router): () => void {
+  let known = carRides(qc.getQueryData<DriverRide | null>(keys.current));
+  return qc.getQueryCache().subscribe((e) => {
+    if (e.type !== 'updated' || e.action.type !== 'success') return;
+    if (e.query.queryHash !== currentHash) return;
+    const next = carRides(e.query.state.data as DriverRide | null | undefined);
+    const gone = goneRides(known, next);
+    known = next;
+    for (const ride of gone) void announceGone(qc, router(), ride).catch(() => undefined);
+  });
 }
 
 // While on shift with the background location service running, the stream stays open in
@@ -152,7 +184,7 @@ export function useRealtime(enabled: boolean): void {
           void qc.invalidateQueries({ queryKey: keys.offers });
           break;
         case 'ride.updated':
-          void onRideUpdated(qc, routerRef.current, event).catch(() => undefined);
+          onRideUpdated(qc, event);
           break;
         case 'driver.updated':
           void qc.invalidateQueries({ queryKey: keys.me });
@@ -182,6 +214,7 @@ export function useRealtime(enabled: boolean): void {
       }
     };
 
+    const stopWatching = watchCarRides(qc, () => routerRef.current);
     const connection = new RealtimeConnection(handle, (status) => setStreamOpen(status === 'open'));
     const inForeground = () => AppState.currentState !== 'background';
     if (inForeground() || keepInBackground) connection.start();
@@ -205,6 +238,7 @@ export function useRealtime(enabled: boolean): void {
       wasConnected = connected;
     });
     return () => {
+      stopWatching();
       sub.remove();
       keepSub();
       netSub();
