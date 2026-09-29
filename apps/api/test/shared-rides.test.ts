@@ -302,7 +302,10 @@ describe('shared rides, women drivers, fixed routes (wave 4)', () => {
       const pin = (await riderView(rider, ride.id)).startPin as string;
       const wrong = (n: number) => String((Number(pin) + n) % 10000).padStart(4, '0');
       for (let i = 1; i <= 5; i++) {
-        await d.http.post(`/v1/driver/rides/${ride.id}/start`).send({ pin: wrong(i) }).expect(400);
+        await d.http
+          .post(`/v1/driver/rides/${ride.id}/start`)
+          .send({ pin: wrong(i) })
+          .expect(400);
       }
       const blocked = await d.http
         .post(`/v1/driver/rides/${ride.id}/start`)
