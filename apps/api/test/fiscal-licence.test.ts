@@ -13,7 +13,11 @@ import type { FiscalProvider, IssuedReceipt } from '../src/modules/fiscal/fiscal
 import { FiscalHandler } from '../src/modules/fiscal/fiscal.module.js';
 import { FiscalService } from '../src/modules/fiscal/fiscal.service.js';
 import type { ReceiptPayload } from '../src/modules/fiscal/receipt-payload.js';
-import { DEFAULT_FISCAL, SettingsService } from '../src/modules/settings/settings.module.js';
+import {
+  DEFAULT_BOOKING,
+  DEFAULT_FISCAL,
+  SettingsService,
+} from '../src/modules/settings/settings.module.js';
 import {
   ALL_DOCUMENTS,
   api,
@@ -53,9 +57,15 @@ describe('fiscal receipts and licence checks', () => {
     app = await createTestApp();
     admin = api(app, (await signInAdmin(app)).accessToken);
     db = app.get(Database).kysely;
+    // seats booked without a deposit here (test/intercity-deposits.test.ts has them)
+    await admin
+      .put('/v1/admin/settings/booking')
+      .send({ ...DEFAULT_BOOKING, deposit_percent: 0 })
+      .expect(200);
   });
   afterAll(async () => {
     await admin.put('/v1/admin/settings/fiscal').send(DEFAULT_FISCAL).expect(200);
+    await admin.put('/v1/admin/settings/booking').send(DEFAULT_BOOKING).expect(200);
     await app.close();
   });
 

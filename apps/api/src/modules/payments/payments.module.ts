@@ -33,7 +33,7 @@ const TopupBody = z.object({
 const RefundBody = z.object({ reference: z.string().trim().min(3).max(200) });
 const DayString = z.iso.date('Sana YYYY-MM-DD ko‘rinishida');
 const IntentsQuery = z.object({
-  purpose: z.enum(['ride', 'topup']).optional(),
+  purpose: z.enum(['ride', 'topup', 'booking']).optional(),
   /** pending, paid, expired, cancelled, refund_pending, refunded, or failed (= expired or cancelled). */
   status: z
     .enum(['pending', 'paid', 'expired', 'cancelled', 'refund_pending', 'refunded', 'failed'])

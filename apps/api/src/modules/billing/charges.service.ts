@@ -197,13 +197,14 @@ export class RideChargesService {
       .where('completed_at', '>=', from)
       .where('completed_at', '<', to)
       .executeTakeFirstOrThrow();
-    // intercity seats are paid in cash to the driver
+    // intercity seats are paid in cash to the driver, but for a deposit paid by card
     const seats = await this.db.kysely
       .selectFrom('intercity_bookings as b')
       .innerJoin('intercity_trips as t', 't.id', 'b.trip_id')
       .select([
         sql<string>`count(*)`.as('bookings'),
         sql<string>`coalesce(sum(b.price), 0)`.as('fares'),
+        sql<string>`coalesce(sum(b.price - b.deposit_amount), 0)`.as('cash'),
         sql<string>`coalesce(sum(b.commission), 0)`.as('commission'),
         sql<string>`coalesce(sum(b.tax), 0)`.as('tax'),
       ])
@@ -221,7 +222,7 @@ export class RideChargesService {
       rides: Number(row.rides),
       intercityBookings: Number(seats.bookings),
       fares,
-      cash: Number(row.cash) + Number(seats.fares),
+      cash: Number(row.cash) + Number(seats.cash),
       commission,
       tax,
       net: fares - commission - tax,

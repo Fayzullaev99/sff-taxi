@@ -9,7 +9,8 @@ import { Notifier } from './notifier.js';
 /**
  * Who hears about the trip board when their app may be closed:
  * - drivers: a seat was booked or a booking cancelled;
- * - riders: boarding started (where to come), the trip was cancelled; riders booked by an
+ * - riders: their deposit was paid (the seat is theirs) or not in time (the booking is
+ *   dropped), boarding started (where to come), the trip was cancelled; riders booked by an
  *   operator get the booking, boarding and cancellation by SMS.
  */
 @Injectable()
@@ -61,6 +62,18 @@ export class IntercityNotificationsHandler implements OutboxHandler {
         text: (l) => intercityPush.newBooking(l, text, b.seats, b.price),
         data: { tripId: trip.id, bookingId: b.id },
       });
+      if (by === 'payment') {
+        // the deposit was paid: the seat is the rider's
+        await this.notifier.push({
+          key,
+          kind: 'intercity_deposit_paid',
+          rideId: null,
+          userId: b.rider_id,
+          app: 'rider',
+          text: (l) => intercityPush.depositPaid(l, text, b.price - b.deposit_amount),
+          data: { tripId: trip.id, bookingId: b.id },
+        });
+      }
       if (b.channel === 'phone' && this.env.NOTIFY_SMS_PHONE_ORDERS) {
         await this.notifier.sms({
           key,
@@ -71,6 +84,19 @@ export class IntercityNotificationsHandler implements OutboxHandler {
           text: intercitySms.booked(b.number, text, b.seats, b.price, trip.driverPhone, trip.car),
         });
       }
+      return;
+    }
+    // the deposit was not paid in time: the seats held for it are free again
+    if (status === 'cancelled' && by === 'system') {
+      await this.notifier.push({
+        key,
+        kind: 'intercity_unpaid_cancelled',
+        rideId: null,
+        userId: b.rider_id,
+        app: 'rider',
+        text: (l) => intercityPush.unpaidCancelled(l, text),
+        data: { tripId: trip.id, bookingId: b.id },
+      });
       return;
     }
     // a rider or an operator gave seats back: the driver's list changed

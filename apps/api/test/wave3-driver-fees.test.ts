@@ -249,6 +249,9 @@ describe('app gaps, wave 3: driver app, pushes and owed cancellation fees', () =
         priceBandPercent: 15,
         freeCancelMinutes: 60,
         lateCancelFeePercent: 30,
+        maxSeats: 3,
+        maxRearSeats: 2,
+        alongRouteMaxKm: 15,
       });
       const me = await driver.http.get('/v1/driver/me').expect(200);
       // legacy URL documents: the type by the extension
