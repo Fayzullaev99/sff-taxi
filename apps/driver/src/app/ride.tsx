@@ -7,7 +7,7 @@ import type { DriverRide } from '../api/types';
 import { keys, useCurrentRide, useWaitingRules } from '../data/queries';
 import { errorMessage } from '../lib/api-client';
 import { PAYMENT_METHODS, som } from '../lib/format';
-import { isPinError, offerBadges, poolRideIds, ridePool } from '../lib/pool';
+import { offerBadges, pinErrorText, poolRideIds, ridePool } from '../lib/pool';
 import { optimisticStatus, runRideStep } from '../lib/ride-actions';
 import { canCancel, cashBreakdown, owedFeeNote, type RideAction } from '../lib/ride-flow';
 import { customerWord, depositLine, serviceOf, serviceStep } from '../lib/service';
@@ -162,8 +162,9 @@ function ActiveRide(props: {
     onError: (error, v) => {
       tappedAt.current = null;
       haptics.error();
-      if (v.action === 'start' && isPinError(error)) {
-        setPinError({ text: 'Kod noto‘g‘ri. Yo‘lovchidan qayta so‘rang.', n: Date.now() });
+      const pinText = v.action === 'start' ? pinErrorText(error) : null;
+      if (pinText) {
+        setPinError({ text: pinText, n: Date.now() });
         return;
       }
       setPinOpen(false);

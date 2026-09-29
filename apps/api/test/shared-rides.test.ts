@@ -292,6 +292,28 @@ describe('shared rides, women drivers, fixed routes (wave 4)', () => {
       await d.http.post(`/v1/driver/rides/${ride.id}/complete`).expect(200);
     });
 
+    it('pauses the start after a few wrong codes: 4 digits cannot be tried through', async () => {
+      const rider = await signIn(app);
+      const d = await createDriver(app);
+      const { ride } = await order(rider, GULISTON, at(0, 3000), { shareable: true });
+      await dispatch.tick();
+      await d.http.post(`/v1/driver/offers/${(await offerOf(d))!.id}/accept`).expect(200);
+      await d.http.post(`/v1/driver/rides/${ride.id}/arrive`).expect(200);
+      const pin = (await riderView(rider, ride.id)).startPin as string;
+      const wrong = (n: number) => String((Number(pin) + n) % 10000).padStart(4, '0');
+      for (let i = 1; i <= 5; i++) {
+        await d.http.post(`/v1/driver/rides/${ride.id}/start`).send({ pin: wrong(i) }).expect(400);
+      }
+      const blocked = await d.http
+        .post(`/v1/driver/rides/${ride.id}/start`)
+        .send({ pin: wrong(6) })
+        .expect(429);
+      expect(blocked.body.message).toMatch(/15 daqiqadan keyin/);
+      // even the right code waits: guessing must not go on
+      await d.http.post(`/v1/driver/rides/${ride.id}/start`).send({ pin }).expect(429);
+      await api(app, rider.accessToken).post(`/v1/rides/${ride.id}/cancel`).send({}).expect(200);
+    });
+
     async function pickUp2(d: DriverFixture, rider: Session, rideId: string) {
       const pin = (await riderView(rider, rideId)).startPin as string;
       await d.http.post(`/v1/driver/rides/${rideId}/start`).send({ pin }).expect(200);

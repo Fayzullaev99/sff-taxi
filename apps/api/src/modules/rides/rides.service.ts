@@ -16,6 +16,7 @@ import type { AuthUser } from '../../core/auth/auth-context.js';
 import { BusinessCalendar } from '../../core/clock/business-calendar.js';
 import { Database, type Tx } from '../../core/db/database.js';
 import { containsPattern } from '../../core/db/like.js';
+import { type Limit, RateLimiter } from '../../core/redis/rate-limiter.js';
 import {
   ACTIVE_RIDE_STATUSES,
   type CargoDetails,
@@ -208,6 +209,7 @@ export class RidesService {
     private readonly track: DriverTrackService,
     private readonly routes: RouteFaresService,
     private readonly pool: PoolService,
+    private readonly limiter: RateLimiter,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -1595,8 +1597,12 @@ export class RidesService {
    * a start code starts only with the code the rider tells the driver.
    */
   async start(user: AuthUser, rideId: string, pin: string | null = null) {
+    // 4 digits are guessed in minutes by trying them all: a few wrong codes, then a pause
+    const pinLimit = startPinLimit(rideId);
+    if (pin) await this.limiter.assertNotBlocked(pinLimit);
     await this.driverStep(user, rideId, 'driver_arrived', 'in_progress', async (trx, ride, now) => {
       if (ride.start_pin && pin !== ride.start_pin) {
+        if (pin) await this.limiter.recordFailure(pinLimit);
         throw new BadRequestException(
           pin
             ? 'Kod noto‘g‘ri: yo‘lovchidan 4 xonali kodni so‘rang'
@@ -2840,3 +2846,17 @@ const RIDER_EVENTS = [
   'completed',
   'cancelled',
 ] as const;
+
+/** Wrong start codes allowed per ride before a pause (a typo or two, never all 10 000). */
+export const START_PIN_MAX_FAILURES = 5;
+
+function startPinLimit(rideId: string): Limit {
+  return {
+    name: 'ride:start-pin',
+    subject: rideId,
+    max: START_PIN_MAX_FAILURES,
+    windowSeconds: 15 * 60,
+    message:
+      'Kod ko‘p marta noto‘g‘ri kiritildi. 15 daqiqadan keyin qayta urinib ko‘ring yoki operatorga qo‘ng‘iroq qiling',
+  };
+}

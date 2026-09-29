@@ -7,6 +7,7 @@ import {
   extraPassengersStep,
   isPin,
   isPinError,
+  pinErrorText,
   offerBadges,
   parseRecent,
   pushRecent,
@@ -147,6 +148,14 @@ describe('start code', () => {
       isPinError(new ApiError(400, 'Kod noto‘g‘ri: yo‘lovchidan 4 xonali kodni so‘rang')),
     ).toBe(true);
     expect(isPinError(new ApiError(409, 'Kod'))).toBe(false);
+  });
+
+  it('keeps the keypad open with the reason when the start is paused after wrong codes', () => {
+    const paused = 'Kod ko‘p marta noto‘g‘ri kiritildi. 15 daqiqadan keyin qayta urinib ko‘ring';
+    expect(pinErrorText(new ApiError(429, paused))).toBe(paused);
+    expect(pinErrorText(new ApiError(429, 'Juda ko‘p urinish'))).toMatch(/ko‘p marta/);
+    expect(pinErrorText(new ApiError(400, 'Kod noto‘g‘ri: …'))).toMatch(/^Kod noto‘g‘ri/);
+    expect(pinErrorText(new ApiError(409, 'Safar boshqa holatda'))).toBeNull();
   });
 });
 

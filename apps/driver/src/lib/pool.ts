@@ -215,6 +215,20 @@ export function isPinError(error: unknown): boolean {
   return isApiError(error, 400) && /kod/i.test(error.message);
 }
 
+/**
+ * What the start-code keypad says about a refused start, or null for other errors: a wrong
+ * code, or too many wrong codes (the API pauses the start for a while, 429 with its text).
+ */
+export function pinErrorText(error: unknown): string | null {
+  if (isPinError(error)) return 'Kod noto‘g‘ri. Yo‘lovchidan qayta so‘rang.';
+  if (isApiError(error, 429)) {
+    return /kod/i.test(error.message)
+      ? error.message
+      : 'Kod ko‘p marta noto‘g‘ri kiritildi. Birozdan so‘ng qayta urinib ko‘ring.';
+  }
+  return null;
+}
+
 /** The message for a refused preferences change (400/403/409 come with Uzbek text). */
 export function preferencesError(error: unknown): string {
   if (isApiError(error, 0)) return 'Internet yo‘q: sozlama saqlanmadi. Qayta urinib ko‘ring.';
