@@ -109,6 +109,11 @@ export function cargoProblems(d: CargoDraft): Record<string, string> {
   return out;
 }
 
+/** The class a cargo car serves by its payload (the API's cargoClassOf): up to 800 kg small. */
+export function suggestedCargoClass(payloadKg: number): CargoClass {
+  return payloadKg <= 800 ? 'cargo_s' : 'cargo_m';
+}
+
 /** What a car on the live board is: a cargo car (by its class) or a taxi. */
 export function isCargoCar(d: Pick<LiveDriver, 'cargoClass'>): boolean {
   return Boolean(d.cargoClass);
