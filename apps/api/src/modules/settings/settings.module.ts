@@ -103,6 +103,12 @@ export const IntercityRules = z.object({
   late_cancel_fee_percent: z.number().int().min(0).max(100),
   /** The driver may open boarding this long before departure. */
   boarding_opens_minutes: z.number().int().min(0).max(240),
+  /**
+   * Seats along the way: a trip is offered to riders between other towns when going through
+   * them adds at most this many km (straight lines between the towns). Documents saved
+   * before this rule existed read the default.
+   */
+  along_route_max_km: z.number().min(0).max(100).default(15),
 });
 export type IntercityRules = z.infer<typeof IntercityRules>;
 
@@ -113,6 +119,27 @@ export const DEFAULT_INTERCITY: IntercityRules = {
   free_cancel_minutes: 60,
   late_cancel_fee_percent: 30,
   boarding_opens_minutes: 60,
+  along_route_max_km: 15,
+};
+
+/**
+ * Deposits for bookings made in advance (src/lib/deposit.ts): the seat board now, rides for
+ * later next. Part of the price is paid by card to hold the booking; the rest is cash.
+ */
+export const BookingRules = z.object({
+  /** Share of the price paid in advance; 0 turns deposits off. */
+  deposit_percent: z.number().int().min(0).max(100),
+  /** At least this much (so'm), never more than the price. */
+  deposit_min: soum,
+  /** A booking whose deposit is not paid within this many minutes is cancelled. */
+  payment_minutes: z.number().int().min(5).max(120),
+});
+export type BookingRules = z.infer<typeof BookingRules>;
+
+export const DEFAULT_BOOKING: BookingRules = {
+  deposit_percent: 20,
+  deposit_min: 5000,
+  payment_minutes: 15,
 };
 
 /**
@@ -149,6 +176,7 @@ const RULES = {
   intercity: { key: 'intercity', schema: IntercityRules, fallback: DEFAULT_INTERCITY },
   fiscal: { key: 'fiscal', schema: FiscalRules, fallback: DEFAULT_FISCAL },
   pool: { key: 'pool', schema: PoolRules, fallback: DEFAULT_POOL },
+  booking: { key: 'booking', schema: BookingRules, fallback: DEFAULT_BOOKING },
 } as const;
 type RuleName = keyof typeof RULES;
 type RuleValue<N extends RuleName> = z.infer<(typeof RULES)[N]['schema']>;
@@ -220,6 +248,10 @@ export class SettingsService {
   pool(db?: Db) {
     return this.get('pool', db);
   }
+
+  booking(db?: Db) {
+    return this.get('booking', db);
+  }
 }
 
 @Controller('admin/settings')
@@ -287,6 +319,17 @@ export class SettingsController {
   @Put('pool')
   setPool(@Body(new ZodPipe(PoolRules)) body: PoolRules) {
     return this.settings.set('pool', body);
+  }
+
+  /** Deposits for bookings made in advance: share, minimum, payment window. */
+  @Get('booking')
+  booking() {
+    return this.settings.booking();
+  }
+
+  @Put('booking')
+  setBooking(@Body(new ZodPipe(BookingRules)) body: BookingRules) {
+    return this.settings.set('booking', body);
   }
 }
 

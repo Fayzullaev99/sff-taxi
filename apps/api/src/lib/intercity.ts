@@ -1,4 +1,5 @@
-import { roundUp100 } from './distance.js';
+import { distanceM, roundUp100 } from './distance.js';
+import { MAX_PASSENGERS, REAR_SEATS_MAX } from './pool.js';
 import type { RideClass, Tariff } from './tariff.js';
 
 /**
@@ -66,4 +67,82 @@ export function driverSeatPrices(reference: SeatPrices, askedRear: number): Seat
 /** What a booking of `seats` seats costs, one of them the front seat when `front`. */
 export function bookingPrice(seats: number, front: boolean, prices: SeatPrices): number {
   return front ? (seats - 1) * prices.rear + prices.front : seats * prices.rear;
+}
+
+// Seating rule ------------------------------------------------------------------------------
+
+/** One passenger in front, never more than two in the back (src/lib/pool.ts). */
+export const MAX_TRIP_SEATS = MAX_PASSENGERS;
+export const MAX_REAR_SEATS = REAR_SEATS_MAX;
+
+/** Why a trip may not offer these seats (the rider-facing message), or null. */
+export function seatingError(seats: number, frontSeat: boolean): string | null {
+  if (seats > MAX_TRIP_SEATS) {
+    return 'Mashinaga ko‘pi bilan 3 yo‘lovchi olinadi: oldinda 1, orqada 2';
+  }
+  if (seats - (frontSeat ? 1 : 0) > MAX_REAR_SEATS) {
+    return 'Orqa o‘rindiqqa 2 tadan ortiq yo‘lovchi olinmaydi';
+  }
+  return null;
+}
+
+// Along the way ------------------------------------------------------------------------------
+
+export interface LatLng {
+  lat: number;
+  lng: number;
+}
+
+/** A rider's part of a trip must be at least this share of it (and pays at least this share). */
+export const ALONG_MIN_SHARE = 0.3;
+
+/**
+ * Whether a rider going `from` -> `to` fits a trip `start` -> `end` "along the way": going
+ * through the rider's towns in order adds at most `maxDetourKm` to the trip (straight lines:
+ * roads between the towns bend too, Guliston -> Sirdaryo -> Toshkent is the road), the rider
+ * travels in the trip's direction, and the rider's part is at least 30% of the trip.
+ * Returns the rider's share of the trip (0.3..1), or null.
+ */
+export function alongTheWayShare(
+  start: LatLng,
+  end: LatLng,
+  from: LatLng,
+  to: LatLng,
+  maxDetourKm: number,
+): number | null {
+  const d = (a: LatLng, b: LatLng) => distanceM(a.lat, a.lng, b.lat, b.lng);
+  const trip = d(start, end);
+  const part = d(from, to);
+  if (trip <= 0 || part <= 0) return null;
+  const detour = d(start, from) + part + d(to, end) - trip;
+  if (detour > maxDetourKm * 1000) return null;
+  // the rider's direction along the trip's (projections on the start -> end line)
+  if (progress(start, end, to) <= progress(start, end, from)) return null;
+  const share = Math.min(1, part / trip);
+  return share >= ALONG_MIN_SHARE ? share : null;
+}
+
+/** How far along start -> end the point lies, 0 at the start, 1 at the end (flat projection). */
+function progress(start: LatLng, end: LatLng, p: LatLng): number {
+  const k = Math.cos((start.lat * Math.PI) / 180);
+  const ex = (end.lng - start.lng) * k;
+  const ey = end.lat - start.lat;
+  const px = (p.lng - start.lng) * k;
+  const py = p.lat - start.lat;
+  return (px * ex + py * ey) / (ex * ex + ey * ey);
+}
+
+/**
+ * A seat price for part of a trip: in proportion, rounded up to whole 1 000 so'm, at least
+ * 30% of the seat price and never more than it.
+ */
+export function partSeatPrice(price: number, share: number): number {
+  const part = Math.ceil((price * share) / 1000) * 1000;
+  const floor = roundUp100(price * ALONG_MIN_SHARE);
+  return Math.min(price, Math.max(floor, part));
+}
+
+export function partSeatPrices(prices: SeatPrices, share: number): SeatPrices {
+  if (share >= 1) return prices;
+  return { rear: partSeatPrice(prices.rear, share), front: partSeatPrice(prices.front, share) };
 }

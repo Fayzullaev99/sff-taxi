@@ -259,8 +259,11 @@ for callers (SMS with the car and the driver's phone).
   front seat +10% (`src/lib/intercity.ts`), or an operator's route price (Guliston↔Tashkent
   70 000 / 80 000 seeded, MA §6.3 [H]); comfort cars in the tariff's comfort/economy ratio. A
   driver may ask within ±15% (`admin/settings/intercity`); the prices are fixed on the trip.
+- **Seating rule** (founder's hard rule): 1 passenger in front and never more than 2 in the
+  back: a trip offers at most 3 seats, 2 without the front seat; a booking takes 1..3 seats
+  (`GET driver/config` → `intercity.maxSeats` / `maxRearSeats`; table checks since 0015).
 - **Publishing**: active driver, licence card valid on the day, balance above the minimum,
-  seats ≤ the car's, 15 minutes to 7 days ahead, departures of one driver 2 hours apart (the
+  seats ≤ the car's and the seating rule, 15 minutes to 7 days ahead, departures of one driver 2 hours apart (the
   timing rules are in `GET driver/config` → `intercity`). Until the first live booking the driver
   may change the time, seats, front seat, price (within the band), meeting point and comment
   (`PATCH driver/intercity/trips/:id`, the same checks); after it only cancelling is possible.
@@ -268,14 +271,27 @@ for callers (SMS with the car and the driver's phone).
   partial unique indexes (`seats_booked ≤ seats_total`, one front seat, one live booking per
   rider per trip): however many riders tap at once, never oversold (concurrency tests). Retries
   are safe (`clientRequestId`, riders' and the panel's, serialised by an advisory lock). Riders
-  see the driver's phone and the plate only once booked.
+  see the driver's phone and the plate only once booked. An app booking pays a **deposit** by
+  card first (20%, min 5 000, `admin/settings/booking`; `awaiting_payment` holds the seats for
+  15 minutes), the rest (`payCash`) in cash; operators' phone bookings pay none
+  ([payments.md](payments.md#booking-deposits-trip-board)).
+- **Along the way** (yo‘l-yo‘lakay): the search also returns trips between other towns that
+  pass the rider's (`alongTheWay: true`, `pickup` / `dropoff`): going through the rider's towns
+  in order adds at most `along_route_max_km` (15 km, straight lines: Guliston → Sirdaryo →
+  Toshkent is the road, 12 km more than the straight line) and the rider's part is at least
+  30% of the trip. The seat costs its share of the trip (rounded up to 1 000, at least 30% of
+  the seat); booking with `from`/`to` keeps the rider's towns for the driver.
 - **Cancellation**: riders free until 60 minutes before departure, then 30% of the booking is
   recorded as owed (the rules are in `GET config` → `intercity`, the trip view's `cancelRules`
-  and the booking's `cancelFreeUntil` / `cancelFeeNow`); a driver's cancellation of a booked trip
-  counts against reliability.
+  and the booking's `cancelFreeUntil` / `cancelFeeNow`); with a deposit, a free cancellation
+  refunds it and a late one leaves it to the driver instead of the fee. A driver's or
+  operator's cancellation refunds deposits; a driver's cancellation of a booked trip counts
+  against reliability.
 - **Running it**: boarding opens an hour before; the driver boards passengers; at departure the
   absent become no-shows; on arrival every booking is charged the 1% tax and the intercity
-  commission (per booking, capped) and gets its fiscal receipt. Seats are paid in cash.
+  commission (per booking, capped, on the full price) and gets its fiscal receipt; deposits
+  (held by the platform) are credited to the driver's balance, also a no-show's. The rest of
+  each seat is paid in cash.
 
 ## 12. Uploads
 

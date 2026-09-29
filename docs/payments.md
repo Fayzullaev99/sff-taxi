@@ -44,7 +44,27 @@ kept from the refund (the Merchant APIs refund whole transactions only).
 to the driver's card or account and record it (`payout`, never above the balance) — the market
 analysis' "card rides → payout to card at least daily".
 
-Phone orders (operators) stay cash; intercity seats are paid in cash to the driver.
+Phone orders (operators) stay cash.
+
+## Booking deposits (trip board)
+
+A seat booked in the app is held once **part of the price** is paid by card
+(`admin/settings/booking`: `deposit_percent` 20, `deposit_min` 5 000, `payment_minutes` 15;
+`src/lib/deposit.ts`: the share rounded up to 1 000, at least the minimum, at most the price;
+0% turns deposits off). The rest (`payCash`) is cash to the driver.
+
+1. `POST /v1/intercity/trips/:id/bookings` creates the booking in `awaiting_payment` holding its
+   seats, with a `booking` payment intent (`payment.checkout`); no card provider configured → 400. Operators' phone bookings pay no deposit.
+2. Paid (Payme or Click, the same `markPaid`): the booking becomes `booked`; the driver is told
+   of a new booking, the rider that it is confirmed.
+3. Not paid within `payment_minutes` (or by departure): housekeeping cancels it
+   (`cancelledBy: system`, intent `expired`), the seats are free again.
+4. Cancelled in the free window by the rider, or by the driver or an operator: the deposit is
+   queued for a refund (`refund_pending`, `GET admin/payments/refunds` lists it with
+   `bookingId`). A late rider cancellation or a no-show keeps it: it is credited to the driver
+   (`deposit` ledger entry, and the booking's `cancellationFee`) instead of the recorded fee.
+5. On arrival the platform credits the deposit to the driver (`deposit`, once per booking);
+   the tax and commission stay computed on the full price.
 
 ## Driver top-ups
 

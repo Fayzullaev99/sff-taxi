@@ -669,6 +669,9 @@ export interface IntercityBookingsTable {
   tax: Generated<number>;
   /** Paid by card to book; the rest is cash to the driver. */
   deposit_amount: Generated<number>;
+  /** Part of the trip (along the way): the rider's towns; null = the trip's ends. */
+  pickup_point_id: string | null;
+  dropoff_point_id: string | null;
   created_at: CreatedAt;
   boarded_at: Timestamp | null;
   completed_at: Timestamp | null;
