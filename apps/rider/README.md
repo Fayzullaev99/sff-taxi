@@ -83,7 +83,20 @@ React is hoisted to the repo root by another workspace later.
   shown, counted down since it was computed; the straight-line estimate only without a fresh
   one) and, on the trip, `destinationEtaS` (the same for the destination; the ride's
   `destinationEta` when fetched), `ride.refund` refetches the ride, `intercity.updated` and
-  `complaint.updated` refetch bookings and threads. A slow poll covers stream outages.
+  `complaint.updated` refetch bookings and threads. A slow poll covers stream outages. A
+  watchdog reconnects a stream that did not open within 15 s or stayed silent for 45 s (the API
+  pings every 25 s; a half-open socket after a cell change never errors), and the back-off is
+  skipped once the network is back. The car glides between fixes over the time between them,
+  turned by its heading ([src/lib/car-motion.ts](src/lib/car-motion.ts)); fixes implying more
+  than 150 km/h are dropped once; the ETA only rises after it held 30 s (no "4 → 5 → 4").
+- **Location** ([src/location/locate.ts](src/location/locate.ts)): a pickup wants a fix at most
+  30 s old and within 50 m: the cached fix if it is that good, else a short GPS watch (12 s),
+  else the best seen incl. the last known ("Joylashuv taxminiy (±N m)"). The map starts from a
+  rough position (cached ≤ 2 min or the network provider) and the precise fix moves the pin
+  unless the rider moved the map. One lookup at a time, always stopped, stopped in the
+  background; the map's blue dot only while its screen is seen. Permission denied / blocked
+  (settings) / location off (Android's dialog) each say what to do. Addresses are cached by
+  ~10 m rounded coordinate.
 - **Session**: the refresh token rotates on every use and a reuse revokes the session, so the
   client runs strictly one refresh at a time for every caller (401s, SSE tickets), never while
   the app is in the background, persists the new pair before retrying, and drops answers for a
@@ -110,8 +123,12 @@ React is hoisted to the repo root by another workspace later.
   the last one; a failed photo is retried from its prepared file. The complaint / reply carries
   `photoUploadIds` (3 per complaint). Hidden while `/config` says uploads are off.
 - **Offline**: a banner over every screen while the API cannot be reached (any request without
-  an answer; a small `/health` probe clears it).
-- **Low-end Android**: one map per screen, static marker views (`tracksViewChanges={false}`),
+  an answer; a small `/health` probe after 2, 4, then every 8 s clears it). Meanwhile queries
+  pause (React Query's `onlineManager` follows it) and refetch once the link is back. Direct
+  lookups have short timeouts (address 8 s, one retry). The open ride is kept on the phone
+  ([src/api/ride-cache.ts](src/api/ride-cache.ts)): a cold start without network shows it.
+- **Low-end Android**: one map per screen, memoised maps (only the car marker re-renders while
+  it glides, ~25 fps), marker snapshots frozen once settled,
   native-driver animations only (still with "reduce motion"), no images (except complaint
   photo thumbnails), light lists.
 - **Accessibility**: labelled buttons and switches, radio groups for tariffs, payment, times and
