@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { memo, useMemo } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -19,7 +20,8 @@ import { colors, radius, space } from '../ui/theme';
 /** Past and current rides, newest first, 30 per page. */
 export default function HistoryScreen() {
   const history = useHistory();
-  const items = history.data?.pages.flatMap((p) => p.items) ?? [];
+  const pages = history.data?.pages;
+  const items = useMemo(() => pages?.flatMap((p) => p.items) ?? [], [pages]);
 
   if (history.isPending) return <LoadingView />;
   if (history.isError && !items.length) {
@@ -32,8 +34,8 @@ export default function HistoryScreen() {
       data={items}
       keyExtractor={(r) => r.id}
       contentContainerStyle={items.length ? styles.list : styles.emptyList}
-      renderItem={({ item }) => <RideRow ride={item} />}
-      ItemSeparatorComponent={() => <View style={styles.separator} />}
+      renderItem={renderRide}
+      ItemSeparatorComponent={Separator}
       onEndReached={() => {
         if (history.hasNextPage && !history.isFetchingNextPage) void history.fetchNextPage();
       }}
@@ -61,6 +63,8 @@ export default function HistoryScreen() {
       }
       // light rows, no images: smooth on low-end phones
       initialNumToRender={10}
+      maxToRenderPerBatch={8}
+      updateCellsBatchingPeriod={60}
       windowSize={7}
       removeClippedSubviews
     />
@@ -73,7 +77,14 @@ const STATUS_COLOR: Record<string, string> = {
   no_driver: colors.warning,
 };
 
-function RideRow({ ride }: { ride: RideSummary }) {
+const renderRide = ({ item }: { item: RideSummary }) => <RideRow ride={item} />;
+
+function Separator() {
+  return <View style={styles.separator} />;
+}
+
+/** One ride; memoised, so pages loaded later or a refetch do not redraw unchanged rows. */
+const RideRow = memo(function RideRow({ ride }: { ride: RideSummary }) {
   const screen = rideScreen(ride);
   const amount =
     ride.status === 'completed'
@@ -123,7 +134,7 @@ function RideRow({ ride }: { ride: RideSummary }) {
       <T variant="bodyStrong">{formatMoney(amount)}</T>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },

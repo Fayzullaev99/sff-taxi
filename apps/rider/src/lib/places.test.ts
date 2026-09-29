@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RecentPlace, SavedPlace } from '../api/types';
 import {
+  chipLabel,
   groupSaved,
   parseLegacyPlaces,
   type Place,
@@ -128,5 +129,17 @@ describe('hiding recent destinations', () => {
   it('drops a hidden destination from the cached list', () => {
     expect(withoutRecent(recent, '40.5000,68.8000')?.map((p) => p.address)).toEqual(['Bozor']);
     expect(withoutRecent(undefined, 'x')).toBeUndefined();
+  });
+});
+
+describe('one-tap destination chips', () => {
+  it('keep the address up to the first comma, shortened with an ellipsis', () => {
+    expect(chipLabel('Navoiy ko‘chasi 12, Guliston')).toBe('Navoiy ko‘chasi 12');
+    expect(chipLabel('  Markaziy bozor  ')).toBe('Markaziy bozor');
+    expect(chipLabel('Sirdaryo viloyat ko‘p tarmoqli tibbiyot markazi')).toBe(
+      'Sirdaryo viloyat ko‘p…',
+    );
+    expect(chipLabel(', Guliston')).toBe(', Guliston');
+    expect(chipLabel('Guliston davlat universiteti', 40)).toBe('Guliston davlat universiteti');
   });
 });

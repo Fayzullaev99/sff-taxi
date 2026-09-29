@@ -1,8 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
 import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { memo, useEffect, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, describeError, isOffline } from '../api/client';
 import { endpoints } from '../api/endpoints';
@@ -12,12 +12,8 @@ import type { Quote, RideClass } from '../api/types';
 import {
   CLASS_LABELS,
   CLASS_NOTES,
-  OPTION_HINTS,
-  OPTION_LABELS,
-  optionPriceLabel,
   OWED_FEE_LABEL,
   quoteOwedFee,
-  RIDE_OPTIONS,
   seatShareText,
 } from '../lib/fare';
 import { formatDateTime, formatDistance, formatMinutes, formatMoney } from '../lib/format';
@@ -26,6 +22,7 @@ import { cardLabel } from '../lib/payment';
 import { availabilityText } from '../lib/ride-state';
 import { schedulable, SCHEDULE_DISPATCH_BEFORE_MIN } from '../lib/schedule';
 import { askForPushAfterOrder } from '../notifications/push';
+import { OrderOptions } from '../order/OrderOptions';
 import { ScheduleSheet } from '../ride/ScheduleSheet';
 import { resetAfterOrder, toggleOption, updateDraft, useDraft } from '../trip/draft';
 import { refreshRecentPlaces } from '../trip/places-store';
@@ -36,6 +33,9 @@ import { colors, radius, space } from '../ui/theme';
 import { KeyboardAvoider } from '../ui/KeyboardAvoider';
 
 const CLASSES: RideClass[] = ['economy', 'comfort'];
+
+/** Stable, so the memoised class cards re-render only when their quote or choice changes. */
+const selectClass = (rideClass: RideClass) => updateDraft({ rideClass });
 
 /**
  * Tariff choice: fixed prices of both classes for this route (quoted by the API, no
@@ -163,6 +163,15 @@ export default function OrderScreen() {
             text={pickup.address ?? 'Xaritadagi pin'}
             onPress={() => router.dismissTo('/home')}
           />
+          <TextField
+            placeholder="Mo‘ljal: 5-maktab ro‘parasi, yashil darvoza"
+            accessibilityLabel="Mo‘ljal, haydovchi uchun"
+            value={draft.landmark}
+            onChangeText={(landmark) => updateDraft({ landmark })}
+            maxLength={200}
+            returnKeyType="done"
+            style={styles.landmark}
+          />
           <View style={styles.routeLine} />
           <RoutePoint
             color={colors.ink}
@@ -263,7 +272,7 @@ export default function OrderScreen() {
                   rideClass={c}
                   quote={q}
                   selected={draft.rideClass === c}
-                  onPress={() => updateDraft({ rideClass: c })}
+                  onSelect={selectClass}
                 />
               ))}
             </View>
@@ -322,38 +331,7 @@ export default function OrderScreen() {
         <T variant="h3" accessibilityRole="header" style={styles.section}>
           Qo‘shimcha
         </T>
-        <View style={styles.options}>
-          {RIDE_OPTIONS.map((o) => {
-            const on = draft.options.includes(o);
-            return (
-              <Pressable
-                key={o}
-                accessibilityRole="switch"
-                accessibilityState={{ checked: on }}
-                accessibilityLabel={`${OPTION_LABELS[o]}. ${OPTION_HINTS[o]}. ${optionPriceLabel(optionPrices?.[o])}`}
-                onPress={() => toggleOption(o)}
-                style={styles.optionRow}
-              >
-                <View style={styles.flex}>
-                  <T variant="bodyStrong">{OPTION_LABELS[o]}</T>
-                  <T variant="small" color={colors.textMuted}>
-                    {OPTION_HINTS[o]}
-                  </T>
-                </View>
-                <T variant="smallStrong" color={colors.textMuted}>
-                  {optionPriceLabel(optionPrices?.[o])}
-                </T>
-                <Switch
-                  value={on}
-                  onValueChange={() => toggleOption(o)}
-                  trackColor={{ true: colors.brand, false: colors.border }}
-                  thumbColor={on ? colors.ink : colors.bg}
-                  importantForAccessibility="no"
-                />
-              </Pressable>
-            );
-          })}
-        </View>
+        <OrderOptions selected={draft.options} prices={optionPrices} onToggle={toggleOption} />
         {draft.options.length ? (
           <T variant="small" color={colors.textMuted}>
             Tanlangan qulayliklar mos mashinalarni kamaytiradi — qidiruv biroz uzoqroq bo‘lishi
@@ -361,14 +339,6 @@ export default function OrderScreen() {
           </T>
         ) : null}
 
-        <TextField
-          label="Mo‘ljal (haydovchi uchun)"
-          placeholder="Masalan: 5-maktab ro‘parasi, yashil darvoza"
-          value={draft.landmark}
-          onChangeText={(landmark) => updateDraft({ landmark })}
-          maxLength={200}
-          returnKeyType="next"
-        />
         <TextField
           label="Izoh"
           placeholder="Masalan: bolali aravacha bor, podyezd oldida kutaman"
@@ -416,6 +386,24 @@ export default function OrderScreen() {
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, space(3)) }]}>
         {error ? <Banner tone="danger" message={error} style={styles.footerError} /> : null}
+        {q && fare ? (
+          <View style={styles.summary} accessible accessibilityRole="summary">
+            <View style={styles.flex}>
+              <T variant="bodyStrong" numberOfLines={1}>
+                {CLASS_LABELS[draft.rideClass]}
+                {later ? ` · ${formatDateTime(later)}` : ''}
+              </T>
+              <T variant="small" color={colors.textMuted} numberOfLines={1}>
+                {later
+                  ? 'Oldindan buyurtma · naqd'
+                  : (availabilityText(q.availability?.[draft.rideClass]) ?? 'Narx o‘zgarmaydi')}
+              </T>
+            </View>
+            <T variant="price" style={stale ? styles.stalePrice : null}>
+              {formatMoney(toPay ?? fare.total)}
+            </T>
+          </View>
+        ) : null}
         <Button
           title={
             later
@@ -425,7 +413,6 @@ export default function OrderScreen() {
                 : 'Buyurtma berish'
           }
           size="lg"
-          trailing={toPay !== null ? formatMoney(toPay) : undefined}
           loading={busy}
           disabled={!q || stale || quote.isError}
           onPress={() => q && !stale && void submit(q)}
@@ -478,16 +465,16 @@ function RoutePoint({
   );
 }
 
-function ClassCard({
+const ClassCard = memo(function ClassCard({
   rideClass,
   quote,
   selected,
-  onPress,
+  onSelect,
 }: {
   rideClass: RideClass;
   quote: Quote;
   selected: boolean;
-  onPress: () => void;
+  onSelect: (rideClass: RideClass) => void;
 }) {
   const fare = quote.fares[rideClass];
   const availability = availabilityText(quote.availability?.[rideClass]);
@@ -497,7 +484,7 @@ function ClassCard({
       accessibilityRole="radio"
       accessibilityState={{ checked: selected }}
       accessibilityLabel={`${CLASS_LABELS[rideClass]}, ${formatMoney(fare.total)}, narx o‘zgarmaydi${availability ? `. ${availability}` : ''}`}
-      onPress={onPress}
+      onPress={() => onSelect(rideClass)}
       style={[styles.classCard, selected ? styles.classCardOn : null]}
     >
       <View style={[styles.classIcon, selected ? { backgroundColor: colors.brand } : null]}>
@@ -532,7 +519,7 @@ function ClassCard({
       </View>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
@@ -599,22 +586,9 @@ const styles = StyleSheet.create({
   section: { marginTop: space(3) },
   owed: { gap: space(1.5), backgroundColor: colors.warningSoft },
   owedRow: { flexDirection: 'row', alignItems: 'center', gap: space(2) },
-  options: {
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  optionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space(3),
-    paddingHorizontal: space(3.5),
-    paddingVertical: space(3),
-    minHeight: 60,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
+  landmark: { marginLeft: space(6), marginTop: space(1) },
+  summary: { flexDirection: 'row', alignItems: 'center', gap: space(3) },
+  stalePrice: { opacity: 0.45 },
   footer: {
     paddingHorizontal: space(4),
     paddingTop: space(3),

@@ -164,3 +164,16 @@ export function withoutRecent<T extends { key?: string; lat: number; lng: number
 ): T[] | undefined {
   return list?.filter((p) => recentKeyOf(p) !== key);
 }
+
+/**
+ * A short name for a one-tap destination chip on the map screen: the address up to its
+ * first comma ("Navoiy ko‘chasi 12, Guliston" → "Navoiy ko‘chasi 12"), at most `max`
+ * characters with an ellipsis, so a chip never grows past the screen.
+ */
+export function chipLabel(title: string, max = 22): string {
+  const first = (title.split(',')[0] ?? '').trim() || title.trim();
+  return first.length > max ? `${first.slice(0, max - 1).trimEnd()}…` : first;
+}
+
+/** Recent destinations offered as one-tap chips next to home and work. */
+export const QUICK_RECENT = 3;

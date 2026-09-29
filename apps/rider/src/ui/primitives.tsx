@@ -32,6 +32,9 @@ export function Icon({
 
 // Text ------------------------------------------------------------------------------
 
+/** How far text follows the system font size (accessibility settings). */
+export const MAX_FONT_SCALE = 1.5;
+
 export function T({
   variant = 'body',
   color = colors.text,
@@ -41,6 +44,9 @@ export function T({
 }: TextProps & { variant?: TypeVariant; color?: string; align?: 'left' | 'center' | 'right' }) {
   return (
     <Text
+      // large system fonts are honoured up to 1.5×: beyond that the fixed-price cards and
+      // the bottom sheet would push the order button off small screens
+      maxFontSizeMultiplier={MAX_FONT_SCALE}
       {...rest}
       style={[typeScale[variant], { color }, align ? { textAlign: align } : null, style]}
     />
@@ -90,13 +96,15 @@ export function Button({
 }) {
   const c = buttonColors[variant];
   const inactive = disabled || loading;
-  // min-height, not height: large system fonts may wrap nothing but still grow the text
-  const height = size === 'lg' ? 54 : size === 'sm' ? 40 : 48;
+  // min-height, not height: large system fonts may wrap nothing but still grow the text;
+  // a small button still gets a 48 dp touch area through its hit slop
+  const height = size === 'lg' ? 56 : size === 'sm' ? 40 : 48;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
       accessibilityState={{ disabled: inactive, busy: loading }}
+      hitSlop={size === 'sm' ? 4 : undefined}
       onPress={inactive ? undefined : onPress}
       style={({ pressed }) => [
         styles.button,
@@ -212,6 +220,7 @@ export function TextField({
         ) : null}
         <TextInput
           placeholderTextColor={colors.placeholder}
+          maxFontSizeMultiplier={MAX_FONT_SCALE}
           {...input}
           style={[styles.input, input.multiline ? styles.inputTextMultiline : null]}
         />
@@ -235,19 +244,20 @@ export function Chip({
   onPress,
   icon,
   accessibilityLabel,
+  style,
 }: {
   label: string;
   selected?: boolean;
   onPress?: () => void;
   icon?: IconName;
   accessibilityLabel?: string;
+  style?: StyleProp<ViewStyle>;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ selected: !!selected }}
-      hitSlop={{ top: 6, bottom: 6 }}
       onPress={onPress}
       style={({ pressed }) => [
         styles.chip,
@@ -258,10 +268,16 @@ export function Chip({
               ? colors.surfacePressed
               : colors.surface,
         },
+        style,
       ]}
     >
-      {icon ? <Icon name={icon} size={15} color={selected ? colors.bg : colors.text} /> : null}
-      <T variant="smallStrong" color={selected ? colors.bg : colors.text}>
+      {icon ? <Icon name={icon} size={16} color={selected ? colors.bg : colors.text} /> : null}
+      <T
+        variant="smallStrong"
+        color={selected ? colors.bg : colors.text}
+        numberOfLines={1}
+        style={styles.chipText}
+      >
         {label}
       </T>
     </Pressable>
@@ -524,9 +540,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space(1.5),
     paddingHorizontal: space(3.5),
-    minHeight: 40,
+    minHeight: 48,
+    maxWidth: 240,
     borderRadius: radius.pill,
   },
+  chipText: { flexShrink: 1 },
   segmented: {
     flexDirection: 'row',
     backgroundColor: colors.surface,
@@ -540,7 +558,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: space(2),
-    minHeight: 44,
+    minHeight: 48,
     borderRadius: radius.sm + 2,
     paddingHorizontal: space(2),
   },
