@@ -281,3 +281,19 @@ export function rideTakenAway(
   if (still.id.toLowerCase() === mineId.toLowerCase()) return false;
   return !poolRideIds(ridePool(still), still.id).includes(mineId.toLowerCase());
 }
+
+/**
+ * The ride header's people in a shared car: this order's people and everyone the car carries
+ * ("Bu buyurtmada 2 kishi · Mashinada jami 3 kishi"; "2 yo‘lovchi" next to one order's number
+ * read as that order's). Null for a car with one order.
+ */
+export function headcountText(
+  passengers: number | null | undefined,
+  pool: RidePoolLike | null,
+): string | null {
+  if (!pool) return null;
+  const mine = Math.max(1, passengers ?? 1);
+  const total = pool.occupancy?.occupied;
+  const car = typeof total === 'number' && total >= mine ? total : null;
+  return 'Bu buyurtmada ' + mine + ' kishi' + (car ? ' · Mashinada jami ' + car + ' kishi' : '');
+}

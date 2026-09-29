@@ -7,7 +7,7 @@ import type { DriverRide } from '../api/types';
 import { keys, useCurrentRide, useWaitingRules } from '../data/queries';
 import { errorMessage } from '../lib/api-client';
 import { PAYMENT_METHODS, som } from '../lib/format';
-import { offerBadges, pinErrorText, poolRideIds, ridePool } from '../lib/pool';
+import { headcountText, offerBadges, pinErrorText, poolRideIds, ridePool } from '../lib/pool';
 import { optimisticStatus, runRideStep } from '../lib/ride-actions';
 import { canCancel, cashBreakdown, owedFeeNote, type RideAction } from '../lib/ride-flow';
 import { customerWord, depositLine, serviceOf, serviceStep } from '../lib/service';
@@ -283,8 +283,8 @@ function ActiveRide(props: {
           </Text>
           <Muted>
             #{focus.number} · {PAYMENT_METHODS[focus.paymentMethod] ?? focus.paymentMethod}
-            {pool ? ` · ${pool.riders ?? ids.length} yo‘lovchi` : ''}
           </Muted>
+          {pool ? <Muted>{headcountText(focus.passengers, pool)}</Muted> : null}
           {scheduled ? <Chip label={scheduled} tone="info" icon="calendar" /> : null}
           {badges.length ? (
             <View style={styles.badges}>

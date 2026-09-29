@@ -28,7 +28,7 @@ export const CurrentRideCard = memo(function CurrentRideCard(props: { rides: Dri
       <Chip
         label={
           pool
-            ? `${pool.riders ?? numbers.length} yo‘lovchi · ${numbers.map((n) => `#${n}`).join(' ')}`
+            ? `${pool.riders ?? numbers.length} buyurtma · ${numbers.map((n) => `#${n}`).join(' ')}`
             : numbers.map((n) => `#${n}`).join(' · ')
         }
         tone="brand"

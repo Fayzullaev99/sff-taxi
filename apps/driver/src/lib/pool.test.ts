@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from './api-client';
 import {
+  headcountText,
   alongLine,
   alongStopLines,
   destinationChip,
@@ -221,5 +222,15 @@ describe('recent destinations', () => {
     ]);
     expect(parseRecent([a, null, { lat: 'x' }, b])).toHaveLength(2);
     expect(parseRecent('junk')).toEqual([]);
+  });
+});
+
+describe('headcountText', () => {
+  const pool = { riders: 2, occupancy: { occupied: 3 }, stops: [] };
+  it('tells this order’s people from the whole car’s', () => {
+    expect(headcountText(2, pool)).toBe('Bu buyurtmada 2 kishi · Mashinada jami 3 kishi');
+    expect(headcountText(undefined, pool)).toBe('Bu buyurtmada 1 kishi · Mashinada jami 3 kishi');
+    expect(headcountText(2, { stops: [] })).toBe('Bu buyurtmada 2 kishi');
+    expect(headcountText(2, null)).toBeNull();
   });
 });
