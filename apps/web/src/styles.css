@@ -1428,6 +1428,12 @@ textarea:disabled {
 .map-marker.is-round span b {
   transform: none;
 }
+.map-marker.is-cargo span {
+  border-radius: 4px;
+}
+.dot.dot-square {
+  border-radius: 2px;
+}
 .map-marker.is-selected span {
   border-color: var(--ink);
   box-shadow:
@@ -2524,4 +2530,12 @@ textarea:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+.cargo-table .field {
+  margin: 0;
+  min-width: 140px;
+}
+.cargo-table th[scope='row'] {
+  font-weight: 500;
+  white-space: nowrap;
 }

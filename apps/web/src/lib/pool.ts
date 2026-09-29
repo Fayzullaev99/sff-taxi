@@ -7,6 +7,7 @@ import type {
   RideBase,
   RouteFareBody,
 } from '../api/types';
+import { SERVICE_TONE, SERVICES, type Tone } from './format';
 
 /**
  * Wave 4 in the panel (docs/shared-rides.md): the seating rule, shared-ride prices, the
@@ -201,7 +202,8 @@ export function depositFor(
   r: Pick<BookingRules, 'deposit_percent' | 'deposit_min'>,
 ) {
   if (price <= 0 || r.deposit_percent <= 0) return 0;
-  const byPercent = Math.round((price * r.deposit_percent) / 100 / 100) * 100;
+  // the share rounded up to whole 1 000 so‘m (apps/api/src/lib/deposit.ts)
+  const byPercent = Math.ceil((price * r.deposit_percent) / 100 / 1000) * 1000;
   return Math.min(price, Math.max(r.deposit_min, byPercent));
 }
 
@@ -247,8 +249,19 @@ export function routeFareBody(d: RouteFareDraft): RouteFareBody {
 // Rides ------------------------------------------------------------------------------------
 
 /** Badges of a ride's wave-4 facts, for lists and the detail. */
-export function rideTags(r: Pick<RideBase, 'shareable' | 'womenOnly' | 'fareMode' | 'pool'>) {
-  const tags: { label: string; tone: 'blue' | 'brand' | 'amber' }[] = [];
+export function rideTags(
+  r: Pick<RideBase, 'shareable' | 'womenOnly' | 'fareMode' | 'pool'> &
+    Partial<Pick<RideBase, 'service' | 'status' | 'scheduledFor' | 'fare'>>,
+) {
+  const tags: { label: string; tone: Tone }[] = [];
+  // cargo and deliveries stand out; a taxi ride carries no service badge
+  if (r.service && r.service !== 'taxi') {
+    tags.push({ label: SERVICES[r.service], tone: SERVICE_TONE[r.service] });
+  }
+  // a ride for later held until its card deposit is paid
+  if (r.status === 'awaiting_payment' && r.scheduledFor && (r.fare?.deposit ?? 0) > 0) {
+    tags.push({ label: 'Depozit kutilmoqda', tone: 'amber' });
+  }
   if (r.shareable || r.pool) tags.push({ label: 'Hamroh', tone: 'blue' });
   if (r.womenOnly) tags.push({ label: 'Ayol haydovchi', tone: 'brand' });
   if (r.fareMode === 'seat') tags.push({ label: 'O‘rindiq narxi', tone: 'amber' });

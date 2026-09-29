@@ -2,8 +2,15 @@ import { PhoneCall, Search, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { type RideFilters, useDrivers, useRides } from '../api/queries';
-import { RIDE_CLASSES, RIDE_STATUSES, type RideClass } from '../api/types';
-import { CLASSES, RIDE_STATUS_SHORT } from '../lib/format';
+import {
+  type AnyRideClass,
+  CARGO_CLASSES,
+  RIDE_CLASSES,
+  RIDE_SERVICES,
+  RIDE_STATUSES,
+  type RideService,
+} from '../api/types';
+import { CLASSES, RIDE_STATUS_SHORT, SERVICES } from '../lib/format';
 import { useDebounced } from '../map/places';
 import { Button, PageHeader } from '../ui/controls';
 import { Empty, ErrorBox, Loading } from '../ui/feedback';
@@ -26,7 +33,8 @@ export default function RidesList() {
   const from = params.get('from') ?? '';
   const to = params.get('to') ?? '';
   const driverId = params.get('driverId') ?? '';
-  const rideClass = (params.get('class') as RideClass | null) ?? '';
+  const rideClass = (params.get('class') as AnyRideClass | null) ?? '';
+  const service = (params.get('service') as RideService | null) ?? '';
   const [q, setQ] = useState(params.get('q') ?? '');
   const query = useDebounced(q.replace(/[\s\-()+]/g, ''), 350);
   const rangeError = from && to && from > to ? '“dan” sanasi “gacha” sanasidan keyin' : null;
@@ -35,6 +43,7 @@ export default function RidesList() {
     q: query,
     driverId,
     class: rideClass,
+    service,
     // a reversed range would ask for nothing: wait until it is fixed
     from: rangeError ? '' : from,
     to: rangeError ? '' : to,
@@ -53,13 +62,13 @@ export default function RidesList() {
     for (const d of drivers.data ?? []) m.set(d.id, d.fullName);
     return m;
   }, [drivers.data]);
-  const filtered = Boolean(from || to || driverId || rideClass || query);
+  const filtered = Boolean(from || to || driverId || rideClass || service || query);
 
   return (
     <div>
       <PageHeader
         title="Safarlar"
-        subtitle="Holat, telefon yoki raqam, haydovchi, tarif va sana bo‘yicha (Toshkent vaqti)"
+        subtitle="Holat, xizmat, telefon yoki raqam, haydovchi, tarif va sana bo‘yicha (Toshkent vaqti)"
         actions={
           <Link to="/phone-order" className="btn btn-primary btn-sm">
             <PhoneCall size={15} aria-hidden /> Telefon buyurtma
@@ -96,12 +105,23 @@ export default function RidesList() {
           gacha
           <input type="date" value={to} onChange={(e) => set('to', e.target.value)} />
         </label>
+        <label className="sr-only" htmlFor="ride-service">
+          Xizmat
+        </label>
+        <select id="ride-service" value={service} onChange={(e) => set('service', e.target.value)}>
+          <option value="">Barcha xizmatlar</option>
+          {RIDE_SERVICES.map((s) => (
+            <option key={s} value={s}>
+              {SERVICES[s]}
+            </option>
+          ))}
+        </select>
         <label className="sr-only" htmlFor="ride-class">
           Tarif
         </label>
         <select id="ride-class" value={rideClass} onChange={(e) => set('class', e.target.value)}>
           <option value="">Barcha tariflar</option>
-          {RIDE_CLASSES.map((c) => (
+          {[...RIDE_CLASSES, ...CARGO_CLASSES].map((c) => (
             <option key={c} value={c}>
               {CLASSES[c]}
             </option>

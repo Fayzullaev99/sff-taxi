@@ -30,7 +30,7 @@ import {
   som,
 } from '../lib/format';
 import { entryProblems } from '../lib/ops';
-import { intentTotals } from '../lib/payments';
+import { intentTotals, refundSubject } from '../lib/payments';
 import { formatPhone, isUzPhone, normalizePhone } from '../lib/phone';
 import { useDebounced } from '../map/places';
 import { Badge, Button, Field, MoneyInput, PageHeader, Segmented } from '../ui/controls';
@@ -52,7 +52,7 @@ function IntentSummary({ from, to }: { from: string; to: string }) {
   const totals = intentTotals(summary.data);
   return (
     <div className="summary-grid" aria-label="Jami">
-      {(['ride', 'topup'] as const).map((purpose) => {
+      {(['ride', 'topup', 'booking'] as const).map((purpose) => {
         const t = totals[purpose];
         return (
           <section key={purpose} className="card summary-card">
@@ -125,6 +125,7 @@ function IntentsTab() {
           <option value="">Barcha to‘lovlar</option>
           <option value="ride">{INTENT_PURPOSE.ride}</option>
           <option value="topup">{INTENT_PURPOSE.topup}</option>
+          <option value="booking">{INTENT_PURPOSE.booking}</option>
         </select>
         <label className="sr-only" htmlFor="intent-status">
           Holat
@@ -232,7 +233,14 @@ function IntentsTab() {
                 <tr key={i.id}>
                   <td className="nowrap">{dateTime(i.createdAt)}</td>
                   <td>
-                    {i.purpose === 'ride' ? (
+                    {i.purpose === 'booking' ? (
+                      <>
+                        {INTENT_PURPOSE.booking}
+                        {i.bookingNumber != null && (
+                          <div className="small">bron #{i.bookingNumber}</div>
+                        )}
+                      </>
+                    ) : i.purpose === 'ride' ? (
                       i.rideId ? (
                         <Link to={`/rides/${i.rideId}`}>safar #{i.rideNumber ?? ''}</Link>
                       ) : (
@@ -304,7 +312,8 @@ function RefundsTab() {
         <Loading />
       ) : !refunds.data.length ? (
         <Empty title="Qaytariladigan to‘lov yo‘q">
-          Oldindan to‘langan karta safari bekor qilinsa, shu yerda paydo bo‘ladi.
+          Oldindan to‘langan karta safari yoki bron depoziti qaytarilishi kerak bo‘lsa, shu yerda
+          paydo bo‘ladi.
         </Empty>
       ) : (
         <div className="card table-card">
@@ -314,7 +323,7 @@ function RefundsTab() {
           <table className="table">
             <thead>
               <tr>
-                <th>Safar</th>
+                <th>Safar / bron</th>
                 <th>Yo‘lovchi</th>
                 <th className="num">Summa</th>
                 <th>Tizim</th>
@@ -327,7 +336,11 @@ function RefundsTab() {
               {refunds.data.map((r) => (
                 <tr key={r.id}>
                   <td>
-                    <Link to={`/rides/${r.rideId}`}>#{r.rideNumber}</Link>
+                    {refundSubject(r).to ? (
+                      <Link to={refundSubject(r).to!}>{refundSubject(r).label}</Link>
+                    ) : (
+                      refundSubject(r).label
+                    )}
                   </td>
                   <td>{formatPhone(r.riderPhone)}</td>
                   <td className="num">{som(r.amount)}</td>
@@ -353,7 +366,7 @@ function RefundsTab() {
       )}
       {recording && (
         <TextDialog
-          title={`#${recording.rideNumber}: ${som(recording.amount)} qaytarildi`}
+          title={`${refundSubject(recording).label}: ${som(recording.amount)} qaytarildi`}
           intro={
             <p>
               {formatPhone(recording.riderPhone)} ga{' '}
@@ -372,7 +385,7 @@ function RefundsTab() {
               void queryClient.invalidateQueries({ queryKey: ['refunds'] });
               void queryClient.invalidateQueries({ queryKey: ['payments'] });
               void queryClient.invalidateQueries({ queryKey: ['ride', recording.rideId] });
-              toast(`#${recording.rideNumber}: qaytarish yozildi`);
+              toast(`${refundSubject(recording).label}: qaytarish yozildi`);
             })
           }
           onClose={() => setRecording(null)}

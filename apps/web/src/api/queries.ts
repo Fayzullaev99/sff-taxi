@@ -8,9 +8,11 @@ import type {
   AdminRide,
   AdminRideItem,
   AdminTrip,
+  AnyRideClass,
   AppConfig,
   BillingRules,
   BookingRules,
+  CargoRules,
   Candidate,
   Complaint,
   ComplaintItem,
@@ -23,6 +25,7 @@ import type {
   FiscalRules,
   IntercityPoint,
   IntercityRules,
+  IntentPurpose,
   IntentStatus,
   IntentSummaryRow,
   LedgerPage,
@@ -35,7 +38,7 @@ import type {
   Rating,
   ReasonLabels,
   Refund,
-  RideClass,
+  RideService,
   RideStatus,
   RouteFare,
   RoutePrice,
@@ -102,7 +105,8 @@ export interface RideFilters {
   q?: string;
   driverId?: string;
   riderId?: string;
-  class?: RideClass | '';
+  class?: AnyRideClass | '';
+  service?: RideService | '';
   from?: string;
   to?: string;
 }
@@ -117,6 +121,7 @@ export function ridesQuery(f: Omit<RideFilters, 'driverId'> & { driverId?: strin
   if (f.driverId) p.set('driverId', f.driverId);
   if (f.riderId) p.set('riderId', f.riderId);
   if (f.class) p.set('class', f.class);
+  if (f.service) p.set('service', f.service);
   if (f.from) p.set('from', f.from);
   if (f.to) p.set('to', f.to);
   return p.toString();
@@ -268,15 +273,26 @@ export function usePoolRules() {
 export function useBookingRules() {
   return useQuery({
     queryKey: ['settings', 'booking'],
-    queryFn: async () => {
-      try {
-        return await api<BookingRules>('/v1/admin/settings/booking');
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 404) return null;
-        throw e;
-      }
-    },
+    queryFn: () => orNullOn404(api<BookingRules>('/v1/admin/settings/booking')),
   });
+}
+
+/** Cargo prices and deliveries; null on an API without them (the section stays hidden). */
+export function useCargoRules() {
+  return useQuery({
+    queryKey: ['settings', 'cargo'],
+    queryFn: () => orNullOn404(api<CargoRules>('/v1/admin/settings/cargo')),
+  });
+}
+
+/** An endpoint an older API build does not have yet: null instead of an error. */
+async function orNullOn404<T>(request: Promise<T>): Promise<T | null> {
+  try {
+    return await request;
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
 }
 
 /** Fixed route prices of rides between towns (GET /admin/routes), active or not. */
@@ -304,7 +320,7 @@ export function useTaxReport(period: string) {
 
 /** Card payments (GET /admin/payments/intents): server filters, Tashkent days, cursor paging. */
 export interface IntentFilters {
-  purpose?: 'ride' | 'topup' | '';
+  purpose?: IntentPurpose | '';
   /** An intent status, or "failed": expired or cancelled without a payment. */
   status?: IntentStatus | 'failed' | '';
   provider?: PaymentProvider | '';

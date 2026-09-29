@@ -83,8 +83,8 @@ export function createLeafletMap(
         const marker = L.marker([m.point.lat, m.point.lng], {
           icon: L.divIcon({
             className: `map-marker map-marker-${m.kind}${round ? ' is-round' : ''}${
-              m.selected ? ' is-selected' : ''
-            }`,
+              m.cargo ? ' is-cargo' : ''
+            }${m.selected ? ' is-selected' : ''}`,
             html: `<span style="--marker:${MARKER_COLOR[m.kind]}">${text}</span>`,
             iconSize: [size, size],
             iconAnchor: round ? [size / 2, size / 2] : [size / 2, size],

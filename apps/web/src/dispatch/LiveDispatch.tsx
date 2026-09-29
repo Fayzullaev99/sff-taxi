@@ -13,6 +13,7 @@ import type {
 } from '../api/types';
 import {
   ago,
+  CARGO_CLASS,
   CLASSES,
   DRIVER_STATE,
   minutesSince,
@@ -141,7 +142,13 @@ function DriverCard({
         </button>
       </div>
       <p className="small">
-        <span className="plate">{driver.plate}</span> · {CLASSES[driver.class]} ·{' '}
+        <span className="plate">{driver.plate}</span> ·{' '}
+        {driver.cargoClass ? (
+          <Badge tone="amber">{CARGO_CLASS[driver.cargoClass]}</Badge>
+        ) : (
+          CLASSES[driver.class]
+        )}{' '}
+        ·{' '}
         <Badge
           tone={driver.state === 'free' ? 'green' : driver.state === 'offered' ? 'amber' : 'blue'}
         >
@@ -223,6 +230,7 @@ export default function LiveDispatch() {
       const stale = d.locatedAt ? minutesSince(d.locatedAt) >= STALE_GPS_MINUTES : true;
       // a shared car: the number of riders it carries on the marker
       const load = carLoad(live.data, d.id);
+      const cargo = d.cargoClass ? ` · ${CARGO_CLASS[d.cargoClass]}` : '';
       const shared = load.shared
         ? ` · hamroh: ${load.rides.length} buyurtma, ${load.passengers} kishi`
         : '';
@@ -230,8 +238,13 @@ export default function LiveDispatch() {
         id: `d-${d.id}`,
         point: { lat: d.lat, lng: d.lng },
         kind: DRIVER_KIND[d.state],
-        ...(load.rides.length > 1 ? { text: String(load.rides.length) } : {}),
-        title: `${d.name} · ${d.plate} · ${DRIVER_STATE[d.state]}${shared}${stale ? ' · GPS eskirgan' : ''}`,
+        cargo: Boolean(d.cargoClass),
+        ...(load.rides.length > 1
+          ? { text: String(load.rides.length) }
+          : d.cargoClass
+            ? { text: 'Y' }
+            : {}),
+        title: `${d.name} · ${d.plate} · ${DRIVER_STATE[d.state]}${cargo}${shared}${stale ? ' · GPS eskirgan' : ''}`,
         selected: d.id === driverId,
         onClick: () => setDriverId(d.id),
       });
@@ -345,6 +358,16 @@ export default function LiveDispatch() {
             { value: 'comfort', label: 'Komfort' },
           ]}
         />
+        <Segmented
+          label="Mashinalar"
+          value={filters.fleet ?? 'all'}
+          onChange={(fleet) => setFilters((f) => ({ ...f, fleet }))}
+          options={[
+            { value: 'all', label: 'Barchasi' },
+            { value: 'taxi', label: 'Taksi' },
+            { value: 'cargo', label: 'Yuk' },
+          ]}
+        />
         <Toggle
           checked={filters.attentionOnly}
           onChange={(attentionOnly) => setFilters((f) => ({ ...f, attentionOnly }))}
@@ -413,6 +436,9 @@ export default function LiveDispatch() {
             </li>
             <li>
               <span className="dot dot-busy" /> 2 — hamroh: mashinada 2 buyurtma
+            </li>
+            <li>
+              <span className="dot dot-free dot-square" /> Y — yuk mashinasi
             </li>
             <li>
               <span className="dot dot-ride" /> Buyurtma (olib ketish joyi)

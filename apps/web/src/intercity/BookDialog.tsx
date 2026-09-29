@@ -12,7 +12,8 @@ import { Modal } from '../ui/Modal';
 type BookableTrip = Pick<
   PublicTrip,
   'id' | 'number' | 'from' | 'to' | 'departureAt' | 'seats' | 'price' | 'class' | 'meetingPoint'
->;
+> &
+  Partial<Pick<PublicTrip, 'alongTheWay' | 'pickup' | 'dropoff'>>;
 
 /**
  * Seats for a caller without the app (POST admin/intercity/trips/:id/bookings): the caller
@@ -40,6 +41,7 @@ export function BookDialog({
   const normalized = isUzPhone(phone) ? normalizePhone(phone) : null;
   const price = bookingPrice(seats, front, trip.price);
   const requestId = useRef(crypto.randomUUID());
+  const along = Boolean(trip.alongTheWay && trip.pickup && trip.dropoff);
 
   const book = useMutation({
     mutationFn: () =>
@@ -52,6 +54,8 @@ export function BookDialog({
           front,
           pickupNote: note.trim() || null,
           clientRequestId: requestId.current,
+          // a seat along the way: the caller's own towns, priced for their part
+          ...(along ? { from: trip.pickup!.slug, to: trip.dropoff!.slug } : {}),
         },
       }),
     onSuccess: ({ status, data: booking }) => {
@@ -71,7 +75,11 @@ export function BookDialog({
     <Modal
       open
       onClose={onClose}
-      title={`Bron: ${trip.from.nameUz} → ${trip.to.nameUz}`}
+      title={
+        along
+          ? `Bron: ${trip.pickup!.nameUz} → ${trip.dropoff!.nameUz}`
+          : `Bron: ${trip.from.nameUz} → ${trip.to.nameUz}`
+      }
       size="sm"
       busy={book.isPending}
       footer={
@@ -98,6 +106,12 @@ export function BookDialog({
         #{trip.number} · {dateTime(trip.departureAt)} · {CLASSES[trip.class]} · uchrashuv joyi:{' '}
         {trip.meetingPoint}
       </p>
+      {along && (
+        <div className="alert alert-info">
+          Yo‘l ustida: {trip.from.nameUz} → {trip.to.nameUz} qatnovi {trip.pickup!.nameUz} va{' '}
+          {trip.dropoff!.nameUz} orqali o‘tadi; narx yo‘lovchi yuradigan qism uchun.
+        </div>
+      )}
       {!choices.length && <div className="alert alert-warn">Bo‘sh joy qolmadi.</div>}
       <div className="grid-2">
         <Field
@@ -145,7 +159,8 @@ export function BookDialog({
         )}
       </Field>
       <p className="muted small">
-        Orqa o‘rindiq {som(trip.price.rear)}, old {som(trip.price.front)}. Naqd, haydovchiga.
+        Orqa o‘rindiq {som(trip.price.rear)}, old {som(trip.price.front)}. Operator broni
+        depozitsiz: naqd, haydovchiga.
       </p>
       {book.error && !Object.keys(server).length && (
         <div className="alert alert-error" role="alert">
