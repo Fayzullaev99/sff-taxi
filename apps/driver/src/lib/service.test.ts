@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   cargoLines,
   depositLine,
+  isCargoCar,
   parcelLines,
   serviceOf,
   serviceStep,
@@ -81,5 +82,14 @@ describe('depositLine', () => {
     );
     expect(depositLine(0, 40_000)).toBeNull();
     expect(depositLine(undefined, 40_000)).toBeNull();
+  });
+});
+
+describe('isCargoCar', () => {
+  it('hides passenger settings for a cargo car (QA wave 4: a Damas saw "Hamroh yo‘lovchilar")', () => {
+    expect(isCargoCar({ vehicle: { service: 'cargo' } })).toBe(true);
+    expect(isCargoCar({ vehicle: { service: 'taxi' } })).toBe(false);
+    expect(isCargoCar({ vehicle: null })).toBe(false);
+    expect(isCargoCar(null)).toBe(false);
   });
 });

@@ -26,6 +26,7 @@ import { getPreferredNavApp, setPreferredNavApp } from '../../ui/actions';
 import { Banner, Button, Card, Choice, Loading, Muted, Row, Title } from '../../ui/components';
 import { haptics } from '../../ui/haptics';
 import { WomenRidersCard } from '../../home/women-riders-card';
+import { isCargoCar } from '../../lib/service';
 import { CARGO_CLASS_LABELS } from '../../lib/service';
 import { Screen } from '../../ui/screen';
 import { LicenceCardStatus, SupportCard } from '../../ui/widgets';
@@ -130,7 +131,7 @@ export default function Profile() {
         />
       </Card>
 
-      <WomenRidersCard me={d} />
+      {isCargoCar(d) ? null : <WomenRidersCard me={d} />}
 
       <Card>
         <Title>Bildirishnomalar</Title>

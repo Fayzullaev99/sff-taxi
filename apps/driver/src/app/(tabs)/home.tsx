@@ -25,6 +25,7 @@ import {
 } from '../../location/tracker';
 import { CurrentRideCard } from '../../home/current-ride-card';
 import { PoolPanel } from '../../home/pool-panel';
+import { isCargoCar } from '../../lib/service';
 import { useBatteryOptimization } from '../../location/use-battery-optimization';
 import { useTrackingMode } from '../../location/use-tracking-mode';
 import { registerPushDevice, requestPushPermission } from '../../notifications/push';
@@ -204,8 +205,9 @@ export default function Home() {
 
       {online ? <GpsIndicator /> : null}
 
-      {/* shared rides, people in the car, the heading filter (hidden on an older API) */}
-      <PoolPanel me={d} />
+      {/* shared rides, people in the car, the heading filter (hidden on an older API; a cargo
+          car carries loads, not passengers) */}
+      {isCargoCar(d) ? null : <PoolPanel me={d} />}
 
       {online && mode === 'foreground' ? (
         <Banner

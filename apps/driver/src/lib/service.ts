@@ -110,3 +110,13 @@ export function depositLine(deposit: number | null | undefined, cashToTake: numb
 export function customerWord(service: Service): string {
   return service === 'taxi' ? 'Yo‘lovchi' : 'Mijoz';
 }
+
+/**
+ * A cargo car (Damas, Gazel…) gets cargo orders only: passenger settings (sharing the car,
+ * people riding without the app, the heading filter, women riders) do not apply to it.
+ */
+export function isCargoCar(
+  me: { vehicle?: { service?: string | null } | null } | null | undefined,
+) {
+  return me?.vehicle?.service === 'cargo';
+}
