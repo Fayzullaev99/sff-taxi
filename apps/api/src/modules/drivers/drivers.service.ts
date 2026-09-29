@@ -28,6 +28,8 @@ import {
   type RuleProblem,
   tashkentDate,
 } from '../../lib/driver-rules.js';
+import { distanceM } from '../../lib/distance.js';
+import { carCapacity, seatLayout } from '../../lib/pool.js';
 import { priority } from '../../lib/priority.js';
 import { DriverTrackService } from '../geo/driver-track.service.js';
 import { PickupEtaService } from '../geo/pickup-eta.service.js';
@@ -47,6 +49,8 @@ export interface ApplicationInput {
   licenceIssuedOn: string;
   licenceCardNumber: string;
   licenceCardExpiresOn: string;
+  /** As in the passport; an operator verifies it (women riders may ask for a woman driver). */
+  gender?: 'female' | 'male';
   vehicle: {
     make: string;
     model: string;
@@ -60,6 +64,18 @@ export interface ApplicationInput {
   };
 }
 
+/** The driver's shared-ride and filter settings (PUT driver/preferences). */
+export interface DriverPreferences {
+  /** Takes riders who agreed to share while carrying someone. */
+  poolEnabled?: boolean;
+  /** People in the car without the app. */
+  extraPassengers?: number;
+  /** Where the driver is heading: offers only on the way; null clears it. */
+  destination?: { lat: number; lng: number; address: string | null } | null;
+  /** Verified women drivers: women riders only. */
+  womenRidersOnly?: boolean;
+}
+
 export interface LocationFix {
   lat: number;
   lng: number;
@@ -67,6 +83,9 @@ export interface LocationFix {
   heading?: number;
   speed?: number;
 }
+
+/** Within this of the destination the driver's heading filter clears itself. */
+export const DESTINATION_REACHED_M = 300;
 
 const REJECTED_FIX = {
   inaccurate: 'Joylashuv aniqligi past',
@@ -114,7 +133,7 @@ export class DriversService {
     await this.db.transaction(async (trx) => {
       const existing = await trx
         .selectFrom('drivers')
-        .select(['status', 'licence_card_number', 'licence_status'])
+        .select(['status', 'licence_card_number', 'licence_status', 'gender'])
         .where('user_id', '=', user.userId)
         .forUpdate()
         .executeTakeFirst();
@@ -134,6 +153,9 @@ export class DriversService {
         licence_issued_on: input.licenceIssuedOn,
         licence_card_number: input.licenceCardNumber,
         licence_card_expires_on: input.licenceCardExpiresOn,
+        ...(input.gender && input.gender !== existing?.gender
+          ? { gender: input.gender, gender_verified_at: null, gender_verified_by: null }
+          : {}),
         status: 'pending' as const,
         status_reason: null,
         ...(recheck ? { licence_status: 'unverified' as const, licence_checked_at: null } : {}),
@@ -301,6 +323,112 @@ export class DriversService {
     return this.me(user);
   }
 
+  /**
+   * The driver's shared-ride settings: the mode, how many people ride without the app (they
+   * need a destination: offers must be on their way) and the heading filter. The seating
+   * rule counts the riders of the driver's active rides too.
+   */
+  async setPreferences(user: AuthUser, input: DriverPreferences) {
+    await this.db.transaction(async (trx) => {
+      const d = await trx
+        .selectFrom('drivers as d')
+        .leftJoin('vehicles as v', 'v.driver_id', 'd.user_id')
+        .select([
+          'd.status',
+          'd.gender',
+          'd.gender_verified_at',
+          'd.extra_passengers',
+          'd.destination',
+          'd.pool_enabled',
+          'v.seats',
+        ])
+        .where('d.user_id', '=', user.userId)
+        .forUpdate('d')
+        .executeTakeFirst();
+      if (!d) throw new NotFoundException('Siz haydovchi sifatida ro‘yxatdan o‘tmagansiz');
+      if (d.status !== 'active') throw new ForbiddenException('Hisobingiz faol emas');
+      const extra = input.extraPassengers ?? d.extra_passengers;
+      const destination = input.destination === undefined ? d.destination : input.destination;
+      if (extra > 0 && !destination) {
+        throw new BadRequestException(
+          'Mashinada yo‘lovchi bo‘lsa, qayerga ketayotganingizni belgilang',
+        );
+      }
+      if (input.womenRidersOnly && !(d.gender === 'female' && d.gender_verified_at)) {
+        throw new ForbiddenException(
+          'Bu imkoniyat jinsi operator tomonidan tasdiqlangan ayol haydovchilar uchun',
+        );
+      }
+      const riders = await trx
+        .selectFrom('rides')
+        .select((eb) => eb.fn.coalesce(eb.fn.sum<number>('passengers'), eb.lit(0)).as('n'))
+        .where('driver_id', '=', user.userId)
+        .where('status', 'in', [...ACTIVE_RIDE_STATUSES])
+        .executeTakeFirstOrThrow();
+      const cap = carCapacity(d.seats ?? 4);
+      if (Number(riders.n) + extra > cap) {
+        throw new ConflictException(
+          `Mashinada ${cap} tadan ortiq yo‘lovchi bo‘lmaydi (oldinda 1, orqada 2)`,
+        );
+      }
+      await trx
+        .updateTable('drivers')
+        .set({
+          ...(input.poolEnabled !== undefined ? { pool_enabled: input.poolEnabled } : {}),
+          ...(input.womenRidersOnly !== undefined
+            ? { women_riders_only: input.womenRidersOnly }
+            : {}),
+          extra_passengers: extra,
+          ...(input.destination !== undefined
+            ? input.destination
+              ? {
+                  destination: JSON.stringify({
+                    lat: input.destination.lat,
+                    lng: input.destination.lng,
+                    address: input.destination.address,
+                    landmark: null,
+                  }),
+                  destination_lat: input.destination.lat,
+                  destination_lng: input.destination.lng,
+                  destination_set_at: new Date(),
+                }
+              : {
+                  destination: null,
+                  destination_lat: null,
+                  destination_lng: null,
+                  destination_set_at: null,
+                }
+            : {}),
+          updated_at: new Date(),
+        })
+        .where('user_id', '=', user.userId)
+        .execute();
+      // offers made under the old settings may no longer fit: they are withdrawn
+      if (input.destination !== undefined || extra !== d.extra_passengers) {
+        await this.withdrawOffers(trx, user.userId);
+      }
+    });
+    return this.me(user);
+  }
+
+  /** An operator records the driver's gender as checked in the passport. */
+  async verifyGender(operator: AuthUser, driverId: string, gender: 'female' | 'male') {
+    const res = await this.db.kysely
+      .updateTable('drivers')
+      .set({
+        gender,
+        gender_verified_at: new Date(),
+        gender_verified_by: operator.userId,
+        // a man cannot keep the women-riders-only choice
+        ...(gender === 'male' ? { women_riders_only: false } : {}),
+        updated_at: new Date(),
+      })
+      .where('user_id', '=', driverId)
+      .executeTakeFirst();
+    if (!res.numUpdatedRows) throw new NotFoundException('Haydovchi topilmadi');
+    return this.adminView(driverId);
+  }
+
   /** A GPS fix from the driver app: implausible ones are refused, good ones kept with a trail. */
   async locate(user: AuthUser, fix: LocationFix): Promise<{ lat: number; lng: number; at: Date }> {
     const d = await this.driverRow(user.userId);
@@ -330,8 +458,8 @@ export class DriversService {
       heading: fix.heading ?? null,
       speed: fix.speed ?? null,
     });
-    // the rider of the driver's ride watches the car come
-    const ride = await this.db.kysely
+    // every rider of the driver's rides (several when they share the car) watches the car
+    const rides = await this.db.kysely
       .selectFrom('rides')
       .select([
         'id',
@@ -344,34 +472,61 @@ export class DriversService {
       ])
       .where('driver_id', '=', user.userId)
       .where('status', 'in', [...ACTIVE_RIDE_STATUSES])
-      .executeTakeFirst();
-    if (ride) {
-      // on the way to the pickup: the road ETA (one router call per ~15 s, cached)
-      const eta =
-        ride.status === 'driver_assigned'
-          ? await this.pickupEta
-              .eta(ride.id, fix, { lat: ride.pickup_lat, lng: ride.pickup_lng }, now)
-              .catch(() => null)
-          : null;
-      // on the trip: the road ETA to the destination, refreshed the same way
-      const toDestination =
-        ride.status === 'in_progress'
-          ? await this.pickupEta
-              .eta(ride.id, fix, { lat: ride.dropoff_lat, lng: ride.dropoff_lng }, now, 'dropoff')
-              .catch(() => null)
-          : null;
+      .execute();
+    await Promise.all(
+      rides.map(async (ride) => {
+        // on the way to the pickup: the road ETA (one router call per ~15 s, cached)
+        const eta =
+          ride.status === 'driver_assigned'
+            ? await this.pickupEta
+                .eta(ride.id, fix, { lat: ride.pickup_lat, lng: ride.pickup_lng }, now)
+                .catch(() => null)
+            : null;
+        // on the trip: the road ETA to the destination, refreshed the same way
+        const toDestination =
+          ride.status === 'in_progress'
+            ? await this.pickupEta
+                .eta(ride.id, fix, { lat: ride.dropoff_lat, lng: ride.dropoff_lng }, now, 'dropoff')
+                .catch(() => null)
+            : null;
+        await this.realtime.publish({
+          to: { userIds: [ride.rider_id] },
+          event: {
+            type: 'driver.location',
+            rideId: ride.id,
+            lat: fix.lat,
+            lng: fix.lng,
+            heading: fix.heading ?? null,
+            at: now.toISOString(),
+            etaS: eta?.etaS ?? null,
+            destinationEtaS: toDestination?.etaS ?? null,
+          },
+        });
+      }),
+    );
+    // a driver heading somewhere who got there (with nobody left to carry) is free again:
+    // the filter clears itself, like Yandex's "Domoy"
+    if (
+      !rides.length &&
+      d.destination_lat !== null &&
+      d.destination_lng !== null &&
+      distanceM(fix.lat, fix.lng, d.destination_lat, d.destination_lng) <= DESTINATION_REACHED_M
+    ) {
+      await this.db.kysely
+        .updateTable('drivers')
+        .set({
+          destination: null,
+          destination_lat: null,
+          destination_lng: null,
+          destination_set_at: null,
+          extra_passengers: 0,
+          updated_at: now,
+        })
+        .where('user_id', '=', user.userId)
+        .execute();
       await this.realtime.publish({
-        to: { userIds: [ride.rider_id] },
-        event: {
-          type: 'driver.location',
-          rideId: ride.id,
-          lat: fix.lat,
-          lng: fix.lng,
-          heading: fix.heading ?? null,
-          at: now.toISOString(),
-          etaS: eta?.etaS ?? null,
-          destinationEtaS: toDestination?.etaS ?? null,
-        },
+        to: { userIds: [user.userId] },
+        event: { type: 'driver.updated', driverId: user.userId, status: 'destination_reached' },
       });
     }
     return { lat: fix.lat, lng: fix.lng, at: now };
@@ -812,6 +967,17 @@ export class DriversService {
         d.lat !== null && d.lng !== null
           ? { lat: d.lat, lng: d.lng, heading: d.heading, at: d.located_at }
           : null,
+      gender: d.gender,
+      genderVerified: d.gender_verified_at !== null,
+      womenRidersOnly: d.women_riders_only,
+      // shared rides: the mode, people in the car without the app, the heading filter
+      pool: {
+        enabled: d.pool_enabled,
+        extraPassengers: d.extra_passengers,
+        destination: d.destination,
+        destinationSetAt: d.destination_set_at,
+        seats: seatLayout(d.extra_passengers, v?.seats ?? 4),
+      },
       photoUrl: readUrl(d.photo_upload_id),
       vehicle: v ? { ...vehicleView(v), photoUrl: readUrl(v.photo_upload_id) } : null,
       documents: docs.map(({ upload_id, url, content_type, ...doc }) => ({

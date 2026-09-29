@@ -32,6 +32,7 @@ import {
   signIn,
   signInAdmin,
   uniquePhone,
+  startPin,
 } from './helpers.js';
 
 const inMinutes = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
@@ -569,7 +570,8 @@ describe('app gaps, wave 3: operator panel and rider app', () => {
       await driver.http.post(`/v1/driver/rides/${id}/arrive`).expect(200);
       const before = await api(app, rider.accessToken).get(`/v1/rides/${id}`).expect(200);
       expect(before.body.destinationEta).toBeNull();
-      await driver.http.post(`/v1/driver/rides/${id}/start`).expect(200);
+      const pin = await startPin(app, id);
+      await driver.http.post(`/v1/driver/rides/${id}/start`).send({ pin }).expect(200);
       heard.length = 0;
       await driver.http.post('/v1/driver/location').send(near(150)).expect(204);
       await new Promise((r) => setTimeout(r, 100));

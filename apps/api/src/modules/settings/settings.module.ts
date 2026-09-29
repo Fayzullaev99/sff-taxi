@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { AdminOnly } from '../../core/auth/auth-context.js';
 import { Database, type Tx } from '../../core/db/database.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
+import { DEFAULT_POOL, PoolRules } from '../../lib/pool.js';
 import { DEFAULT_TARIFF, Tariff } from '../../lib/tariff.js';
 
 type Db = Tx | Database['kysely'];
@@ -147,6 +148,7 @@ const RULES = {
   billing: { key: 'billing', schema: BillingRules, fallback: DEFAULT_BILLING },
   intercity: { key: 'intercity', schema: IntercityRules, fallback: DEFAULT_INTERCITY },
   fiscal: { key: 'fiscal', schema: FiscalRules, fallback: DEFAULT_FISCAL },
+  pool: { key: 'pool', schema: PoolRules, fallback: DEFAULT_POOL },
 } as const;
 type RuleName = keyof typeof RULES;
 type RuleValue<N extends RuleName> = z.infer<(typeof RULES)[N]['schema']>;
@@ -157,17 +159,31 @@ type RuleValue<N extends RuleName> = z.infer<(typeof RULES)[N]['schema']>;
  */
 @Injectable()
 export class SettingsService {
+  /**
+   * Rules read outside a transaction are kept for a few seconds: the dispatch loop, quotes
+   * and availability read them on every request. A change made here is seen at once; one
+   * made by another process (API vs worker) within CACHE_MS.
+   */
+  private readonly cache = new Map<string, { value: unknown; until: number }>();
+  static readonly CACHE_MS = 5000;
+
   constructor(private readonly db: Database) {}
 
-  async get<N extends RuleName>(name: N, db: Db = this.db.kysely): Promise<RuleValue<N>> {
+  async get<N extends RuleName>(name: N, db?: Db): Promise<RuleValue<N>> {
     const rule = RULES[name];
-    const row = await db
+    if (!db) {
+      const hit = this.cache.get(rule.key);
+      if (hit && hit.until > Date.now()) return hit.value as RuleValue<N>;
+    }
+    const row = await (db ?? this.db.kysely)
       .selectFrom('settings')
       .select('value')
       .where('key', '=', rule.key)
       .executeTakeFirst();
     const parsed = rule.schema.safeParse(row?.value);
-    return (parsed.success ? parsed.data : rule.fallback) as RuleValue<N>;
+    const value = (parsed.success ? parsed.data : rule.fallback) as RuleValue<N>;
+    if (!db) this.cache.set(rule.key, { value, until: Date.now() + SettingsService.CACHE_MS });
+    return value;
   }
 
   async set<N extends RuleName>(name: N, value: RuleValue<N>): Promise<RuleValue<N>> {
@@ -177,6 +193,7 @@ export class SettingsService {
       .values({ key: RULES[name].key, value: json })
       .onConflict((oc) => oc.column('key').doUpdateSet({ value: json, updated_at: new Date() }))
       .execute();
+    this.cache.delete(RULES[name].key);
     return this.get(name);
   }
 
@@ -198,6 +215,10 @@ export class SettingsService {
 
   fiscal(db?: Db) {
     return this.get('fiscal', db);
+  }
+
+  pool(db?: Db) {
+    return this.get('pool', db);
   }
 }
 
@@ -255,6 +276,17 @@ export class SettingsController {
   @Put('fiscal')
   setFiscal(@Body(new ZodPipe(FiscalRules)) body: FiscalRules) {
     return this.settings.set('fiscal', body);
+  }
+
+  /** Shared rides: the discount, detour limits, search radius (src/lib/pool.ts). */
+  @Get('pool')
+  pool() {
+    return this.settings.pool();
+  }
+
+  @Put('pool')
+  setPool(@Body(new ZodPipe(PoolRules)) body: PoolRules) {
+    return this.settings.set('pool', body);
   }
 }
 

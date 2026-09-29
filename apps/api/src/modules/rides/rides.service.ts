@@ -9,7 +9,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { type Selectable, sql, type Updateable } from 'kysely';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
 import { ENV, type Env } from '../../config/env.js';
 import type { AuthUser } from '../../core/auth/auth-context.js';
@@ -40,10 +40,13 @@ import {
   reasonLabel,
   RELEASE_REASONS,
 } from '../../lib/reasons.js';
+import { MAX_PASSENGERS, REAR_SEATS_MAX } from '../../lib/pool.js';
 import {
   computeFare,
   type Fare,
+  fixedFare,
   freeWaitingOver,
+  isNight,
   RIDE_CLASSES,
   type RideClass,
   type RideOption,
@@ -61,7 +64,9 @@ import { SettingsService } from '../settings/settings.module.js';
 import { UploadsService } from '../uploads/uploads.service.js';
 import { DriverTrackService } from '../geo/driver-track.service.js';
 import { PickupEtaService } from '../geo/pickup-eta.service.js';
+import { RouteFaresService, type RouteQuote } from '../geo/route-fares.service.js';
 import { AvailabilityService } from './availability.service.js';
+import { PoolService } from './pool.service.js';
 
 type Db = Tx | Database['kysely'];
 type Ride = Selectable<RidesTable>;
@@ -100,6 +105,14 @@ export interface OrderInput {
   dropoff: { address: string | null; landmark: string | null };
   comment: string | null;
   clientRequestId: string;
+  /** People riding: 1-3 (one in front, at most two in the back). */
+  passengers?: number;
+  /** "Hamroh bilan": other riders going the same way may share the car (cash only). */
+  shareable?: boolean;
+  /** A woman driver only (riders who declared themselves women). */
+  womenOnly?: boolean;
+  /** car: the whole car; seat: the fixed route's per-person price in a shared car. */
+  fareMode?: 'car' | 'seat';
 }
 
 export interface PhoneOrderInput {
@@ -115,6 +128,7 @@ export interface PhoneOrderInput {
   quoteId: string | null;
   /** The panel's idempotency key: a double click creates one ride. */
   clientRequestId: string | null;
+  passengers?: number;
 }
 
 const placeText = (p: { address: string | null; landmark: string | null }) => ({
@@ -159,6 +173,8 @@ export class RidesService {
     private readonly availability: AvailabilityService,
     private readonly pickupEta: PickupEtaService,
     private readonly track: DriverTrackService,
+    private readonly routes: RouteFaresService,
+    private readonly pool: PoolService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -211,8 +227,19 @@ export class RidesService {
         tariff: JSON.stringify(priced.tariff),
         expires_at: expiresAt,
         scheduled_for: scheduledFor,
+        route: priced.fixedRoute ? JSON.stringify(priced.fixedRoute) : null,
       })
       .execute();
+    const [poolRules, rider] = await Promise.all([
+      this.settings.pool(),
+      opts.forRider
+        ? this.db.kysely
+            .selectFrom('users')
+            .select('gender')
+            .where('id', '=', user.userId)
+            .executeTakeFirst()
+        : Promise.resolve(undefined),
+    ]);
     return {
       quoteId: id,
       expiresAt,
@@ -235,13 +262,75 @@ export class RidesService {
       cancellationFee: priced.tariff.cancellation_fee,
       // the nearest free car per class, by road: "~4 min" on the class buttons
       availability: scheduledFor ? null : await this.availability.near(input.pickup, user.userId),
+      // the seating rule: one in front, at most two in the back
+      seats: { max: MAX_PASSENGERS, front: 1, rearMax: REAR_SEATS_MAX },
+      // a fixed price between towns: per seat in a shared car, or the whole car
+      route: priced.fixedRoute
+        ? {
+            from: priced.fixedRoute.from,
+            to: priced.fixedRoute.to,
+            prices: Object.fromEntries(
+              Object.entries(priced.fixedRoute.prices).map(([c, p]) => [
+                c,
+                { seat: p.seat, car: p.car },
+              ]),
+            ),
+          }
+        : null,
+      // "Hamroh bilan": the discount when the car is shared, and cars already going that way
+      pool: poolRules.enabled
+        ? {
+            available: true,
+            discountPercent: poolRules.discount_percent,
+            fullDiscountSharePercent: poolRules.full_discount_share_percent,
+            cashOnly: true,
+            cars: scheduledFor
+              ? []
+              : await this.pool.preview({
+                  riderId: user.userId,
+                  riderGender: rider?.gender ?? null,
+                  pickup: input.pickup,
+                  dropoff: input.dropoff,
+                  kind: priced.kind,
+                  fare: priced.fares.economy.total,
+                  distanceM: priced.route.distanceM,
+                  tariff: priced.tariff,
+                }),
+          }
+        : {
+            available: false,
+            discountPercent: 0,
+            fullDiscountSharePercent: 0,
+            cashOnly: true,
+            cars: [],
+          },
+      // a woman driver only: offered to riders who declared themselves women
+      womenOnly: opts.forRider
+        ? {
+            available: rider?.gender === 'female',
+            reason: rider?.gender === 'female' ? null : 'profile_gender',
+            drivers: scheduledFor
+              ? null
+              : await this.availability.womenDrivers(input.pickup, user.userId),
+          }
+        : null,
     };
   }
 
   /** Prices a trip; `now` is real time, read through the business calendar for the night add-on. */
   private async price(pickup: Point, dropoff: Point, options: RideOption[], now: Date) {
     const at = this.calendar.at(now);
-    const service = await this.geo.serviceCity(pickup);
+    const [found, route] = await Promise.all([
+      this.geo.serviceCity(pickup),
+      this.routes.match(pickup, dropoff),
+    ]);
+    let service = found;
+    // a fixed route may start in a town not yet served in the city (Yangiyer -> Guliston)
+    const routeCityId = route ? (route.from.cityId ?? route.to.cityId) : null;
+    if (!service && routeCityId) {
+      const city = await this.geo.city(routeCityId);
+      service = { city, tariff: city.tariff ?? (await this.settings.tariff()), outsideM: 0 };
+    }
     if (!service) {
       const where = await this.geo.resolve(pickup);
       throw new UnprocessableEntityException({
@@ -252,7 +341,7 @@ export class RidesService {
     if (distanceM(pickup.lat, pickup.lng, dropoff.lat, dropoff.lng) < MIN_TRIP_M) {
       throw new BadRequestException('Olib ketish va borish manzillari juda yaqin');
     }
-    const route = await this.routing.route(pickup, dropoff);
+    const roadRoute = await this.routing.route(pickup, dropoff);
     const fares = Object.fromEntries(
       RIDE_CLASSES.map((rideClass) => [
         rideClass,
@@ -260,7 +349,7 @@ export class RidesService {
           {
             pickup,
             dropoff,
-            roadM: route.distanceM,
+            roadM: roadRoute.distanceM,
             boundary: service.city.boundary,
             rideClass,
             options,
@@ -270,7 +359,26 @@ export class RidesService {
         ),
       ]),
     ) as Record<RideClass, Fare>;
-    return { city: service.city, tariff: service.tariff, route, fares, kind: fares.economy.kind };
+    // a fixed whole-car price replaces the distance price of its class
+    for (const rideClass of RIDE_CLASSES) {
+      const p = route?.prices[rideClass];
+      if (p?.car) {
+        fares[rideClass] = fixedFare(fares[rideClass], {
+          routeFareId: p.id,
+          mode: 'car',
+          price: p.car,
+          passengers: 1,
+        });
+      }
+    }
+    return {
+      city: service.city,
+      tariff: service.tariff,
+      route: roadRoute,
+      fares,
+      kind: fares.economy.kind,
+      fixedRoute: route,
+    };
   }
 
   // Ordering ---------------------------------------------------------------------------
@@ -294,16 +402,15 @@ export class RidesService {
       .executeTakeFirst();
     if (!quote) throw new NotFoundException('Narx topilmadi: qayta hisoblang');
     if (quote.expires_at <= now) throw new GoneException('Narx eskirdi: qayta hisoblang');
-    const fare = (quote.fares as unknown as Record<RideClass, Fare>)[input.class];
     if (quote.scheduled_for && input.paymentMethod !== 'cash') {
       throw new BadRequestException('Oldindan buyurtma hozircha faqat naqd to‘lov bilan');
     }
-
     const rider = await this.db.kysely
       .selectFrom('users')
-      .select(['phone', 'full_name'])
+      .select(['phone', 'full_name', 'gender'])
       .where('id', '=', user.userId)
       .executeTakeFirstOrThrow();
+    const how = await this.rideTerms(quote, input, rider.gender);
     const id = await this.db.transaction(async (trx) => {
       // a double tap racing the check above lands on the unique key: answer with that ride
       await sql`select pg_advisory_xact_lock(hashtext(${user.userId}))`.execute(trx);
@@ -334,13 +441,78 @@ export class RidesService {
         comment: input.comment,
         distanceM: quote.distance_m,
         durationS: quote.duration_s,
-        fare,
+        fare: how.fare,
         tariff: quote.tariff,
         paymentMethod: input.paymentMethod,
         scheduledFor: quote.scheduled_for,
+        passengers: how.passengers,
+        shareable: how.shareable,
+        womenOnly: how.womenOnly,
+        riderGender: rider.gender,
+        fareMode: how.fareMode,
+        routeFareId: how.fare.fixed?.routeFareId ?? null,
+        startPin: how.startPin,
       });
     });
     return { created: true, ride: await this.riderView(user, id) };
+  }
+
+  /**
+   * How a quoted ride is ordered: people, sharing, a woman driver, the whole car or a seat
+   * of a fixed route, and whether the rider tells the driver a start code. Validated against
+   * the quote and the platform rules; the fare is the quote's (or the route's seat price).
+   */
+  private async rideTerms(
+    quote: { fares: unknown; route: unknown; tariff: unknown; scheduled_for: Date | null },
+    input: OrderInput,
+    riderGender: 'female' | 'male' | null,
+  ) {
+    const passengers = input.passengers ?? 1;
+    if (!Number.isInteger(passengers) || passengers < 1 || passengers > MAX_PASSENGERS) {
+      throw new BadRequestException(
+        msg(
+          'Bir mashinada {0} tadan ortiq yo‘lovchi bo‘lmaydi (oldinda 1, orqada 2)',
+          MAX_PASSENGERS,
+        ),
+      );
+    }
+    const fareMode = input.fareMode ?? 'car';
+    // a seat is a place in a shared car
+    const shareable = fareMode === 'seat' || Boolean(input.shareable);
+    let fare = (quote.fares as Record<RideClass, Fare>)[input.class];
+    if (shareable) {
+      const rules = await this.settings.pool();
+      if (!rules.enabled) throw new BadRequestException('Hamroh bilan safar hozircha o‘chirilgan');
+      if (input.paymentMethod !== 'cash') {
+        throw new BadRequestException('Hamroh bilan safar hozircha faqat naqd to‘lov bilan');
+      }
+    }
+    if (fareMode === 'seat') {
+      const price = (quote.route as RouteQuote | null)?.prices[input.class];
+      if (!price?.seat) {
+        throw new BadRequestException('Bu yo‘nalishda o‘rindiq narxi belgilanmagan');
+      }
+      fare = fixedFare(fare, {
+        routeFareId: price.id,
+        mode: 'seat',
+        price: price.seat,
+        passengers,
+      });
+    }
+    const womenOnly = Boolean(input.womenOnly);
+    if (womenOnly && riderGender !== 'female') {
+      throw new ForbiddenException(
+        'Ayol haydovchi tanlovi ayollar uchun: profilingizda jinsingizni belgilang',
+      );
+    }
+    const tariff = Tariff.parse(quote.tariff);
+    const night = isNight(this.calendar.at(quote.scheduled_for ?? new Date()), tariff.night);
+    // the right rider in the right car: at night, with strangers, a woman driver, between towns
+    const startPin =
+      night || shareable || womenOnly || fare.kind === 'intercity'
+        ? String(randomInt(0, 10_000)).padStart(4, '0')
+        : null;
+    return { passengers, fareMode, shareable, womenOnly, fare, startPin };
   }
 
   /**
@@ -467,6 +639,7 @@ export class RidesService {
         tariff: priced.tariff,
         paymentMethod: 'cash',
         scheduledFor: priced.scheduledFor,
+        passengers: input.passengers ?? 1,
       }).then((rideId) => ({ id: rideId, created: true }));
     });
     return { created: id.created, ride: await this.adminView(id.id) };
@@ -676,6 +849,13 @@ export class RidesService {
       tariff: unknown;
       paymentMethod: PaymentMethod;
       scheduledFor?: Date | null;
+      passengers?: number;
+      shareable?: boolean;
+      womenOnly?: boolean;
+      riderGender?: 'female' | 'male' | null;
+      fareMode?: 'car' | 'seat';
+      routeFareId?: string | null;
+      startPin?: string | null;
     },
   ): Promise<string> {
     const id = uuidv7();
@@ -716,6 +896,13 @@ export class RidesService {
         fare_quoted: r.fare.total,
         payment_method: r.paymentMethod,
         scheduled_for: r.scheduledFor ?? null,
+        passengers: r.passengers ?? 1,
+        shareable: r.shareable ?? false,
+        women_only: r.womenOnly ?? false,
+        rider_gender: r.riderGender ?? null,
+        fare_mode: r.fareMode ?? 'car',
+        route_fare_id: r.routeFareId ?? null,
+        start_pin: r.startPin ?? null,
         status,
         updated_at: new Date(),
       })
@@ -725,6 +912,10 @@ export class RidesService {
       fare: r.fare.total,
       class: r.rideClass,
       paymentMethod: r.paymentMethod,
+      passengers: r.passengers ?? 1,
+      ...(r.shareable ? { shareable: true } : {}),
+      ...(r.womenOnly ? { womenOnly: true } : {}),
+      ...(r.fareMode === 'seat' ? { fareMode: 'seat' } : {}),
     });
     // fees owed from cancelled cash rides are paid with this cash fare (a separate line)
     if (r.paymentMethod === 'cash') await this.attachOwedFees(trx, r.riderId, id);
@@ -761,7 +952,14 @@ export class RidesService {
     trx: Tx,
     ride: Ride,
     driverId: string,
-    by: { actor: RideActor; actorId: string | null; offerId?: string; manual?: boolean },
+    by: {
+      actor: RideActor;
+      actorId: string | null;
+      offerId?: string;
+      manual?: boolean;
+      /** Joining a car already carrying riders (PoolService.join). */
+      poolId?: string;
+    },
   ): Promise<void> {
     if (ride.status !== 'searching' && !(by.manual && ride.status === 'driver_assigned')) {
       throw new ConflictException('Buyurtma allaqachon boshqa haydovchiga berilgan');
@@ -778,12 +976,14 @@ export class RidesService {
     if (!driver || driver.status !== 'active') throw new ConflictException('Haydovchi faol emas');
     if (driverId === ride.rider_id)
       throw new ConflictException('O‘zingizning buyurtmangizni ololmaysiz');
-    const busy = await trx
-      .selectFrom('rides')
-      .select('number')
-      .where('driver_id', '=', driverId)
-      .where('status', 'in', [...ACTIVE_RIDE_STATUSES])
-      .executeTakeFirst();
+    const busy = by.poolId
+      ? undefined
+      : await trx
+          .selectFrom('rides')
+          .select('number')
+          .where('driver_id', '=', driverId)
+          .where('status', 'in', [...ACTIVE_RIDE_STATUSES])
+          .executeTakeFirst();
     if (busy) throw new ConflictException(msg('Haydovchida faol buyurtma bor: #{0}', busy.number));
 
     const previousDriverId = ride.driver_id;
@@ -801,6 +1001,7 @@ export class RidesService {
           class: driver.class,
         }),
         assigned_at: now,
+        pool_id: by.poolId ?? null,
         updated_at: now,
       })
       .where('id', '=', ride.id)
@@ -824,6 +1025,7 @@ export class RidesService {
     await this.event(trx, ride.id, 'assigned', by.actor, by.actorId, {
       driverId,
       ...(by.offerId ? { offerId: by.offerId } : {}),
+      ...(by.poolId ? { poolId: by.poolId } : {}),
       manual: Boolean(by.manual),
     });
     await emit(trx, 'ride.status_changed', {
@@ -832,6 +1034,31 @@ export class RidesService {
       to: 'driver_assigned',
       ...(previousDriverId ? { previousDriverId } : {}),
     });
+  }
+
+  /**
+   * Gives a searching ride to a driver, whatever the car carries: a car with riders who
+   * share takes it as one more on its way (checked again under the locks), a driver heading
+   * somewhere only if it is still on the way, a free car simply. The caller holds the ride.
+   */
+  async giveToDriver(
+    trx: Tx,
+    ride: Ride,
+    driverId: string,
+    by: { actor: RideActor; actorId: string | null; offerId?: string; manual?: boolean },
+  ): Promise<void> {
+    const car = await this.pool.car(trx, driverId);
+    if (car?.rides.length && ride.status === 'searching' && ride.shareable) {
+      await this.pool.join(trx, ride, driverId, (poolId) =>
+        this.assignDriver(trx, ride, driverId, { ...by, poolId }),
+      );
+      return;
+    }
+    if (car?.destination && !by.manual) {
+      const fit = await this.pool.fit(car, ride, await this.settings.pool(trx));
+      if (!fit) throw new ConflictException('Bu buyurtma endi yo‘lingizda emas');
+    }
+    await this.assignDriver(trx, ride, driverId, by);
   }
 
   // Rider actions ----------------------------------------------------------------------
@@ -868,18 +1095,23 @@ export class RidesService {
     return this.driverView(user, rideId);
   }
 
-  /** The rider is in the car: paid waiting (after the free minutes) is fixed now. */
-  async start(user: AuthUser, rideId: string) {
-    await this.driverStep(
-      user,
-      rideId,
-      'driver_arrived',
-      'in_progress',
-      async (_trx, ride, now) => {
-        const fee = ride.arrived_at ? waitingFee(ride.arrived_at, now, this.tariffOf(ride)) : 0;
-        return { set: { started_at: now, waiting_fee: fee }, data: { waitingFee: fee } };
-      },
-    );
+  /**
+   * The rider is in the car: paid waiting (after the free minutes) is fixed now. A ride with
+   * a start code starts only with the code the rider tells the driver.
+   */
+  async start(user: AuthUser, rideId: string, pin: string | null = null) {
+    await this.driverStep(user, rideId, 'driver_arrived', 'in_progress', async (trx, ride, now) => {
+      if (ride.start_pin && pin !== ride.start_pin) {
+        throw new BadRequestException(
+          pin
+            ? 'Kod noto‘g‘ri: yo‘lovchidan 4 xonali kodni so‘rang'
+            : 'Yo‘lovchidan 4 xonali kodni so‘rang',
+        );
+      }
+      const fee = ride.arrived_at ? waitingFee(ride.arrived_at, now, this.tariffOf(ride)) : 0;
+      await this.pool.pickedUp(trx, ride);
+      return { set: { started_at: now, waiting_fee: fee }, data: { waitingFee: fee } };
+    });
     return this.driverView(user, rideId);
   }
 
@@ -889,7 +1121,9 @@ export class RidesService {
    */
   async complete(user: AuthUser, rideId: string) {
     await this.driverStep(user, rideId, 'in_progress', 'completed', async (trx, ride, now) => {
-      const total = ride.fare_quoted + ride.waiting_fee;
+      // a shared ride's discount (the part of the trip shared with other riders) is off
+      const total = ride.fare_quoted - ride.pool_discount + ride.waiting_fee;
+      await this.pool.droppedOff(trx, ride);
       if (ride.payment_method === 'card') {
         // the rider prepaid the quoted fare to the platform: it is the driver's money now
         // (paid waiting on a card ride is collected in cash)
@@ -997,7 +1231,7 @@ export class RidesService {
   async assignByOperator(operator: AuthUser, rideId: string, driverId: string) {
     await this.db.transaction(async (trx) => {
       const ride = await this.lockRide(trx, rideId);
-      await this.assignDriver(trx, ride, driverId, {
+      await this.giveToDriver(trx, ride, driverId, {
         actor: 'operator',
         actorId: operator.userId,
         manual: true,
@@ -1030,6 +1264,9 @@ export class RidesService {
     opts: { paymentStatus?: RidePaymentStatus } = {},
   ): Promise<void> {
     const now = new Date();
+    // riders sharing the car: the plan and their shared prices follow without this one
+    if (ride.pool_id && isActive(ride.status))
+      await this.pool.left(trx, ride, { keepPoolId: true });
     // a card ride's unpaid intent closes; a paid one is queued for a full refund
     const paymentStatus =
       opts.paymentStatus ??
@@ -1087,10 +1324,14 @@ export class RidesService {
     reasonCode: string | null = null,
   ): Promise<void> {
     const now = new Date();
+    if (ride.pool_id) await this.pool.left(trx, ride, { keepPoolId: false });
     await trx
       .updateTable('rides')
       .set({
         status: 'searching',
+        pool_id: null,
+        pool_shared_m: 0,
+        pool_discount: 0,
         driver_id: null,
         vehicle: null,
         assigned_at: null,
@@ -1458,6 +1699,11 @@ export class RidesService {
         cancellationFee: tariff.cancellation_fee,
       },
       rated: await this.rated(ride.id, 'rider'),
+      // the code the rider tells the driver before the trip starts
+      startPin: isOpen(ride.status) ? ride.start_pin : null,
+      // the car: people in it now and free seats (riders sharing see who else rides)
+      car:
+        ride.driver_id && isActive(ride.status) ? await this.pool.occupancy(ride.driver_id) : null,
       ...(await this.carProgress(ride)),
       events: await this.events(ride.id, RIDER_EVENTS),
     };
@@ -1520,10 +1766,51 @@ export class RidesService {
       ...this.baseView(ride),
       rider: await this.riderCard(ride),
       earnings: this.earnings(ride),
-      // what the driver takes from the rider in cash: the fare (card rides: prepaid, only
-      // paid waiting) plus fees the rider owed from earlier rides
+      // what the driver takes from the rider in cash: the fare after the shared discount and
+      // the deposit paid in advance (card rides: prepaid, only paid waiting) plus fees the
+      // rider owed from earlier rides
       collectCash:
-        (ride.payment_method === 'cash' ? ride.fare_quoted : 0) + ride.waiting_fee + ride.owed_fee,
+        (ride.payment_method === 'cash'
+          ? ride.fare_quoted - ride.pool_discount - ride.deposit_amount
+          : 0) +
+        ride.waiting_fee +
+        ride.owed_fee,
+      // riders sharing the car: every stop ahead in order
+      pool: ride.driver_id && isActive(ride.status) ? await this.driverStops(ride.driver_id) : null,
+    };
+  }
+
+  /** The driver's stops ahead when the car carries several riders (null for one ride). */
+  async driverStops(driverId: string) {
+    const car = await this.pool.car(this.db.kysely, driverId);
+    if (!car || car.rides.length < 2) return null;
+    const rides = await this.db.kysely
+      .selectFrom('rides')
+      .select(['id', 'number', 'rider_name', 'passengers', 'pickup', 'dropoff', 'status'])
+      .where(
+        'id',
+        'in',
+        car.rides.map((r) => r.id),
+      )
+      .execute();
+    const byId = new Map(rides.map((r) => [r.id, r]));
+    return {
+      riders: car.rides.length,
+      occupancy: await this.pool.occupancy(driverId),
+      stops: car.stops.map((s) => {
+        const r = byId.get(s.rideId!)!;
+        return {
+          rideId: s.rideId,
+          number: r.number,
+          type: s.type,
+          lat: s.lat,
+          lng: s.lng,
+          place: s.type === 'pickup' ? r.pickup : r.dropoff,
+          riderName: r.rider_name,
+          passengers: s.passengers,
+          status: r.status,
+        };
+      }),
     };
   }
 
@@ -1629,8 +1916,21 @@ export class RidesService {
         cancellationFeeStatus: ride.fee_status,
         /** Earlier rides' owed fees this ride collects in cash, a separate line from the fare. */
         owedFee: ride.owed_fee,
+        /** The shared-ride discount (the part of the trip shared with other riders). */
+        poolDiscount: ride.pool_discount,
+        /** Paid by card in advance (a ride booked for later). */
+        deposit: ride.deposit_amount,
+        /** What the rider pays for the trip now: the fare after the discount, before waiting. */
+        pays: ride.fare_quoted - ride.pool_discount,
         breakdown: ride.fare as unknown as Fare,
       },
+      service: ride.service,
+      passengers: ride.passengers,
+      shareable: ride.shareable,
+      womenOnly: ride.women_only,
+      fareMode: ride.fare_mode,
+      pool: ride.pool_id ? { id: ride.pool_id, sharedM: ride.pool_shared_m } : null,
+      hasStartPin: ride.start_pin !== null,
       paymentMethod: ride.payment_method,
       paymentStatus: ride.payment_status,
       vehicle,
@@ -1760,14 +2060,12 @@ export class RidesService {
     return open ? this.riderView(user, open.id) : null;
   }
 
+  /** The driver's active ride; with several riders in the car, the one of the next stop. */
   async driverCurrent(user: AuthUser) {
-    const active = await this.db.kysely
-      .selectFrom('rides')
-      .select('id')
-      .where('driver_id', '=', user.userId)
-      .where('status', 'in', [...ACTIVE_RIDE_STATUSES])
-      .executeTakeFirst();
-    return active ? this.driverView(user, active.id) : null;
+    const car = await this.pool.car(this.db.kysely, user.userId);
+    if (!car?.rides.length) return null;
+    const next = car.stops[0]?.rideId ?? car.rides[0]!.id;
+    return this.driverView(user, next);
   }
 
   async driverHistory(user: AuthUser, cursor?: string) {

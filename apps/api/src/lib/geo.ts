@@ -143,6 +143,18 @@ export function estimateRoute(from: Point, to: Point, detourFactor: number): Rou
 /** Average door-to-door city speed without a router: ~25 km/h in m/s. */
 export const CITY_SPEED_MPS = 25 / 3.6;
 
+/** Average speed between towns without a router: ~60 km/h in m/s. */
+export const ROAD_SPEED_MPS = 60 / 3.6;
+
+/**
+ * Driving time of an estimated route: the first 5 km at city speed, the rest at road speed
+ * (a trip to Yangiyer is not driven at 25 km/h).
+ */
+export function estimatedDurationS(distanceM: number): number {
+  const city = Math.min(distanceM, 5000);
+  return Math.round(city / CITY_SPEED_MPS + (distanceM - city) / ROAD_SPEED_MPS);
+}
+
 /** Driving time in seconds: the router's when known, else the distance at city speed. */
 export function etaSeconds(route: Route): number {
   return route.durationS !== null
