@@ -6,3 +6,5 @@ coverage
 package-lock.json
 .claude
 docs/market-analysis.md
+apps/*/android
+apps/*/ios
