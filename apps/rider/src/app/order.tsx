@@ -175,7 +175,8 @@ export default function OrderScreen() {
 
   const optionPrices = tariff.data?.tariff?.options;
   const waiting = q?.waiting ?? tariff.data?.tariff?.waiting;
-  const seatText = fare ? seatShareText(fare) : null;
+  // a fixed route seat price replaces the tariff's per-seat share of the car
+  const seatText = fare && !routePrices(q, draft.rideClass)?.seat ? seatShareText(fare) : null;
 
   return (
     <KeyboardAvoider style={styles.root} keyboardVerticalOffset={90}>
@@ -524,6 +525,8 @@ const ClassCard = memo(function ClassCard({
   const fare = quote.fares[rideClass];
   const availability = availabilityText(quote.availability?.[rideClass]);
   const noCar = quote.availability?.[rideClass]?.etaS === null;
+  // a fixed route seat price (Yangiyer → Guliston 10 000) is the seat price to show
+  const routeSeat = routePrices(quote, rideClass)?.seat ?? null;
   return (
     <Pressable
       accessibilityRole="radio"
@@ -552,7 +555,11 @@ const ClassCard = memo(function ClassCard({
       </View>
       <View style={styles.priceCol}>
         <T variant="price">{formatMoney(fare.total)}</T>
-        {fare.seat ? (
+        {routeSeat ? (
+          <T variant="caption" color={colors.textMuted}>
+            o‘rindiq {formatMoney(routeSeat)}
+          </T>
+        ) : fare.seat ? (
           <T variant="caption" color={colors.textMuted}>
             o‘rindiq {formatMoney(fare.seat.rear)}
           </T>
