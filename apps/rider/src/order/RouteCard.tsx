@@ -16,7 +16,7 @@ export function RouteCard({
   landmark,
   distanceM,
   durationS,
-  landmarkPlaceholder = 'Mo‘ljal: 5-maktab ro‘parasi, yashil darvoza',
+  landmarkPlaceholder = 'Mo‘ljal: 5-maktab ro‘parasi',
 }: {
   pickup: TripPoint;
   dropoff: TripPoint;

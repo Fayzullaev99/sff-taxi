@@ -124,7 +124,7 @@ export default function CargoScreen() {
           landmark={draft.landmark}
           distanceM={q?.distanceM}
           durationS={q?.durationS}
-          landmarkPlaceholder="Mo‘ljal: ombor darvozasi, 2-podyezd"
+          landmarkPlaceholder="Mo‘ljal: ombor darvozasi"
         />
 
         {schedulingOn ? (
