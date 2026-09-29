@@ -3,7 +3,20 @@ import {
   type IntentPurpose,
   type IntentStatus,
   type IntentSummaryRow,
+  type Refund,
 } from '../api/types';
+
+/** What a refund is for: a ride (a link) or a trip-board booking's deposit. */
+export function refundSubject(
+  r: Pick<Refund, 'rideId' | 'rideNumber' | 'bookingId' | 'bookingNumber'>,
+): {
+  label: string;
+  to: string | null;
+} {
+  if (r.rideId) return { label: `#${r.rideNumber ?? ''}`, to: `/rides/${r.rideId}` };
+  if (r.bookingId) return { label: `bron #${r.bookingNumber ?? ''} (depozit)`, to: null };
+  return { label: '—', to: null };
+}
 
 export interface PurposeTotals {
   paid: { count: number; amount: number };

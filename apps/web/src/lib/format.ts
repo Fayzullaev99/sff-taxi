@@ -17,7 +17,6 @@ import type {
   AnyRideClass,
   CargoClass,
   IntentPurpose,
-  RideClass,
   RideOffer,
   RideService,
   VehicleBody,

@@ -952,6 +952,16 @@ export interface PublicTrip {
     class: RideClass;
     photoUrl: string | null;
   };
+  /**
+   * The search found a trip between other towns passing the rider's ones: `pickup` and
+   * `dropoff` are the rider's towns, `price` their part (`share` of the trip), `fullPrice`
+   * the whole trip's.
+   */
+  alongTheWay?: boolean;
+  pickup?: IntercityPoint;
+  dropoff?: IntercityPoint;
+  share?: number;
+  fullPrice?: SeatPrices;
 }
 
 export interface BookingTown {
