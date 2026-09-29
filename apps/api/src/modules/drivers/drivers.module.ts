@@ -56,7 +56,10 @@ const VehicleBody = z.object({
 });
 
 const ApplicationBody = z.object({
-  fullName: z.string().trim().min(3).max(100),
+  fullName: z
+    .string()
+    .transform((s) => s.replace(/\s+/g, ' ').trim())
+    .pipe(z.string().min(3).max(100)),
   birthDate: DateString,
   pinfl: z.string().regex(/^\d{14}$/, 'JShShIR 14 ta raqamdan iborat'),
   licenceNumber: z

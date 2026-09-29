@@ -31,7 +31,11 @@ const VerifyCodeBody = z.object({
 const RefreshBody = z.object({ refreshToken: z.string().min(1).max(200) });
 const UpdateMeBody = z
   .object({
-    fullName: z.string().trim().min(1).max(100),
+    // one space between words: a keyboard's double space showed on the driver's screen
+    fullName: z
+      .string()
+      .transform((s) => s.replace(/\s+/g, ' ').trim())
+      .pipe(z.string().min(1).max(100)),
     /** Self-declared; the female-driver option is offered to women. */
     gender: z.enum(['female', 'male']),
   })

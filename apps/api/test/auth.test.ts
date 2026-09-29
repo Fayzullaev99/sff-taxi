@@ -28,6 +28,14 @@ describe('auth', () => {
       .send({ fullName: 'Aziza' })
       .expect(200);
     expect(named.body.fullName).toBe('Aziza');
+
+    // one space between words (a keyboard's double space showed on the driver's screen)
+    const spaced = await api(app, res.body.accessToken)
+      .patch('/v1/me')
+      .send({ fullName: '  Madinaxon  Abdulazizova \t Nurmuhammad qizi ' })
+      .expect(200);
+    expect(spaced.body.fullName).toBe('Madinaxon Abdulazizova Nurmuhammad qizi');
+    await api(app, res.body.accessToken).patch('/v1/me').send({ fullName: '   ' }).expect(400);
   });
 
   it('rejects a wrong code and locks the code after too many attempts', async () => {
