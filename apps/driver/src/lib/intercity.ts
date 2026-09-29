@@ -219,3 +219,38 @@ export function tripEdits(trip: TripSnapshot, form: TripForm): TripEditBody | nu
   if (comment !== (trip.comment ?? null)) body.comment = comment;
   return Object.keys(body).length ? body : null;
 }
+
+/**
+ * The seats a trip may offer: at most maxSeats (3) and never more than maxRearSeats (2)
+ * in the back — so without the front seat only 2 — and never more than the car has.
+ */
+export function maxTripSeats(
+  vehicleSeats: number,
+  frontSeat: boolean,
+  rules: { maxSeats: number; maxRearSeats: number },
+): number {
+  const byRule = frontSeat ? Math.min(rules.maxSeats, rules.maxRearSeats + 1) : rules.maxRearSeats;
+  return Math.max(1, Math.min(byRule, Math.floor(vehicleSeats) || 1));
+}
+
+/**
+ * A booking's money: the cash the driver takes at boarding and the part paid by card in
+ * advance (the driver's once the trip is done). An older API without deposits: all cash.
+ */
+export function bookingMoney(b: { price: number; depositAmount?: number; payCash?: number }): {
+  cash: number;
+  deposit: number;
+} {
+  const deposit = Math.max(0, b.depositAmount ?? 0);
+  return { cash: Math.max(0, b.payCash ?? b.price - deposit), deposit };
+}
+
+/** "Boyovut → Yangiyer" for a seat along the way, else null. */
+export function alongTheWayText(b: {
+  alongTheWay?: boolean;
+  pickup?: { nameUz: string } | null;
+  dropoff?: { nameUz: string } | null;
+}): string | null {
+  if (!b.alongTheWay) return null;
+  return `${b.pickup?.nameUz ?? 'Yo‘lda'} → ${b.dropoff?.nameUz ?? 'yo‘lda'}`;
+}

@@ -1,10 +1,25 @@
 import { stream } from '../api/driver';
 import { API_URL } from '../config';
 import { isApiError } from '../lib/api-client';
-import { parseRealtimeEvent, reconnectDelayMs, type RealtimeEvent, SseParser } from '../lib/sse';
+import {
+  parseRealtimeEvent,
+  reconnectDelayMs,
+  type RealtimeEvent,
+  SseParser,
+  STREAM_DEAD_AFTER_MS,
+  streamIsStale,
+} from '../lib/sse';
 
-/** The server pings every 25 s; silence for this long means the connection is dead. */
-const SILENCE_TIMEOUT_MS = 70_000;
+/**
+ * The server pings every 10 s; 25 s of silence (two missed pings) means the link is
+ * dead (mobile networks drop connections without closing them).
+ */
+const SILENCE_TIMEOUT_MS = STREAM_DEAD_AFTER_MS;
+/**
+ * XMLHttpRequest keeps the whole stream in `responseText`: over a 10-hour shift that string
+ * only grows, so the connection is renewed once it gets this long.
+ */
+const MAX_STREAM_CHARS = 256 * 1024;
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'retrying';
 
@@ -22,6 +37,8 @@ export class RealtimeConnection {
   /** Bumped on every (re)connect so callbacks of a dropped connection are ignored. */
   private generation = 0;
   status: ConnectionStatus = 'idle';
+  /** When anything (an event or a ping) last arrived; null before the first. */
+  lastMessageAt: number | null = null;
 
   constructor(
     private readonly onEvent: (event: RealtimeEvent) => void,
@@ -32,6 +49,22 @@ export class RealtimeConnection {
     if (this.running) return;
     this.running = true;
     this.attempt = 0;
+    void this.connect();
+  }
+
+  /**
+   * Reconnects at once instead of waiting out the backoff, e.g. when the phone's
+   * connection came back or the app returned to the foreground. An open, live stream is
+   * left alone.
+   */
+  reconnectNow(): void {
+    if (!this.running) return this.start();
+    if (this.status === 'open' && !streamIsStale(this.lastMessageAt, Date.now())) return;
+    this.attempt = 0;
+    this.generation++;
+    this.teardown();
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
     void this.connect();
   }
 
@@ -110,6 +143,7 @@ export class RealtimeConnection {
       if (text.length > seen) {
         const chunk = text.slice(seen);
         seen = text.length;
+        this.lastMessageAt = Date.now();
         this.armSilenceTimer(generation);
         for (const message of parser.push(chunk)) {
           const event = parseRealtimeEvent(message.data);
@@ -121,7 +155,12 @@ export class RealtimeConnection {
           this.onEvent(event);
         }
       }
-      if (xhr.readyState === XMLHttpRequest.DONE) this.scheduleReconnect(generation);
+      if (xhr.readyState === XMLHttpRequest.DONE) return this.scheduleReconnect(generation);
+      if (seen > MAX_STREAM_CHARS) {
+        // renew quietly: the next connection says 'ready' and everything is re-read
+        this.attempt = 0;
+        this.scheduleReconnect(generation);
+      }
     };
     xhr.onerror = () => this.scheduleReconnect(generation);
     this.armSilenceTimer(generation);

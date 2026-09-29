@@ -1,49 +1,45 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import * as Location from 'expo-location';
+import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useMemo, useRef, useState } from 'react';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 import { driver } from '../api/driver';
 import type { DriverRide } from '../api/types';
 import { keys, useCurrentRide, useWaitingRules } from '../data/queries';
-import { errorMessage, isApiError } from '../lib/api-client';
-import { clock, digits, distance, PAYMENT_METHODS, RIDE_OPTIONS, som } from '../lib/format';
-import {
-  cancelChoices,
-  canCancel,
-  type CancelReason,
-  cashBreakdown,
-  cashPartsText,
-  owedFeeNote,
-  stepOf,
-} from '../lib/ride-flow';
-import { waitingState, type WaitingRules } from '../lib/waiting';
+import { errorMessage } from '../lib/api-client';
+import { PAYMENT_METHODS, som } from '../lib/format';
+import { isPinError, offerBadges, poolRideIds, ridePool } from '../lib/pool';
+import { optimisticStatus, runRideStep } from '../lib/ride-actions';
+import { canCancel, cashBreakdown, owedFeeNote, type RideAction, stepOf } from '../lib/ride-flow';
+import { nextStop, stopList, stopsFromPool } from '../lib/stops';
+import type { WaitingRules } from '../lib/waiting';
 import { scheduledLabel } from '../lib/when';
 import { markRideEndedHere } from '../realtime/use-realtime';
-import { call, navigateTo } from '../ui/actions';
-import { Banner, Button, Card, Chip, EmptyState, Loading, Muted, Title } from '../ui/components';
+import {
+  arrivedAtOf,
+  CancelPanel,
+  CashCard,
+  RiderCard,
+  SosButton,
+  StopList,
+  WaitingCard,
+} from '../ride/parts';
+import { PinPad } from '../ride/pin-pad';
+import { PoolRidersCard } from '../ride/pool-riders';
+import { navigateTo } from '../ui/actions';
+import { Banner, Button, Chip, EmptyState, ErrorState, Loading, Muted } from '../ui/components';
 import { haptics } from '../ui/haptics';
 import { Screen } from '../ui/screen';
-import { colors, radius, space } from '../ui/theme';
+import { colors, space } from '../ui/theme';
 
-/** Re-renders every second while `on` (the waiting timer). */
-function useSecondTick(on: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!on) return;
-    setNow(Date.now());
-    const t = setInterval(() => setNow(Date.now()), 1_000);
-    return () => clearInterval(t);
-  }, [on]);
-  return now;
-}
+/** A step request gives up after this and is sent again (see lib/ride-actions). */
+const STEP_TIMEOUT_MS = 12_000;
 
 /**
- * The ride in progress, one big button per step: go to the pickup → "Yetib keldim"
- * (free waiting, then paid) → "Yo‘lovchi chiqdi — Boshlash" → go to the destination →
- * "Yakunlash". Navigation opens the driver's navigator; the rider can be called; SOS is
- * always one tap away.
+ * The ride in progress, one big button per stop: go to the pickup → "Yetib keldim"
+ * (free waiting, then paid) → "Yo‘lovchi chiqdi — Boshlash" (with the rider's 4-digit code
+ * when the ride has one) → go to the destination → "Yakunlash". With several riders the
+ * API's stop list decides the next stop and the button acts on that stop's ride.
+ * Navigation opens the driver's navigator; each rider can be called; SOS is one tap away.
  */
 export default function RideScreen() {
   const router = useRouter();
@@ -52,6 +48,14 @@ export default function RideScreen() {
   const rules = useWaitingRules(ride ? { lat: ride.pickup.lat, lng: ride.pickup.lng } : null);
 
   if (current.isPending) return <Loading />;
+  // a failed fetch is not "no ride": the driver may have a rider waiting
+  if (current.data === undefined && current.isError) {
+    return (
+      <Screen title="Safar" onBack={() => router.replace('/home')}>
+        <ErrorState message={errorMessage(current.error)} onRetry={() => void current.refetch()} />
+      </Screen>
+    );
+  }
   if (!ride) {
     return (
       <Screen title="Safar" onBack={() => router.replace('/home')}>
@@ -74,449 +78,274 @@ export default function RideScreen() {
   );
 }
 
+const STEP_ICON = { arrive: 'flag', start: 'play', complete: 'checkmark-done' } as const;
+
+interface StepVars {
+  rideId: string;
+  action: RideAction;
+  pin?: string;
+}
+
 function ActiveRide(props: {
   ride: DriverRide;
   rules: WaitingRules;
   refreshing: boolean;
   onRefresh: () => void;
 }) {
-  const { ride, rules } = props;
+  const { rules } = props;
   const router = useRouter();
   const qc = useQueryClient();
-  const step = stepOf(ride.status);
   const [cancelling, setCancelling] = useState(false);
-  const now = useSecondTick(ride.status === 'driver_arrived');
-  const waiting =
-    ride.status === 'driver_arrived' && ride.arrivedAt
-      ? waitingState(ride.arrivedAt, now, rules)
-      : null;
+  const [retries, setRetries] = useState(0);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pinError, setPinError] = useState<{ text: string; n: number } | null>(null);
+  /** When "Yetib keldim" was tapped: the waiting timer starts at once. */
+  const tappedAt = useRef<number | null>(null);
+
+  // several riders: every ride's own view (cash to take, phone), refreshed with the current one
+  const pool = ridePool(props.ride);
+  const ids = pool ? poolRideIds(pool, props.ride.id) : [];
+  const views = useQueries({
+    queries: ids.map((id) => ({
+      queryKey: keys.ride(id),
+      queryFn: () => driver.ride(id),
+      staleTime: 5_000,
+      refetchInterval: 30_000,
+    })),
+  });
+  const poolRides = views.map((v) => v.data).filter((r): r is DriverRide => !!r);
+
+  // the stop to act on: the API's first stop (its ride is the current one), else this ride
+  const baseStops = useMemo(() => (pool ? stopsFromPool(pool.stops) : null), [pool]);
+  const firstStop = baseStops ? nextStop(baseStops) : null;
+  const focus: DriverRide =
+    (firstStop &&
+      (firstStop.rideId.toLowerCase() === props.ride.id.toLowerCase()
+        ? props.ride
+        : poolRides.find((r) => r.id.toLowerCase() === firstStop.rideId.toLowerCase()))) ||
+    props.ride;
 
   const act = useMutation({
-    mutationFn: (action: 'arrive' | 'start' | 'complete') => {
-      if (action === 'complete') markRideEndedHere(ride.id);
-      return driver.step(ride.id, action);
+    mutationFn: (v: StepVars) => {
+      if (v.action === 'complete') markRideEndedHere(v.rideId);
+      return runRideStep({
+        send: () => driver.step(v.rideId, v.action, { timeoutMs: STEP_TIMEOUT_MS, pin: v.pin }),
+        fetchRide: () => driver.ride(v.rideId),
+        action: v.action,
+        retry: { onRetry: (n) => setRetries(n) },
+      });
     },
-    onSuccess: (next, action) => {
+    onMutate: (v) => {
+      setRetries(0);
+      if (v.action === 'arrive') tappedAt.current = Date.now();
+    },
+    onSuccess: (next, v) => {
       haptics.success();
-      if (action === 'complete') {
+      setPinOpen(false);
+      setPinError(null);
+      qc.setQueryData(keys.ride(next.id), next);
+      if (v.action === 'complete') {
         qc.setQueryData(keys.current, null);
-        qc.setQueryData(keys.ride(next.id), next);
+        void qc.invalidateQueries({ queryKey: keys.current });
         void qc.invalidateQueries({ queryKey: keys.balance });
         void qc.invalidateQueries({ queryKey: keys.me });
         void qc.invalidateQueries({ queryKey: ['driver', 'earnings'] });
         router.replace(`/ride-done/${next.id}`);
         return;
       }
-      qc.setQueryData(keys.current, next);
+      if (!pool) qc.setQueryData(keys.current, next);
+      // with several riders the next stop may belong to another ride now
+      void qc.invalidateQueries({ queryKey: keys.current });
     },
-    onError: (error) => {
+    onError: (error, v) => {
+      tappedAt.current = null;
       haptics.error();
+      if (v.action === 'start' && isPinError(error)) {
+        setPinError({ text: 'Kod noto‘g‘ri. Yo‘lovchidan qayta so‘rang.', n: Date.now() });
+        return;
+      }
+      setPinOpen(false);
       Alert.alert('Amal bajarilmadi', errorMessage(error));
       void qc.invalidateQueries({ queryKey: keys.current });
     },
+    onSettled: () => setRetries(0),
   });
 
-  // the cash to take (the API's collectCash; the live waiting fee while the timer runs)
-  const cash = cashBreakdown(ride, waiting ? waiting.fee : undefined);
-  const owedNote = owedFeeNote(cash.owedFee);
+  // arrive and start show their result at once (optimistic); completing waits for the
+  // server's final fare
+  const pending = act.isPending ? act.variables : null;
+  const optimistic =
+    pending && pending.action !== 'complete' && pending.rideId === focus.id ? pending.action : null;
+  const status = optimisticStatus(focus.status, optimistic);
+  const step = stepOf(status);
+  const shown = useMemo(() => ({ ...focus, status }) as DriverRide, [focus, status]);
+  const stops = useMemo(() => {
+    if (!baseStops) return stopList([shown]);
+    // an optimistic "Boshlash" passes the pickup already
+    return optimistic === 'start' ? stopsFromPool(pool!.stops.slice(1)) : baseStops;
+  }, [baseStops, shown, optimistic, pool]);
+  const target = nextStop(stops);
+  const arrivedAt = arrivedAtOf(focus, optimistic === 'arrive' ? tappedAt.current : null);
+  const waitingNow = status === 'driver_arrived' && arrivedAt !== null;
+
+  const run = (action: RideAction, pin?: string) =>
+    act.mutate({ rideId: focus.id, action, ...(pin ? { pin } : {}) });
 
   const onStep = () => {
-    if (!step) return;
+    if (!step || act.isPending) return;
+    if (step.action === 'start' && focus.hasStartPin) {
+      setPinError(null);
+      setPinOpen(true);
+      return;
+    }
     if (step.action === 'complete') {
+      const cash = cashBreakdown(focus);
+      const owedNote = owedFeeNote(cash.owedFee);
       Alert.alert(
         'Safarni yakunlaysizmi?',
-        ride.paymentMethod === 'card'
+        focus.paymentMethod === 'card'
           ? cash.total > 0
             ? `Safar kartada oldindan to‘langan. Kutish uchun ${som(cash.total)} naqd oling.`
             : 'Safar kartada oldindan to‘langan: naqd pul olmang.'
-          : `Yo‘lovchidan ${som(cash.total)} oling.${owedNote ? ` (${owedNote}.)` : ''}`,
+          : `${focus.rider?.name ?? 'Yo‘lovchi'}dan ${som(cash.total)} oling.${owedNote ? ` (${owedNote}.)` : ''}`,
         [
           { text: 'Yo‘q', style: 'cancel' },
-          { text: 'Yakunlash', onPress: () => act.mutate('complete') },
+          { text: 'Yakunlash', onPress: () => run('complete') },
         ],
       );
       return;
     }
-    act.mutate(step.action);
+    run(step.action);
   };
 
-  const scheduled = scheduledLabel(ride.scheduledFor, Date.now());
-  const target = step?.navigateTo === 'dropoff' ? ride.dropoff : ride.pickup;
-  const parts = cashPartsText(cash);
+  const scheduled = scheduledLabel(focus.scheduledFor, Date.now());
+  const navTitle = target?.kind === 'dropoff' ? 'Manzilga yo‘l' : 'Yo‘lovchiga yo‘l';
+  const badges = offerBadges(focus);
 
   return (
     <Screen
       refreshing={props.refreshing}
       onRefresh={props.onRefresh}
       footer={
-        cancelling ? null : (
+        cancelling || !step ? null : (
           <>
-            {step ? (
-              <Button
-                title={step.button}
-                big
-                variant={step.action === 'complete' ? 'success' : 'primary'}
-                icon={
-                  step.action === 'arrive'
-                    ? 'flag'
-                    : step.action === 'start'
-                      ? 'play'
-                      : 'checkmark-done'
-                }
-                loading={act.isPending}
-                onPress={onStep}
-                style={{ minHeight: 76 }}
-              />
+            {pending ? (
+              <Text style={styles.pending} accessibilityLiveRegion="polite">
+                {retries > 0
+                  ? `Aloqa sust — qayta yuborilmoqda (${retries})…`
+                  : pending.action === 'complete'
+                    ? 'Yakunlanmoqda…'
+                    : 'Yuborilmoqda…'}
+              </Text>
             ) : null}
+            <Button
+              title={
+                pool && step.action !== 'arrive' && focus.rider?.name
+                  ? `${step.button} · ${focus.rider.name}`
+                  : step.button
+              }
+              big
+              variant={step.action === 'complete' ? 'success' : 'primary'}
+              icon={STEP_ICON[step.action]}
+              // an optimistic step shows the next button, which waits for the first to land
+              loading={pending?.action === 'complete'}
+              disabled={act.isPending}
+              onPress={onStep}
+              style={{ minHeight: 76 }}
+            />
           </>
         )
       }
     >
       <View style={styles.head}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.status}>{step?.title ?? 'Safar'}</Text>
+        <View style={{ flex: 1, gap: space.xs }}>
+          <Text style={styles.status} maxFontSizeMultiplier={1.3}>
+            {step?.title ?? 'Safar'}
+          </Text>
           <Muted>
-            #{ride.number} · {PAYMENT_METHODS[ride.paymentMethod] ?? ride.paymentMethod}
+            #{focus.number} · {PAYMENT_METHODS[focus.paymentMethod] ?? focus.paymentMethod}
+            {pool ? ` · ${pool.riders ?? ids.length} yo‘lovchi` : ''}
           </Muted>
           {scheduled ? <Chip label={scheduled} tone="info" icon="calendar" /> : null}
+          {badges.length ? (
+            <View style={styles.badges}>
+              {badges.map((b) => (
+                <Chip key={b.label} label={b.label} tone={b.tone} />
+              ))}
+            </View>
+          ) : null}
         </View>
-        <SosButton ride={ride} />
+        <SosButton rideId={focus.id} />
       </View>
 
-      {step?.navigateTo ? (
+      {retries > 1 ? (
+        <Banner
+          tone="warning"
+          icon="cloud-offline"
+          text="Internet sust. Amal saqlandi va aloqa tiklanishi bilan yuboriladi — ilovani yopmang."
+        />
+      ) : null}
+
+      {target && step?.navigateTo ? (
         <Button
-          title={step.navigateTo === 'pickup' ? 'Yo‘lovchiga yo‘l' : 'Manzilga yo‘l'}
+          title={navTitle}
           icon="navigate"
           big
           variant="secondary"
-          onPress={() =>
-            void navigateTo(
-              target,
-              step.navigateTo === 'pickup' ? 'Yo‘lovchiga yo‘l' : 'Manzilga yo‘l',
-            )
-          }
+          onPress={() => void navigateTo(target.place, navTitle)}
         />
       ) : null}
 
-      {waiting ? (
-        <Card
-          style={{ borderColor: waiting.paid ? colors.warning : colors.success, borderWidth: 2 }}
-        >
-          <Text style={styles.waitLabel}>{waiting.paid ? 'Pullik kutish' : 'Bepul kutish'}</Text>
-          <Text
-            style={[styles.waitClock, { color: waiting.paid ? colors.warning : colors.success }]}
-          >
-            {waiting.paid
-              ? clock(waiting.elapsedS - rules.freeMinutes * 60)
-              : clock(waiting.freeLeftS)}
-          </Text>
-          <Muted>
-            {waiting.paid
-              ? `${waiting.paidMinutes} daqiqa × ${som(rules.perMinute)} = ${som(waiting.fee)} narxga qo‘shiladi`
-              : `${rules.freeMinutes} daqiqa bepul, keyin har daqiqa ${som(rules.perMinute)}`}
-          </Muted>
-          {!waiting.canNoShow ? (
-            <Muted>“Yo‘lovchi chiqmadi” {clock(waiting.noShowInS)} dan keyin mumkin</Muted>
-          ) : (
-            <Banner
-              tone="info"
-              icon="information-circle"
-              text="Yo‘lovchi chiqmasa, bekor qilishda “Yo‘lovchi chiqmadi” ni tanlang — bekor qilish haqi sizga yoziladi (naqd safarda — yo‘lovchi keyingi safarida to‘laganda)."
-            />
-          )}
-        </Card>
+      {waitingNow && arrivedAt ? <WaitingCard arrivedAt={arrivedAt} rules={rules} /> : null}
+
+      {status === 'in_progress' || status === 'driver_arrived' ? (
+        <CashCard ride={focus} arrivedAt={arrivedAt} waitingNow={waitingNow} rules={rules} />
       ) : null}
 
-      {ride.status === 'in_progress' || ride.status === 'driver_arrived' ? (
-        <Card>
-          <Text style={styles.waitLabel}>
-            {ride.paymentMethod === 'cash'
-              ? 'Yo‘lovchidan olinadi (naqd)'
-              : cash.total > 0
-                ? 'Kutish uchun naqd olinadi'
-                : 'Naqd olmang — safar kartada to‘langan'}
-          </Text>
-          <Text style={styles.collect} adjustsFontSizeToFit numberOfLines={1}>
-            {digits(cash.total)} <Text style={styles.collectUnit}>so‘m</Text>
-          </Text>
-          {ride.paymentMethod === 'card' ? (
-            <Muted>
-              Safar narxi {som(ride.fare.quoted)} kartada oldindan to‘langan — balansingizga
-              yoziladi
-            </Muted>
-          ) : parts ? (
-            <Muted>{parts}</Muted>
-          ) : (
-            <Muted>Narx oldindan belgilangan va o‘zgarmaydi</Muted>
-          )}
-          {owedNote ? (
-            <Banner
-              tone="info"
-              icon="information-circle"
-              text={`${owedNote[0]!.toUpperCase()}${owedNote.slice(1)}. U balansingizdan o‘sha safar haydovchisiga o‘tkaziladi.`}
-            />
-          ) : null}
-        </Card>
+      <StopList stops={stops} ride={focus} />
+
+      {pool && poolRides.length ? (
+        <PoolRidersCard rides={poolRides} focusId={focus.id} seats={pool.occupancy ?? null} />
+      ) : focus.rider ? (
+        <RiderCard rider={focus.rider} channel={focus.channel} />
       ) : null}
 
-      <Card>
-        <Place icon="radio-button-on" color={colors.brand} label="Qayerdan" place={ride.pickup} />
-        <Place
-          icon="flag"
-          color={colors.text}
-          label={`Qayerga · ${distance(ride.distanceM)}`}
-          place={ride.dropoff}
-        />
-        {ride.options.length ? (
-          <View style={styles.chips}>
-            {ride.options.map((o) => (
-              <Chip key={o} label={RIDE_OPTIONS[o] ?? o} tone="brand" />
-            ))}
-          </View>
-        ) : null}
-        {ride.comment ? <Text style={styles.comment}>“{ride.comment}”</Text> : null}
-      </Card>
-
-      {ride.rider ? (
-        <Card>
-          <View style={styles.riderRow}>
-            <View style={{ flex: 1 }}>
-              <Title>{ride.rider.name ?? 'Yo‘lovchi'}</Title>
-              <Muted>
-                {ride.rider.rating.toFixed(1)} ★
-                {ride.channel === 'phone' ? ' · telefon orqali buyurtma' : ''}
-              </Muted>
-            </View>
-            <Button
-              title="Qo‘ng‘iroq"
-              icon="call"
-              variant="secondary"
-              onPress={() => call(ride.rider?.phone)}
-            />
-          </View>
-          {ride.rider.noShows > 0 ? (
-            <Banner
-              tone="warning"
-              icon="warning"
-              text={`Bu yo‘lovchi ${ride.rider.noShows} marta chiqmagan`}
-            />
-          ) : null}
-        </Card>
-      ) : null}
-
-      {canCancel(ride.status) ? (
+      {canCancel(status) ? (
         cancelling ? (
           <CancelPanel
-            ride={ride}
-            noShowInS={waiting ? waiting.noShowInS : null}
+            ride={shown}
+            arrivedAt={arrivedAt}
+            rules={rules}
             onClose={() => setCancelling(false)}
           />
         ) : (
           <Button
-            title="Buyurtmani bekor qilish"
+            title={pool ? `#${focus.number} buyurtmani bekor qilish` : 'Buyurtmani bekor qilish'}
             icon="close-circle"
             variant="danger"
+            disabled={act.isPending}
             onPress={() => setCancelling(true)}
           />
         )
       ) : (
         <Muted center>Safar boshlangan: muammo bo‘lsa operatorga qo‘ng‘iroq qiling.</Muted>
       )}
+
+      <PinPad
+        visible={pinOpen}
+        riderName={focus.rider?.name ?? null}
+        busy={act.isPending}
+        error={pinError}
+        onSubmit={(pin) => run('start', pin)}
+        onClose={() => setPinOpen(false)}
+      />
     </Screen>
-  );
-}
-
-function Place(props: {
-  icon: 'radio-button-on' | 'flag';
-  color: string;
-  label: string;
-  place: DriverRide['pickup'];
-}) {
-  return (
-    <View style={styles.place}>
-      <Ionicons name={props.icon} size={22} color={props.color} />
-      <View style={{ flex: 1 }}>
-        <Text style={styles.placeLabel}>{props.label}</Text>
-        <Text style={styles.placeText}>{props.place.address ?? 'Xaritadagi nuqta'}</Text>
-        {props.place.landmark ? (
-          <Text style={styles.landmark}>Mo‘ljal: {props.place.landmark}</Text>
-        ) : null}
-      </View>
-    </View>
-  );
-}
-
-function CancelPanel(props: { ride: DriverRide; noShowInS: number | null; onClose: () => void }) {
-  const qc = useQueryClient();
-  const router = useRouter();
-  const [note, setNote] = useState('');
-  const choices = cancelChoices(props.ride.status, props.noShowInS);
-  const [picked, setPicked] = useState<CancelReason | null>(null);
-  const choice = choices.find((c) => c.code === picked) ?? null;
-
-  const cancel = useMutation({
-    mutationFn: (code: CancelReason) => {
-      markRideEndedHere(props.ride.id);
-      return driver.cancel(props.ride.id, code, note.trim() || null);
-    },
-    onSuccess: () => {
-      haptics.success();
-      qc.setQueryData(keys.current, null);
-      void qc.invalidateQueries({ queryKey: keys.me });
-      void qc.invalidateQueries({ queryKey: keys.balance });
-      router.replace('/home');
-    },
-    onError: (error) => {
-      haptics.error();
-      Alert.alert('Bekor qilinmadi', errorMessage(error));
-      if (isApiError(error, 404)) void qc.invalidateQueries({ queryKey: keys.current });
-    },
-  });
-
-  return (
-    <Card style={{ borderColor: colors.danger, borderWidth: 2 }}>
-      <Title>Bekor qilish sababi</Title>
-      {choices.map((c) => (
-        <Pressable
-          key={c.code}
-          disabled={c.disabledBecause !== null}
-          onPress={() => {
-            haptics.select();
-            setPicked(c.code);
-          }}
-          accessibilityRole="radio"
-          accessibilityState={{ checked: picked === c.code, disabled: c.disabledBecause !== null }}
-          style={[
-            styles.reason,
-            picked === c.code && styles.reasonOn,
-            c.disabledBecause !== null && { opacity: 0.5 },
-          ]}
-        >
-          <Text style={[styles.reasonText, picked === c.code && { color: colors.onBrand }]}>
-            {c.label}
-          </Text>
-          {c.disabledBecause ? <Text style={styles.reasonWhy}>{c.disabledBecause}</Text> : null}
-        </Pressable>
-      ))}
-      {choice ? (
-        <Banner tone={choice.code === 'rider_no_show' ? 'info' : 'warning'} text={choice.effect} />
-      ) : null}
-      <TextInput
-        value={note}
-        onChangeText={setNote}
-        placeholder="Izoh (ixtiyoriy)"
-        placeholderTextColor={colors.muted}
-        maxLength={200}
-        style={styles.note}
-      />
-      <Button
-        title="Bekor qilish"
-        variant="danger"
-        icon="close-circle"
-        disabled={!picked}
-        loading={cancel.isPending}
-        onPress={() => picked && cancel.mutate(picked)}
-      />
-      <Button title="Safarni davom ettirish" variant="secondary" onPress={props.onClose} />
-    </Card>
-  );
-}
-
-const EMERGENCY: { label: string; number: string }[] = [
-  { label: 'Yagona xizmat', number: '112' },
-  { label: 'Militsiya', number: '102' },
-  { label: 'Tez yordam', number: '103' },
-];
-
-/** SOS: operators are alerted with the position; emergency numbers one tap away. */
-function SosButton(props: { ride: DriverRide }) {
-  const send = useMutation({
-    mutationFn: async () => {
-      const last = await Location.getLastKnownPositionAsync({ maxAge: 120_000 }).catch(() => null);
-      return driver.sos(
-        props.ride.id,
-        last?.coords.latitude ?? null,
-        last?.coords.longitude ?? null,
-      );
-    },
-    onSuccess: () => {
-      haptics.warning();
-      Alert.alert(
-        'Operatorlar xabardor qilindi',
-        'Xavf bo‘lsa, darhol qo‘ng‘iroq qiling:',
-        [
-          ...EMERGENCY.map((e) => ({
-            text: `${e.label} ${e.number}`,
-            onPress: () => call(e.number),
-          })),
-        ].slice(0, 3),
-      );
-    },
-    onError: () =>
-      Alert.alert('SOS yuborilmadi', 'Internet yo‘q bo‘lishi mumkin. 112 ga qo‘ng‘iroq qiling.', [
-        { text: '112', onPress: () => call('112') },
-        { text: 'Yopish', style: 'cancel' },
-      ]),
-  });
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="SOS: favqulodda holat"
-      onPress={() =>
-        Alert.alert('SOS yuborilsinmi?', 'Operatorlarga joylashuvingiz bilan xabar boradi.', [
-          { text: 'Yo‘q', style: 'cancel' },
-          { text: 'SOS', style: 'destructive', onPress: () => send.mutate() },
-        ])
-      }
-      style={({ pressed }) => [styles.sos, pressed && { opacity: 0.7 }]}
-    >
-      <Text style={styles.sosText}>SOS</Text>
-    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   head: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   status: { fontSize: 28, fontWeight: '900', color: colors.text },
-  waitLabel: { fontSize: 15, fontWeight: '800', color: colors.muted, textTransform: 'uppercase' },
-  waitClock: { fontSize: 64, fontWeight: '900', fontVariant: ['tabular-nums'] },
-  collect: { fontSize: 64, fontWeight: '900', color: colors.brand, fontVariant: ['tabular-nums'] },
-  collectUnit: { fontSize: 28, fontWeight: '800' },
-  place: { flexDirection: 'row', gap: space.md, alignItems: 'flex-start' },
-  placeLabel: { fontSize: 14, color: colors.muted, fontWeight: '700' },
-  placeText: { fontSize: 19, color: colors.text, fontWeight: '800' },
-  landmark: { fontSize: 15, color: colors.muted },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
-  comment: { fontSize: 16, color: colors.text, fontStyle: 'italic' },
-  riderRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-  reason: {
-    minHeight: 56,
-    justifyContent: 'center',
-    paddingHorizontal: space.lg,
-    paddingVertical: space.sm,
-    borderRadius: radius.md,
-    borderWidth: 2,
-    borderColor: colors.border,
-  },
-  reasonOn: { backgroundColor: colors.brand, borderColor: colors.brand },
-  reasonText: { fontSize: 17, fontWeight: '700', color: colors.text },
-  reasonWhy: { fontSize: 14, color: colors.muted, marginTop: 2 },
-  note: {
-    minHeight: 52,
-    borderWidth: 2,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: space.lg,
-    color: colors.text,
-    fontSize: 16,
-  },
-  sos: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.danger,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sosText: { color: colors.onDanger, fontWeight: '900', fontSize: 18 },
+  pending: { color: colors.warning, fontSize: 15, fontWeight: '800', textAlign: 'center' },
+  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
 });

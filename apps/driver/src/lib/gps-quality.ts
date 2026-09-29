@@ -23,6 +23,8 @@ export interface GpsState {
   lastRejection: { reason: FixRejection; at: number } | null;
   /** The last send that never got an answer (no internet). */
   lastNetworkErrorAt: number | null;
+  /** Low-battery mode: positions are sent half as often. */
+  saving?: boolean;
 }
 
 export const INITIAL_GPS_STATE: GpsState = {
@@ -31,6 +33,7 @@ export const INITIAL_GPS_STATE: GpsState = {
   lastSentAt: null,
   lastRejection: null,
   lastNetworkErrorAt: null,
+  saving: false,
 };
 
 export type GpsLevel = 'off' | 'none' | 'poor' | 'fair' | 'good';
@@ -58,6 +61,11 @@ function newerThan(at: number | null | undefined, other: number | null | undefin
  * The GPS quality indicator: how good the phone's fixes are and whether the API is
  * taking them. Refusals are shown here, quietly, instead of interrupting the driver.
  */
+/** Two readings of the indicator show the same thing (no re-render needed). */
+export function sameQuality(a: GpsQuality, b: GpsQuality): boolean {
+  return a.level === b.level && a.label === b.label && a.hint === b.hint;
+}
+
 export function gpsQuality(state: GpsState, now: number): GpsQuality {
   if (!state.tracking) return { level: 'off', label: 'GPS yuborilmayapti', hint: null };
   const fix = state.lastFix;

@@ -19,6 +19,7 @@ import {
   departureParts,
   departureProblem,
   frontPriceFor,
+  maxTripSeats,
   parseTime,
   priceProblem,
   stepPrice,
@@ -71,14 +72,18 @@ export default function NewTrip() {
   const trip = editId ? (edited.data ?? null) : null;
   const vehicle = me.data?.vehicle ?? null;
   const rideClass = trip?.class ?? vehicle?.class ?? 'economy';
-  const maxSeats = Math.min(4, vehicle?.seats ?? 4);
 
   const [from, setFrom] = useState<string | null>(null);
   const [to, setTo] = useState<string | null>(null);
   const [day, setDay] = useState(() => tashkentDate(Date.now(), 1));
   const [time, setTime] = useState('07:00');
-  const [seats, setSeats] = useState(String(maxSeats));
   const [frontSeat, setFrontSeat] = useState(true);
+  // the seating rule: 1 in front, at most 2 in the back (3 in all; 2 without the front seat)
+  const maxSeats = maxTripSeats(vehicle?.seats ?? 4, frontSeat, rules);
+  const [seats, setSeats] = useState(String(maxTripSeats(vehicle?.seats ?? 4, true, rules)));
+  useEffect(() => {
+    if (Number(seats) > maxSeats) setSeats(String(maxSeats));
+  }, [seats, maxSeats]);
   const [price, setPrice] = useState<number | null>(null);
   const [priceText, setPriceText] = useState('');
   const [meetingPoint, setMeetingPoint] = useState('');
@@ -204,7 +209,7 @@ export default function NewTrip() {
   );
   if (!days.includes(day)) days.push(day);
   const front = f && price !== null ? frontPriceFor(price, f.reference) : null;
-  const seatChoices = Math.max(maxSeats, trip?.seats.total ?? 0);
+  const seatChoices = maxSeats;
 
   return (
     <Screen
@@ -327,7 +332,7 @@ export default function NewTrip() {
       />
       <ToggleRow
         label="Old o‘rindiq ham sotiladi"
-        description="Old o‘rindiq qimmatroq bo‘ladi"
+        description="Old o‘rindiq qimmatroq bo‘ladi. Orqaga ko‘pi bilan 2 kishi olinadi."
         value={frontSeat}
         onChange={setFrontSeat}
       />

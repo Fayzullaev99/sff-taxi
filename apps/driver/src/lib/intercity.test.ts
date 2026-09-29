@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   departureIso,
   departureProblem,
+  alongTheWayText,
+  bookingMoney,
+  maxTripSeats,
   frontPriceFor,
   parseTime,
   priceProblem,
@@ -118,5 +121,41 @@ describe('card top-ups', () => {
     expect(topupPhase('expired')).toBe('failed');
     expect(topupPollMs(0, 60_000)).toBe(3_000);
     expect(topupPollMs(0, 180_000)).toBe(10_000);
+  });
+});
+
+describe('maxTripSeats', () => {
+  const rules = { maxSeats: 3, maxRearSeats: 2 };
+  it('one in front, never more than two in the back', () => {
+    expect(maxTripSeats(4, true, rules)).toBe(3);
+    expect(maxTripSeats(4, false, rules)).toBe(2);
+    expect(maxTripSeats(7, true, rules)).toBe(3);
+    expect(maxTripSeats(2, true, rules)).toBe(2);
+    expect(maxTripSeats(0, true, rules)).toBe(1);
+  });
+});
+
+describe('booking money and seats along the way', () => {
+  it('splits cash and the deposit', () => {
+    expect(bookingMoney({ price: 70_000, depositAmount: 14_000, payCash: 56_000 })).toEqual({
+      cash: 56_000,
+      deposit: 14_000,
+    });
+    expect(bookingMoney({ price: 70_000, depositAmount: 14_000 })).toEqual({
+      cash: 56_000,
+      deposit: 14_000,
+    });
+    expect(bookingMoney({ price: 70_000 })).toEqual({ cash: 70_000, deposit: 0 });
+  });
+
+  it('names the towns of a seat along the way', () => {
+    expect(alongTheWayText({ alongTheWay: false })).toBeNull();
+    expect(
+      alongTheWayText({
+        alongTheWay: true,
+        pickup: { nameUz: 'Boyovut' },
+        dropoff: { nameUz: 'Yangiyer' },
+      }),
+    ).toBe('Boyovut → Yangiyer');
   });
 });

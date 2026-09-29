@@ -112,6 +112,8 @@ export interface RequestOptions {
   /** Send the access token (default true). */
   auth?: boolean;
   signal?: AbortSignal;
+  /** Give up after this long (default: the client's `timeoutMs`). */
+  timeoutMs?: number;
 }
 
 /** Refresh a little before the access token actually expires. */
@@ -146,9 +148,10 @@ export function createApiClient(options: ApiClientOptions) {
     body: unknown,
     accessToken: string | null,
     signal?: AbortSignal,
+    timeout: number = timeoutMs,
   ): Promise<Response> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeout);
     const onAbort = () => controller.abort();
     signal?.addEventListener('abort', onAbort);
     const headers: Record<string, string> = { Accept: 'application/json' };
@@ -231,14 +234,21 @@ export function createApiClient(options: ApiClientOptions) {
         if (!used) throw new ApiError(401, fallbackMessage(401));
       }
     }
-    let res = await send(method, path, opts.body, used?.accessToken ?? null, opts.signal);
+    let res = await send(
+      method,
+      path,
+      opts.body,
+      used?.accessToken ?? null,
+      opts.signal,
+      opts.timeoutMs,
+    );
     if (res.status === 401 && used) {
       // another request may already have rotated the pair while this one was out
       const latest = await current();
       const fresh =
         latest && latest.accessToken !== used.accessToken ? latest : await refresh(used);
       if (!fresh) throw new ApiError(401, fallbackMessage(401));
-      res = await send(method, path, opts.body, fresh.accessToken, opts.signal);
+      res = await send(method, path, opts.body, fresh.accessToken, opts.signal, opts.timeoutMs);
       if (res.status === 401) await expire();
     }
     return parse<T>(res);

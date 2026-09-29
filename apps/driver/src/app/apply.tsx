@@ -185,6 +185,21 @@ export default function Apply() {
             hint="Pasport yoki ID kartada. 1% soliq shu raqam bo‘yicha to‘lanadi."
             error={shown.pinfl}
           />
+          <View style={{ gap: space.xs }}>
+            <Text style={styles.label}>Jinsi (ixtiyoriy)</Text>
+            <Choice
+              options={[
+                { value: 'female', label: 'Ayol' },
+                { value: 'male', label: 'Erkak' },
+              ]}
+              selected={form.gender ? [form.gender] : []}
+              onToggle={(v) => set('gender', form.gender === v ? null : v)}
+            />
+            <Muted>
+              Pasport bo‘yicha, operator tasdiqlaydi. Ayol haydovchilarga “ayol haydovchi” so‘ragan
+              yo‘lovchilar beriladi.
+            </Muted>
+          </View>
         </>
       ) : null}
 

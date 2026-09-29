@@ -22,6 +22,8 @@ describe('intercity rules from /driver/config', () => {
         priceBandPercent: 20,
         freeCancelMinutes: 90,
         lateCancelFeePercent: 40,
+        maxSeats: 3,
+        maxRearSeats: 2,
       },
     });
     expect(c.intercity).toEqual({
@@ -32,7 +34,15 @@ describe('intercity rules from /driver/config', () => {
       priceBandPercent: 20,
       freeCancelMinutes: 90,
       lateCancelFeePercent: 40,
+      maxSeats: 3,
+      maxRearSeats: 2,
     });
+  });
+
+  it('never lets an API loosen the seating rule', () => {
+    const c = mapDriverConfig({ intercity: { maxSeats: 4, maxRearSeats: 3 } });
+    expect(c.intercity.maxSeats).toBe(3);
+    expect(c.intercity.maxRearSeats).toBe(2);
   });
 
   it('keeps the launch default for a missing or malformed field', () => {

@@ -6,10 +6,12 @@ import { serverClock } from '../api/client';
 import { keys, useCurrentRide, useDriverMe, useOffers } from '../data/queries';
 import { isApiError } from '../lib/api-client';
 import { offerToShow } from '../lib/refresh';
-import { setTrackingErrorHandler, startTracking, stopTracking } from '../location/tracker';
+import { trackingPhase } from '../lib/location-policy';
+import { setTrackingErrorHandler, setTrackingPhase, stopTracking } from '../location/tracker';
+import { useTrackingMode } from '../location/use-tracking-mode';
 import { useNotificationRouting } from '../notifications/use-push';
 import { haptics } from '../ui/haptics';
-import { useRealtime } from './use-realtime';
+import { setRealtimeInBackground, useRealtime } from './use-realtime';
 
 const KEEP_AWAKE_TAG = 'on-ride';
 
@@ -30,18 +32,29 @@ export function DriverRuntime() {
   const current = useCurrentRide();
   const ride = current.data ?? null;
   const online = me.data?.isOnline ?? false;
-  const offers = useOffers(online, ride !== null);
+  // with shared rides on, riders on the way are offered while the car already carries some
+  const sharing = me.data?.pool?.enabled === true;
+  const offers = useOffers(online, ride !== null && !sharing);
 
   useRealtime(true);
   useNotificationRouting(true);
 
-  // report the position while online or on a ride (the rider follows the car)
-  const track = online || ride !== null;
+  // report the position while online or on a ride (the rider follows the car), paced by
+  // what the driver is doing; offline without a ride the GPS is off
+  const phase = trackingPhase(online || ride !== null, ride?.status);
   useEffect(() => {
-    if (track) void startTracking();
-    else void stopTracking();
-  }, [track]);
+    void setTrackingPhase(phase);
+  }, [phase]);
   useEffect(() => () => void stopTracking(), []);
+
+  // with the background location service running, offers are heard over the stream
+  // even with the navigator in front
+  const mode = useTrackingMode();
+  const keepStream = phase !== 'off' && mode === 'background';
+  useEffect(() => {
+    setRealtimeInBackground(keepStream);
+    return () => setRealtimeInBackground(false);
+  }, [keepStream]);
 
   useEffect(() => {
     setTrackingErrorHandler((error) => {
@@ -73,7 +86,9 @@ export function DriverRuntime() {
   const rideId = ride?.id ?? null;
   useEffect(() => {
     // (while the offer screen is open it moves to the ride itself after accepting)
-    if (rideId && rideId !== lastRideId.current && pathname !== '/ride' && !showing) {
+    // (the done screen of a shared ride leads to the next rider itself)
+    const done = pathname.startsWith('/ride-done');
+    if (rideId && rideId !== lastRideId.current && pathname !== '/ride' && !showing && !done) {
       haptics.warning();
       router.navigate('/ride');
     }

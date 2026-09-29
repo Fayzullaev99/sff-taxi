@@ -281,3 +281,25 @@ describe('server time', () => {
     expect(seen).toEqual([]);
   });
 });
+
+describe('timeouts', () => {
+  /** A server that never answers, but honours the abort signal. */
+  const hanging = (_url: string, init: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+    });
+
+  it('gives up after the per-request timeout with a network error', async () => {
+    const c = createApiClient({
+      baseUrl: 'http://api.test',
+      store: memoryStore(null),
+      fetch: hanging,
+      timeoutMs: 60_000,
+    });
+    const started = Date.now();
+    const error = await c.get('/x', { auth: false, timeoutMs: 20 }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(0);
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+});

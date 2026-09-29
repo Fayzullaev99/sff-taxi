@@ -93,6 +93,90 @@ export interface DriverMe {
   minBalance: number;
   /** Uzbek sentences: why the driver cannot work now. */
   blockers: string[];
+  /** Declared in the application; `genderVerified` once an operator checked the passport. */
+  gender?: Gender | null;
+  genderVerified?: boolean;
+  /** A verified woman driver takes women riders only. */
+  womenRidersOnly?: boolean;
+  /** Shared rides and the heading filter (wave 4; absent on an older API). */
+  pool?: DriverPool | null;
+}
+
+export type Gender = 'female' | 'male';
+
+/** `GET /v1/geo/search` (public): address suggestions. */
+export interface GeoAddress {
+  /** "Mustaqillik ko‘chasi, 12" */
+  title: string;
+  /** "Guliston, Sirdaryo viloyati" */
+  subtitle: string | null;
+  locality?: string | null;
+  lat: number;
+  lng: number;
+}
+
+/** The car's seats: one in front, at most two in the back (the hard seating rule). */
+export interface SeatLayout {
+  occupied: number;
+  capacity: number;
+  front: number;
+  rear: number;
+  free: number;
+}
+
+export interface DriverDestination {
+  lat: number;
+  lng: number;
+  address: string | null;
+  landmark?: string | null;
+}
+
+/** `GET /v1/driver/me` → `pool`. */
+export interface DriverPool {
+  enabled: boolean;
+  /** People in the car without the app (0–3). */
+  extraPassengers: number;
+  /** Where the driver is heading: only rides on the way are offered. */
+  destination: DriverDestination | null;
+  destinationSetAt: string | null;
+  seats: SeatLayout;
+}
+
+/** `PUT /v1/driver/preferences` (every field optional). */
+export interface PreferencesBody {
+  poolEnabled?: boolean;
+  extraPassengers?: number;
+  destination?: { lat: number; lng: number; address: string | null } | null;
+  womenRidersOnly?: boolean;
+}
+
+/** One stop of a plan: riders' pickups and drop-offs, the driver's own destination. */
+export interface PlanStop {
+  rideId: string | null;
+  type: 'pickup' | 'dropoff' | 'destination';
+  lat: number;
+  lng: number;
+  passengers: number;
+}
+
+/** `driver/rides/current` → `pool.stops[]`: the stops ahead, in order. */
+export interface PoolStop {
+  rideId: string;
+  number: number;
+  type: 'pickup' | 'dropoff';
+  lat: number;
+  lng: number;
+  place: { address: string | null; landmark: string | null } | null;
+  riderName: string | null;
+  passengers: number;
+  status: RideStatus;
+}
+
+/** Several riders in the car (null for one). */
+export interface DriverRidePool {
+  riders: number;
+  occupancy: SeatLayout & { inCar: number; riders: number };
+  stops: PoolStop[];
 }
 
 export interface Place {
@@ -110,6 +194,8 @@ export interface Offer {
   /** Road ETA to the pickup (s) and distance (m), null when unknown. */
   etaS: number | null;
   distanceM: number | null;
+  /** A ride on the car's way (riders in the car, or a heading): the detour and new stop order. */
+  along?: { detourS: number | null; stops: PlanStop[] } | null;
   ride: {
     id: string;
     number: number;
@@ -127,6 +213,14 @@ export interface Offer {
     scheduledFor?: string | null;
     /** Fees the rider owes from earlier cancelled cash rides, taken in cash with this fare. */
     owedFee?: number;
+    /** People in this order (1–3). */
+    passengers?: number;
+    /** The rider agreed to share the car. */
+    shareable?: boolean;
+    /** The rider asked for a woman driver. */
+    womenOnly?: boolean;
+    /** 'seat': a fixed per-seat route price (a shared car); 'car': the whole car. */
+    fareMode?: 'car' | 'seat';
   };
 }
 
@@ -171,7 +265,25 @@ export interface DriverRide {
     cancellationFeeStatus?: 'owed' | 'collected' | 'waived' | null;
     /** Earlier rides' owed fees this ride collects in cash (after completion: what was taken). */
     owedFee?: number;
+    /** The shared-ride discount (the part of the trip shared with other riders). */
+    poolDiscount?: number;
+    /** Paid by card in advance (a ride booked for later). */
+    deposit?: number;
+    /** What the rider pays for the trip now: the fare after the discount, before waiting. */
+    pays?: number;
   };
+  /** People in this order (1–3). */
+  passengers?: number;
+  shareable?: boolean;
+  womenOnly?: boolean;
+  fareMode?: 'car' | 'seat';
+  /** The trip starts only with the 4-digit code the rider tells the driver. */
+  hasStartPin?: boolean;
+  /**
+   * The current ride / a ride by id: the stops ahead when the car carries several riders
+   * (null for one). Ride history items carry `{id, sharedM}` instead (see lib/pool).
+   */
+  pool?: DriverRidePool | { id: string; sharedM: number } | null;
   paymentMethod: 'cash' | 'card';
   paymentStatus: string;
   vehicle: (Vehicle & { plateFormatted: string }) | null;
@@ -321,6 +433,13 @@ export interface IntercityFare {
   band: { min: number; max: number };
 }
 
+export interface BookingTown {
+  id: string;
+  slug: string;
+  nameUz: string;
+  nameRu: string | null;
+}
+
 export interface TripBooking {
   id: string;
   number: number;
@@ -330,6 +449,14 @@ export interface TripBooking {
   seats: number;
   front: boolean;
   price: number;
+  /** Paid by card in advance (the driver's once the trip is done). */
+  depositAmount?: number;
+  /** The rest, taken in cash at boarding. */
+  payCash?: number;
+  /** A seat for part of the route: picked up / dropped off in towns on the way. */
+  alongTheWay?: boolean;
+  pickup?: BookingTown | null;
+  dropoff?: BookingTown | null;
   pickupNote: string | null;
   cancelledBy: string | null;
   cancelReason: string | null;

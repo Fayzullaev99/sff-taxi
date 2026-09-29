@@ -25,6 +25,7 @@ import { usePushPermission } from '../../notifications/use-push';
 import { getPreferredNavApp, setPreferredNavApp } from '../../ui/actions';
 import { Banner, Button, Card, Choice, Loading, Muted, Row, Title } from '../../ui/components';
 import { haptics } from '../../ui/haptics';
+import { WomenRidersCard } from '../../home/women-riders-card';
 import { Screen } from '../../ui/screen';
 import { LicenceCardStatus, SupportCard } from '../../ui/widgets';
 
@@ -114,6 +115,8 @@ export default function Profile() {
           onPress={() => router.push('/documents')}
         />
       </Card>
+
+      <WomenRidersCard me={d} />
 
       <Card>
         <Title>Bildirishnomalar</Title>

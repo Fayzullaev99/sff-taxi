@@ -1,11 +1,13 @@
 import { type QueryClient, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useSyncExternalStore } from 'react';
+import NetInfo from '@react-native-community/netinfo';
 import { Alert, AppState } from 'react-native';
 import type { DriverRide, Topup } from '../api/types';
 import { keys, setStreamOpen } from '../data/queries';
 import type { RealtimeEvent } from '../lib/sse';
 import { withPaidEvent } from '../lib/topup';
+import { announceOffer } from '../notifications/push';
 import { haptics } from '../ui/haptics';
 import { RealtimeConnection } from './connection';
 
@@ -99,8 +101,25 @@ async function onRideUpdated(
   }
 }
 
+// While on shift with the background location service running, the stream stays open in
+// the background too (the process is alive anyway): an offer is heard at once.
+let keepInBackground = false;
+const keepListeners = new Set<(keep: boolean) => void>();
+
+export function setRealtimeInBackground(keep: boolean): void {
+  if (keep === keepInBackground) return;
+  keepInBackground = keep;
+  keepListeners.forEach((l) => l(keep));
+}
+
+function onKeepInBackground(listener: (keep: boolean) => void): () => void {
+  keepListeners.add(listener);
+  return () => keepListeners.delete(listener);
+}
+
 /**
- * Keeps an event stream open while the app is in the foreground and turns the API's
+ * Keeps an event stream open while the app is in the foreground (and in the background
+ * while on shift, see setRealtimeInBackground) and turns the API's
  * nudges into refetches. Queries also poll (fast while the stream is down), so a missed
  * event only delays an update; offers additionally come as urgent pushes.
  */
@@ -121,6 +140,11 @@ export function useRealtime(enabled: boolean): void {
           break;
         case 'offer.new':
           void qc.invalidateQueries({ queryKey: keys.offers });
+          // in the background (navigator in front) the stream is kept only while on shift:
+          // the offer alert sounds at once, without waiting for a push
+          if (AppState.currentState !== 'active') {
+            void announceOffer(event.offerId, 'Yangi buyurtma!', 'Javob berish uchun bosing');
+          }
           break;
         case 'offer.closed':
           markOfferClosed(event.offerId, event.status);
@@ -131,6 +155,14 @@ export function useRealtime(enabled: boolean): void {
           break;
         case 'driver.updated':
           void qc.invalidateQueries({ queryKey: keys.me });
+          // the heading filter clears itself when the driver gets there
+          if (event.status === 'destination_reached') {
+            haptics.success();
+            Alert.alert(
+              'Manzilga yetdingiz',
+              'Yo‘nalish filtri o‘chirildi: endi hamma buyurtmalar keladi.',
+            );
+          }
           void qc.invalidateQueries({ queryKey: keys.appeals });
           break;
         case 'intercity.updated':
@@ -150,13 +182,31 @@ export function useRealtime(enabled: boolean): void {
     };
 
     const connection = new RealtimeConnection(handle, (status) => setStreamOpen(status === 'open'));
-    if (AppState.currentState !== 'background') connection.start();
+    const inForeground = () => AppState.currentState !== 'background';
+    if (inForeground() || keepInBackground) connection.start();
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') connection.start();
-      else if (state === 'background') connection.stop();
+      if (state === 'active') connection.reconnectNow();
+      else if (state === 'background' && !keepInBackground) connection.stop();
+    });
+    // leaving the shift while in the background closes the stream too
+    const keepSub = onKeepInBackground((keep) => {
+      if (inForeground()) return;
+      if (keep) connection.start();
+      else connection.stop();
+    });
+    // the phone's connection came back: reconnect now rather than after the backoff
+    let wasConnected = true;
+    const netSub = NetInfo.addEventListener((net) => {
+      const connected = net.isConnected !== false;
+      if (connected && !wasConnected && (inForeground() || keepInBackground)) {
+        connection.reconnectNow();
+      }
+      wasConnected = connected;
     });
     return () => {
       sub.remove();
+      keepSub();
+      netSub();
       connection.stop();
       setStreamOpen(false);
     };

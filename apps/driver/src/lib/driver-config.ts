@@ -50,6 +50,10 @@ export interface IntercityRules {
   freeCancelMinutes: number;
   /** … later they owe this share of the seat price. */
   lateCancelFeePercent: number;
+  /** The seating rule: at most this many seats per trip … */
+  maxSeats: number;
+  /** … and never more than this many in the back. */
+  maxRearSeats: number;
 }
 
 export interface Reason {
@@ -125,6 +129,9 @@ export const DEFAULT_INTERCITY_RULES: IntercityRules = {
   priceBandPercent: 15,
   freeCancelMinutes: 60,
   lateCancelFeePercent: 30,
+  // the hard seating rule (1 front + 2 rear) holds even before an API publishes it
+  maxSeats: 3,
+  maxRearSeats: 2,
 };
 
 /** The API's DECLINE_REASONS (dispatch.module.ts), in its order. */
@@ -268,6 +275,9 @@ export function mapDriverConfig(
       priceBandPercent: num(ic.priceBandPercent, d.intercity.priceBandPercent),
       freeCancelMinutes: num(ic.freeCancelMinutes, d.intercity.freeCancelMinutes),
       lateCancelFeePercent: num(ic.lateCancelFeePercent, d.intercity.lateCancelFeePercent),
+      // never looser than the seating rule, whatever an API says
+      maxSeats: Math.min(3, num(ic.maxSeats, d.intercity.maxSeats)),
+      maxRearSeats: Math.min(2, num(ic.maxRearSeats, d.intercity.maxRearSeats)),
     },
     declineReasons: mapReasons(r.declineReasons, d.declineReasons),
     cancelReasons: mapReasons(r.cancelReasons, d.cancelReasons),

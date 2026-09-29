@@ -7,7 +7,7 @@ import { litSegments } from '../lib/countdown';
 import { som } from '../lib/format';
 import { OFFICE_TOP_UP_STEPS } from '../lib/money';
 import { suggestedTopup } from '../lib/topup';
-import { useGpsQuality } from '../location/use-tracking-mode';
+import { useGpsQuality, useSavingBattery } from '../location/use-tracking-mode';
 import { call, openTelegram } from './actions';
 import type { LicenceVerification } from '../api/types';
 import { Banner, Button, Card, Chip, Muted, Title, TONES } from './components';
@@ -59,8 +59,9 @@ export const CountdownRing = memo(function CountdownRing(props: {
 });
 
 /** The GPS indicator: how good the fixes are and whether the API takes them. */
-export function GpsIndicator() {
+export const GpsIndicator = memo(function GpsIndicator() {
   const q = useGpsQuality();
+  const saving = useSavingBattery();
   const tone =
     q.level === 'good'
       ? 'success'
@@ -81,9 +82,17 @@ export function GpsIndicator() {
         <Text style={[styles.gpsText, { color: t.fg }]}>{q.label}</Text>
       </View>
       {q.hint ? <Muted>{q.hint}</Muted> : null}
+      {saving && q.level !== 'off' ? (
+        <View style={[styles.gps, { backgroundColor: TONES.warning.bg }]}>
+          <Ionicons name="battery-dead" size={18} color={TONES.warning.fg} />
+          <Text style={[styles.gpsText, { color: TONES.warning.fg }]}>
+            Batareya kam: joylashuv kamroq yuboriladi
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
-}
+});
 
 /**
  * How to top up, with the missing amount when the balance is below the minimum: by card

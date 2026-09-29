@@ -60,6 +60,8 @@ export interface ApplicationForm {
    * trunk then gets no luggage rides.
    */
   cng: boolean;
+  /** Optional, as in the passport; an operator verifies it (women drivers, women riders). */
+  gender: 'female' | 'male' | null;
 }
 
 export const EMPTY_FORM: ApplicationForm = {
@@ -80,6 +82,7 @@ export const EMPTY_FORM: ApplicationForm = {
   vehicleClass: 'economy',
   features: [],
   cng: true,
+  gender: null,
 };
 
 /** "31.12.1990" (also "31/12/1990", "31-12-1990") -> "1990-12-31"; null if not a real date. */
@@ -223,6 +226,7 @@ export interface ApplicationBody {
     features: VehicleFeature[];
     cngInTrunk: boolean;
   };
+  gender?: 'female' | 'male';
 }
 
 /** The request body; call only after `validateApplication` found nothing. */
@@ -247,6 +251,7 @@ export function toApplicationBody(f: ApplicationForm): ApplicationBody {
       features: [...new Set(f.features)],
       cngInTrunk: f.cng,
     },
+    ...(f.gender ? { gender: f.gender } : {}),
   };
 }
 
@@ -268,6 +273,7 @@ export function formFromProfile(p: {
     features: string[];
     cngInTrunk?: boolean;
   } | null;
+  gender?: string | null;
 }): ApplicationForm {
   const v = p.vehicle;
   const features = (v?.features ?? []).filter((x): x is VehicleFeature =>
@@ -292,6 +298,7 @@ export function formFromProfile(p: {
     features,
     // most Cobalts/Nexias carry the tank in the trunk: on until the driver says otherwise
     cng: v ? (v.cngInTrunk ?? !features.includes('big_trunk')) : true,
+    gender: p.gender === 'female' || p.gender === 'male' ? p.gender : null,
   };
 }
 

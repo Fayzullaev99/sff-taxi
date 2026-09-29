@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { api, onSessionExpired } from '../api/client';
 import type { TokenPair } from '../lib/api-client';
+import { clearSnapshot } from '../data/persist';
 import { stopTracking } from '../location/tracker';
 import { unregisterPushDevice } from '../notifications/push';
 
@@ -35,6 +36,7 @@ export function SessionProvider(props: { children: ReactNode }) {
       .catch(() => alive && setStatus('signedOut'));
     const unsubscribe = onSessionExpired(() => {
       void stopTracking();
+      void clearSnapshot();
       queryClient.clear();
       setStatus('signedOut');
     });
@@ -47,6 +49,7 @@ export function SessionProvider(props: { children: ReactNode }) {
   const signIn = useCallback(
     async (pair: TokenPair) => {
       await api.signIn(pair);
+      await clearSnapshot();
       queryClient.clear();
       setStatus('signedIn');
     },
@@ -60,6 +63,7 @@ export function SessionProvider(props: { children: ReactNode }) {
     // this phone must stop receiving the account's pushes (needs the session, so first)
     await unregisterPushDevice();
     await api.signOut();
+    await clearSnapshot();
     queryClient.clear();
     setStatus('signedOut');
   }, [queryClient]);

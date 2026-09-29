@@ -4,7 +4,7 @@ import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { driver } from '../../api/driver';
-import type { DriverMe } from '../../api/types';
+import type { DriverMe, DriverRide } from '../../api/types';
 import {
   keys,
   useCurrentRide,
@@ -14,23 +14,28 @@ import {
 } from '../../data/queries';
 import { ApiError, errorMessage, isApiError } from '../../lib/api-client';
 import { tashkentToday } from '../../lib/application';
-import { RIDE_STATUSES, som } from '../../lib/format';
+import { som } from '../../lib/format';
 import { balanceStatus, promoStatus } from '../../lib/money';
-import { scheduledLabel } from '../../lib/when';
+import { withRetry } from '../../lib/ride-actions';
 import {
   ensureLocationPermission,
   requestBackgroundPermission,
   restartTracking,
   sendCurrentPosition,
 } from '../../location/tracker';
+import { CurrentRideCard } from '../../home/current-ride-card';
+import { PoolPanel } from '../../home/pool-panel';
+import { useBatteryOptimization } from '../../location/use-battery-optimization';
 import { useTrackingMode } from '../../location/use-tracking-mode';
 import { registerPushDevice, requestPushPermission } from '../../notifications/push';
 import { usePushPermission } from '../../notifications/use-push';
-import { Banner, Button, Card, Chip, Loading, Muted, Row, Title } from '../../ui/components';
+import { Banner, Button, Card, Loading, Row, Title } from '../../ui/components';
 import { haptics } from '../../ui/haptics';
 import { Screen } from '../../ui/screen';
 import { colors, radius, space } from '../../ui/theme';
 import { GpsIndicator, TopUpCard } from '../../ui/widgets';
+
+const NO_RIDES: DriverRide[] = [];
 
 class LocationUnavailable extends Error {
   constructor(readonly reason: 'denied' | 'services_off') {
@@ -66,6 +71,7 @@ export default function Home() {
   const mode = useTrackingMode();
   const push = usePushPermission();
   const config = useDriverConfig();
+  const optimised = useBatteryOptimization(me.data?.isOnline ?? false);
 
   const shift = useMutation({
     mutationFn: async (goOnline: boolean): Promise<DriverMe> => {
@@ -79,7 +85,8 @@ export default function Home() {
           if (error instanceof ApiError && error.status !== 0) throw error;
         }
       }
-      return driver.shift(goOnline);
+      // going on or off shift twice is harmless: a lost answer is simply sent again
+      return withRetry(() => driver.shift(goOnline), { attempts: 3, baseMs: 1_000, maxMs: 4_000 });
     },
     onSuccess: (next) => {
       haptics.tap();
@@ -101,7 +108,6 @@ export default function Home() {
   const money = balanceStatus(d.balance, d.minBalance);
   const promo = promoStatus(tashkentToday(), config.billing);
   const current = ride.data ?? null;
-  const scheduled = current ? scheduledLabel(current.scheduledFor, Date.now()) : null;
   // the balance is explained by its own card; the others are listed as they come
   const blockers = d.blockers.filter((b) => !/balans/i.test(b));
   const canGoOnline = money.canWork && blockers.length === 0;
@@ -134,7 +140,9 @@ export default function Home() {
     >
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.hello}>{d.fullName.split(' ')[1] ?? d.fullName}</Text>
+          <Text style={styles.hello} numberOfLines={1} maxFontSizeMultiplier={1.4}>
+            {d.fullName.split(' ')[1] ?? d.fullName}
+          </Text>
           {d.vehicle ? (
             <Text style={styles.car}>
               {d.vehicle.make} {d.vehicle.model} · {d.vehicle.plateFormatted}
@@ -147,25 +155,17 @@ export default function Home() {
           accessibilityLabel={`Ustuvorlik ${d.priority.score}`}
           style={styles.score}
         >
-          <Text style={styles.scoreValue}>{d.priority.score}</Text>
-          <Text style={styles.scoreLabel}>reyting</Text>
+          <Text style={styles.scoreValue} maxFontSizeMultiplier={1.1}>
+            {d.priority.score}
+          </Text>
+          <Text style={styles.scoreLabel} maxFontSizeMultiplier={1.1}>
+            reyting
+          </Text>
         </Pressable>
       </View>
 
-      {current ? (
-        <Card style={{ borderColor: colors.brand, borderWidth: 2 }}>
-          <Chip label={`#${current.number}`} tone="brand" />
-          <Title>{RIDE_STATUSES[current.status] ?? current.status}</Title>
-          {scheduled ? <Chip label={scheduled} tone="info" icon="calendar" /> : null}
-          <Muted>{current.pickup.address ?? current.pickup.landmark ?? 'Belgilangan nuqta'}</Muted>
-          <Button
-            title="Safarga qaytish"
-            icon="navigate"
-            big
-            onPress={() => router.navigate('/ride')}
-          />
-        </Card>
-      ) : null}
+      {/* the rides in hand: the next stop's ride and, when shared, every stop ahead */}
+      <CurrentRideCard rides={current ? [current] : NO_RIDES} />
 
       <Pressable
         onPress={toggle}
@@ -185,7 +185,12 @@ export default function Home() {
           size={56}
           color={online ? colors.onSuccess : colors.onBrand}
         />
-        <Text style={[styles.switchText, { color: online ? colors.onSuccess : colors.onBrand }]}>
+        <Text
+          style={[styles.switchText, { color: online ? colors.onSuccess : colors.onBrand }]}
+          maxFontSizeMultiplier={1.4}
+          adjustsFontSizeToFit
+          numberOfLines={1}
+        >
           {shift.isPending ? 'Kuting…' : online ? 'LINIYADASIZ' : 'LINIYAGA CHIQISH'}
         </Text>
         <Text style={[styles.switchSub, { color: online ? colors.onSuccess : colors.onBrand }]}>
@@ -198,6 +203,9 @@ export default function Home() {
       </Pressable>
 
       {online ? <GpsIndicator /> : null}
+
+      {/* shared rides, people in the car, the heading filter (hidden on an older API) */}
+      <PoolPanel me={d} />
 
       {online && mode === 'foreground' ? (
         <Banner
@@ -215,6 +223,22 @@ export default function Home() {
                   else await Linking.openSettings();
                 })
               }
+            />
+          }
+        />
+      ) : null}
+
+      {optimised ? (
+        <Banner
+          tone="warning"
+          icon="battery-half"
+          title="Batareya tejash yoqilgan"
+          text="Telefon ilovani fonda to‘xtatib qo‘yishi mumkin — buyurtmalar kelmay qoladi. Sozlamalarda “Batareya” → “Cheklovsiz” ni tanlang."
+          action={
+            <Button
+              title="Ochish"
+              variant="secondary"
+              onPress={() => void Linking.openSettings()}
             />
           }
         />
