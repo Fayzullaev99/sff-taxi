@@ -197,6 +197,10 @@ Statuses: `pending → active | rejected`, `active ⇄ blocked`, `rejected → p
 re-application. Every decision carries a reason the driver sees, in `driver_status_changes` —
 the "transparent rules, human appeal" differentiator against opaque account blocks (MA §1.5, §6.1).
 
+**Cargo cars** (Damas, Labo, Gazel, Porter) are not passenger taxis: the rules above for the car
+do not apply to them, cargo rules do (a van/pickup/truck body, a payload, ≤ 25 years, category
+C above 3.5 t), and they get cargo rides only — see [shared-rides.md §8](shared-rides.md).
+
 **Licence cards** are checked with the Ministry of Transport's registry through the
 `LicenceRegistry` adapter ('manual' today: operators check and record it); approval and going
 online need a verified card. **Electronic fiscal receipts** for every completed ride and seat
