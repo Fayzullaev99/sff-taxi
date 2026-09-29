@@ -6,6 +6,7 @@
  */
 
 import { DEFAULT_INTERCITY_RULES, type IntercityRules } from './driver-config';
+import { distance, time } from './format';
 
 /**
  * The board's launch rules, until `GET /v1/driver/config` (`intercity`) loads: screens take
@@ -253,4 +254,29 @@ export function alongTheWayText(b: {
 }): string | null {
   if (!b.alongTheWay) return null;
   return `${b.pickup?.nameUz ?? 'Yo‘lda'} → ${b.dropoff?.nameUz ?? 'yo‘lda'}`;
+}
+
+/** The API's boardingPoint / alightingPoint / partDistanceM of a booking. */
+export interface BookingStops {
+  alongTheWay?: boolean;
+  boardingPoint?: { name: string; meetingPoint: string; estimatedAt: string } | null;
+  alightingPoint?: { name: string; meetingPoint: string } | null;
+  partDistanceM?: number | null;
+}
+
+/**
+ * Where to pick up and drop off a rider along the way: their town's meeting point about when
+ * the car passes it, their drop-off town's point, and their part of the road. Empty for a
+ * whole-trip seat (they come to the trip's meeting point) or an older API.
+ */
+export function alongStopLines(b: BookingStops): string[] {
+  if (!b.alongTheWay || !b.boardingPoint) return [];
+  const p = b.boardingPoint;
+  const at = time(p.estimatedAt);
+  const lines = ['Olish: ' + p.name + ', ' + p.meetingPoint + (at ? ' · taxminan ' + at : '')];
+  if (b.alightingPoint) {
+    lines.push('Tushirish: ' + b.alightingPoint.name + ', ' + b.alightingPoint.meetingPoint);
+  }
+  if (b.partDistanceM) lines.push('Uning yo‘li: ' + distance(b.partDistanceM));
+  return lines;
 }

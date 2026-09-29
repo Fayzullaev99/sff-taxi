@@ -15,6 +15,7 @@ import {
   bookingCancelledText,
   bookingCancelTerms,
   cancelRulesFrom,
+  stopLines,
   TRIP_STATUS_LABELS,
 } from '../../../lib/intercity';
 import { useNow } from '../../../lib/hooks';
@@ -168,7 +169,9 @@ export default function BookingScreen() {
         {b.alongTheWay && b.pickup && b.dropoff ? (
           <KeyValue label="Yo‘l-yo‘lakay" value={`${b.pickup.nameUz} → ${b.dropoff.nameUz}`} />
         ) : null}
-        <KeyValue label="Uchrashuv joyi" value={t.meetingPoint} />
+        {stopLines(b, t).map((line) => (
+          <KeyValue key={line.label} label={line.label} value={line.value} />
+        ))}
         <KeyValue label="Joylar" value={`${b.seats}${b.front ? ' (biri oldinda)' : ''}`} />
         {deposit > 0 ? (
           <>

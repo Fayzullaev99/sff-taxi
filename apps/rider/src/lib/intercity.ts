@@ -5,7 +5,7 @@
  * GET /config and the trip / booking views; 60 minutes and 30% are the launch defaults).
  */
 import type { BookingStatus, TripStatus } from '../api/types';
-import { formatDay, formatMoney, formatTime, tashkentDay } from './format';
+import { formatDay, formatDistance, formatMoney, formatTime, tashkentDay } from './format';
 
 export const MAX_SEATS = 4;
 
@@ -207,15 +207,63 @@ export interface AlongChoice {
   fromName: string;
   toName: string;
   prices: SeatPrices;
+  /** Where and about when the rider gets in, where they get off, how far they ride. */
+  stops?: TripStops;
+}
+
+/** The API's boardingPoint / alightingPoint / partDistanceM (bookings, along results). */
+export interface TripStops {
+  boardingPoint?: { name: string; meetingPoint: string; estimatedAt: string } | null;
+  alightingPoint?: { name: string; meetingPoint: string } | null;
+  partDistanceM?: number | null;
+}
+
+export interface StopLine {
+  label: string;
+  value: string;
+}
+
+/**
+ * Where the rider meets the car: along the way at their own town's meeting point about when
+ * the car passes ("taxminan 08:50"), and gets off at their drop-off town's; the distance is
+ * their part. A whole-trip seat: the trip's meeting point and distance.
+ */
+export function stopLines(
+  view: TripStops & { alongTheWay?: boolean },
+  trip: { meetingPoint: string; distanceM: number },
+): StopLine[] {
+  const b = view.boardingPoint;
+  if (!view.alongTheWay || !b) {
+    return [
+      { label: 'Uchrashuv joyi', value: trip.meetingPoint },
+      { label: 'Masofa', value: formatDistance(trip.distanceM) },
+    ];
+  }
+  const a = view.alightingPoint;
+  return [
+    { label: 'O‘tirish joyi', value: b.name + ': ' + b.meetingPoint },
+    { label: 'Vaqti', value: 'taxminan ' + formatTime(b.estimatedAt) },
+    ...(a ? [{ label: 'Tushish joyi', value: a.name + ': ' + a.meetingPoint }] : []),
+    { label: 'Masofa', value: formatDistance(view.partDistanceM ?? trip.distanceM) },
+  ];
+}
+
+/** A search card's boarding line along the way: "Sirdaryo · taxminan 08:50". */
+export function boardingHint(view: TripStops & { alongTheWay?: boolean }): string | null {
+  const b = view.boardingPoint;
+  if (!view.alongTheWay || !b) return null;
+  return b.name + ' · taxminan ' + formatTime(b.estimatedAt);
 }
 
 /** Route params for a search result (strings; only along-the-way results carry any). */
-export function alongRouteParams(trip: {
-  alongTheWay?: boolean;
-  pickup?: { slug: string; nameUz: string };
-  dropoff?: { slug: string; nameUz: string };
-  price: SeatPrices;
-}): Record<string, string> {
+export function alongRouteParams(
+  trip: {
+    alongTheWay?: boolean;
+    pickup?: { slug: string; nameUz: string };
+    dropoff?: { slug: string; nameUz: string };
+    price: SeatPrices;
+  } & TripStops,
+): Record<string, string> {
   if (!trip.alongTheWay || !trip.pickup || !trip.dropoff) return {};
   return {
     along: '1',
@@ -225,6 +273,17 @@ export function alongRouteParams(trip: {
     toName: trip.dropoff.nameUz,
     rear: String(trip.price.rear),
     front: String(trip.price.front),
+    ...(trip.boardingPoint
+      ? {
+          boardName: trip.boardingPoint.name,
+          boardMeet: trip.boardingPoint.meetingPoint,
+          boardAt: trip.boardingPoint.estimatedAt,
+        }
+      : {}),
+    ...(trip.alightingPoint
+      ? { alightName: trip.alightingPoint.name, alightMeet: trip.alightingPoint.meetingPoint }
+      : {}),
+    ...(trip.partDistanceM ? { partM: String(trip.partDistanceM) } : {}),
   };
 }
 
@@ -240,5 +299,20 @@ export function alongParams(p: Record<string, string | undefined>): AlongChoice 
     fromName: p.fromName ?? p.from,
     toName: p.toName ?? p.to,
     prices: { rear, front },
+    ...(p.boardMeet && p.boardAt && !Number.isNaN(Date.parse(p.boardAt))
+      ? {
+          stops: {
+            boardingPoint: {
+              name: p.boardName ?? p.fromName ?? p.from,
+              meetingPoint: p.boardMeet,
+              estimatedAt: p.boardAt,
+            },
+            alightingPoint: p.alightMeet
+              ? { name: p.alightName ?? p.toName ?? p.to, meetingPoint: p.alightMeet }
+              : null,
+            partDistanceM: Number(p.partM) > 0 ? Number(p.partM) : null,
+          },
+        }
+      : {}),
   };
 }

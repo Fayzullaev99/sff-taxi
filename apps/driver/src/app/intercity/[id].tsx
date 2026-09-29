@@ -9,6 +9,7 @@ import { keys, useDriverConfig, useTrip } from '../../data/queries';
 import { errorMessage } from '../../lib/api-client';
 import { formatPhone, som } from '../../lib/format';
 import {
+  alongStopLines,
   alongTheWayText,
   BOOKING_STATUS_TEXT,
   bookingMoney,
@@ -356,6 +357,12 @@ function BookingCard(props: {
           <Text style={styles.noteText}>Yo‘l ustida: {along}</Text>
         </View>
       ) : null}
+      {alongStopLines(b).map((line) => (
+        <View key={line} style={styles.note}>
+          <Ionicons name="flag-outline" size={18} color={colors.brand} />
+          <Text style={styles.noteText}>{line}</Text>
+        </View>
+      ))}
       {b.pickupNote ? (
         <View style={styles.note}>
           <Ionicons name="location" size={18} color={colors.brand} />

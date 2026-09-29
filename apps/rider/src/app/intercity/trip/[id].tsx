@@ -9,7 +9,7 @@ import { endpoints } from '../../../api/endpoints';
 import { keys, useIntercityTrip } from '../../../api/queries';
 import { useIntercityRules } from '../../../api/support';
 import { CLASS_LABELS } from '../../../lib/fare';
-import { formatDateTime, formatDistance, formatMoney } from '../../../lib/format';
+import { formatDateTime, formatMoney } from '../../../lib/format';
 import {
   bookingPrice,
   cancelRulesFrom,
@@ -19,7 +19,7 @@ import {
   TRIP_STATUS_LABELS,
 } from '../../../lib/intercity';
 import { OrderAttempts } from '../../../lib/order-attempt';
-import { alongParams } from '../../../lib/intercity';
+import { alongParams, stopLines } from '../../../lib/intercity';
 import { bookingDeposit, bookingDepositRules } from '../../../lib/deposit';
 import { Banner, Button, Card, KeyValue, Stepper, T, TextField } from '../../../ui/primitives';
 import { formatRating } from '../../../ui/Rating';
@@ -44,6 +44,12 @@ export default function TripScreen() {
     toName?: string;
     rear?: string;
     front?: string;
+    boardName?: string;
+    boardMeet?: string;
+    boardAt?: string;
+    alightName?: string;
+    alightMeet?: string;
+    partM?: string;
   }>();
   const along = alongParams(params);
   const insets = useSafeAreaInsets();
@@ -162,8 +168,9 @@ export default function TripScreen() {
         ) : null}
 
         <Card style={styles.card}>
-          <KeyValue label="Uchrashuv joyi" value={trip.meetingPoint} />
-          <KeyValue label="Masofa" value={formatDistance(trip.distanceM)} />
+          {stopLines({ alongTheWay: Boolean(along?.stops), ...along?.stops }, trip).map((line) => (
+            <KeyValue key={line.label} label={line.label} value={line.value} />
+          ))}
           <KeyValue
             label="Mashina"
             value={`${trip.vehicle.colour} ${trip.vehicle.make} ${trip.vehicle.model} · ${CLASS_LABELS[trip.class]}`}

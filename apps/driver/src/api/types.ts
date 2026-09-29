@@ -491,6 +491,11 @@ export interface TripBooking {
   alongTheWay?: boolean;
   pickup?: BookingTown | null;
   dropoff?: BookingTown | null;
+  /** Along the way: the rider's town's meeting point, about when the car passes it. */
+  boardingPoint?: { name: string; meetingPoint: string; estimatedAt: string } | null;
+  alightingPoint?: { name: string; meetingPoint: string } | null;
+  /** The rider's part of the trip's road metres. */
+  partDistanceM?: number | null;
   pickupNote: string | null;
   cancelledBy: string | null;
   cancelReason: string | null;

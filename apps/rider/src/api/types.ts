@@ -761,6 +761,11 @@ export interface IntercityTrip {
   dropoff?: IntercityPoint;
   share?: number;
   fullPrice?: { rear: number; front: number };
+  /** Along the way: the rider's own town's meeting point, about when the car passes it. */
+  boardingPoint?: { name: string; meetingPoint: string; estimatedAt: string } | null;
+  alightingPoint?: { name: string; meetingPoint: string } | null;
+  /** The rider's part of the trip's road metres. */
+  partDistanceM?: number | null;
 }
 
 export interface IntercityBooking {
@@ -781,6 +786,11 @@ export interface IntercityBooking {
   alongTheWay?: boolean;
   pickup?: { slug: string; nameUz: string } | null;
   dropoff?: { slug: string; nameUz: string } | null;
+  /** Where and about when the rider gets in (their town's meeting point), where they get off. */
+  boardingPoint?: { name: string; meetingPoint: string; estimatedAt: string } | null;
+  alightingPoint?: { name: string; meetingPoint: string } | null;
+  /** The rider's part of the trip's road metres (the whole trip's for a whole seat). */
+  partDistanceM?: number | null;
   pickupNote: string | null;
   cancelledBy: 'rider' | 'driver' | 'operator' | 'system' | null;
   cancelReason: string | null;

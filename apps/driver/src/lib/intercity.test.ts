@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   departureIso,
   departureProblem,
+  alongStopLines,
   alongTheWayText,
   bookingMoney,
   maxTripSeats,
@@ -157,5 +158,28 @@ describe('booking money and seats along the way', () => {
         dropoff: { nameUz: 'Yangiyer' },
       }),
     ).toBe('Boyovut → Yangiyer');
+  });
+});
+
+describe('where to pick up a rider along the way', () => {
+  it('names the rider’s town’s meeting point, about when, the drop-off and their part', () => {
+    const lines = alongStopLines({
+      alongTheWay: true,
+      boardingPoint: {
+        name: 'Sirdaryo',
+        meetingPoint: 'Sirdaryo markazi, bozor yonida',
+        estimatedAt: '2026-10-01T03:50:00Z',
+      },
+      alightingPoint: { name: 'Toshkent', meetingPoint: 'Olmazor avtoturargohi' },
+      partDistanceM: 85_700,
+    }).map((l) => l.replace(/\u00a0/g, ' '));
+    expect(lines[0]).toBe('Olish: Sirdaryo, Sirdaryo markazi, bozor yonida · taxminan 08:50');
+    expect(lines[1]).toBe('Tushirish: Toshkent, Olmazor avtoturargohi');
+    expect(lines[2]).toMatch(/^Uning yo‘li: 85[,.]7 km$/);
+  });
+
+  it('says nothing for a whole-trip seat or an older API', () => {
+    expect(alongStopLines({ alongTheWay: false })).toEqual([]);
+    expect(alongStopLines({ alongTheWay: true })).toEqual([]);
   });
 });

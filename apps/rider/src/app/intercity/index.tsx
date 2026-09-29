@@ -5,7 +5,7 @@ import { useIntercityPoints, useIntercityTrips } from '../../api/queries';
 import type { IntercityPoint, IntercityTrip } from '../../api/types';
 import { CLASS_LABELS } from '../../lib/fare';
 import { formatDistance, formatMoney, formatTime } from '../../lib/format';
-import { MAX_SEATS, searchDates, alongRouteParams } from '../../lib/intercity';
+import { MAX_SEATS, searchDates, alongRouteParams, boardingHint } from '../../lib/intercity';
 import { Banner, Button, Chip, Icon, IconButton, RadioMark, Stepper, T } from '../../ui/primitives';
 import { formatRating } from '../../ui/Rating';
 import { Sheet } from '../../ui/Sheet';
@@ -234,8 +234,16 @@ function TripCard({ trip, onPress }: { trip: IntercityTrip; onPress: () => void 
               Yo‘l-yo‘lakay: siz {trip.pickup.nameUz} → {trip.dropoff.nameUz}
             </T>
           ) : null}
+          {boardingHint(trip) ? (
+            <T variant="small" color={colors.brandText} numberOfLines={2}>
+              Mashinaga o‘tirish: {boardingHint(trip)}
+            </T>
+          ) : null}
           <T variant="small" color={colors.textMuted} numberOfLines={1}>
-            {car} · {CLASS_LABELS[trip.class]} · {formatDistance(trip.distanceM)}
+            {car} · {CLASS_LABELS[trip.class]} ·{' '}
+            {formatDistance(
+              trip.alongTheWay ? (trip.partDistanceM ?? trip.distanceM) : trip.distanceM,
+            )}
           </T>
         </View>
       </View>

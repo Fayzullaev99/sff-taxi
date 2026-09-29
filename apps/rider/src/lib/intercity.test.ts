@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   alongParams,
   alongRouteParams,
+  boardingHint,
   bookingCancelledText,
   bookingCancelTerms,
   bookingPrice,
@@ -10,6 +11,7 @@ import {
   DEFAULT_CANCEL_RULES,
   frontSurcharge,
   searchDates,
+  stopLines,
 } from './intercity';
 
 const prices = { rear: 70_000, front: 80_000 };
@@ -219,5 +221,52 @@ describe('a seat along the way', () => {
     expect(alongRouteParams({ ...trip, alongTheWay: false })).toEqual({});
     expect(alongParams({})).toBeNull();
     expect(alongParams({ along: '1', from: 'a', to: 'b', rear: 'x', front: '1' })).toBeNull();
+  });
+});
+
+describe('where a rider along the way gets in', () => {
+  const trip = { meetingPoint: 'Guliston avtovokzali', distanceM: 132_000 };
+  const along = {
+    alongTheWay: true,
+    boardingPoint: {
+      name: 'Sirdaryo',
+      meetingPoint: 'Sirdaryo markazi, bozor yonida',
+      estimatedAt: '2026-10-01T03:50:00Z', // 08:50 in Tashkent
+    },
+    alightingPoint: { name: 'Toshkent', meetingPoint: 'Olmazor avtoturargohi' },
+    partDistanceM: 85_700,
+  };
+
+  it('names the rider’s own town’s meeting point, about when, and their part', () => {
+    expect(stopLines(along, trip).map((l) => [l.label, s(l.value)])).toEqual([
+      ['O‘tirish joyi', 'Sirdaryo: Sirdaryo markazi, bozor yonida'],
+      ['Vaqti', 'taxminan 08:50'],
+      ['Tushish joyi', 'Toshkent: Olmazor avtoturargohi'],
+      ['Masofa', s(stopLines({ alongTheWay: false }, { ...trip, distanceM: 85_700 })[1]!.value)],
+    ]);
+    expect(boardingHint(along)).toBe('Sirdaryo · taxminan 08:50');
+  });
+
+  it('keeps the trip’s meeting point and distance for a whole seat (or an older API)', () => {
+    const lines = stopLines({ ...along, alongTheWay: false }, trip);
+    expect(lines.map((l) => l.label)).toEqual(['Uchrashuv joyi', 'Masofa']);
+    expect(lines[0]!.value).toBe('Guliston avtovokzali');
+    expect(stopLines({ alongTheWay: true }, trip)[0]!.label).toBe('Uchrashuv joyi');
+    expect(boardingHint({ alongTheWay: true })).toBeNull();
+  });
+
+  it('carries the stops to the trip screen', () => {
+    const params = alongRouteParams({
+      ...along,
+      pickup: { slug: 'sirdaryo', nameUz: 'Sirdaryo' },
+      dropoff: { slug: 'toshkent', nameUz: 'Toshkent' },
+      price: { rear: 51_000, front: 59_000 },
+    });
+    expect(alongParams(params)?.stops).toEqual({
+      boardingPoint: along.boardingPoint,
+      alightingPoint: along.alightingPoint,
+      partDistanceM: 85_700,
+    });
+    expect(alongParams({ ...params, boardAt: 'soon' })?.stops).toBeUndefined();
   });
 });
