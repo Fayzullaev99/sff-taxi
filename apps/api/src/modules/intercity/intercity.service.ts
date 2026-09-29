@@ -177,10 +177,15 @@ export class IntercityService {
         'v.plate',
         'v.class',
         'v.seats',
+        'v.cargo_class',
       ])
       .where('d.user_id', '=', user.userId)
       .executeTakeFirst();
     if (!driver) throw new NotFoundException('Siz haydovchi sifatida ro‘yxatdan o‘tmagansiz');
+    // a cargo car carries loads, not passengers for seats (Resolution 200)
+    if (driver.cargo_class) {
+      throw new ForbiddenException('Yuk mashinasida yo‘lovchi qatnovi e’lon qilinmaydi');
+    }
     if (driver.status !== 'active') {
       throw new ForbiddenException('Faqat tasdiqlangan haydovchi qatnov e’lon qiladi');
     }

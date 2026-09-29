@@ -21,12 +21,14 @@ import {
   type VehiclesTable,
 } from '../../core/db/schema.js';
 import { emit } from '../../core/outbox/outbox.js';
+import { type CargoClass, cargoClassOf, type VehicleBody } from '../../lib/cargo.js';
 import {
   checkApplicant,
   checkVehicle,
   formatPlate,
   type RuleProblem,
   tashkentDate,
+  type VehicleFacts,
 } from '../../lib/driver-rules.js';
 import { distanceM } from '../../lib/distance.js';
 import { carCapacity, seatLayout } from '../../lib/pool.js';
@@ -61,6 +63,11 @@ export interface ApplicationInput {
     class: 'economy' | 'comfort';
     features: VehicleFeature[];
     cngInTrunk: boolean;
+    /** taxi (Resolution 200) or cargo (a van, pickup or truck: cargo rides only). */
+    service?: 'taxi' | 'cargo';
+    body?: VehicleBody;
+    payloadKg?: number | null;
+    grossKg?: number | null;
   };
 }
 
@@ -127,7 +134,10 @@ export class DriversService {
    */
   async apply(user: AuthUser, input: ApplicationInput) {
     const today = tashkentDate(new Date());
-    const problems = [...checkApplicant(input, today), ...checkVehicle(input.vehicle, today)];
+    const problems = [
+      ...checkApplicant(input, today),
+      ...checkVehicle(input.vehicle, today, input.licenceCategories),
+    ];
     if (problems.length) throw invalid(problems);
 
     await this.db.transaction(async (trx) => {
@@ -180,6 +190,7 @@ export class DriversService {
           .execute();
       }
       const v = input.vehicle;
+      const cargo = v.service === 'cargo';
       const vehicle = {
         make: v.make,
         model: v.model,
@@ -187,9 +198,15 @@ export class DriversService {
         plate: v.plate,
         year: v.year,
         seats: v.seats,
-        class: v.class,
+        // a cargo car has no taxi class of its own (economy is the column's placeholder)
+        class: cargo ? ('economy' as const) : v.class,
         features: [...new Set(v.features)],
         cng_in_trunk: v.cngInTrunk,
+        body: v.body ?? (cargo ? 'van' : 'sedan'),
+        payload_kg: v.payloadKg ?? null,
+        gross_kg: v.grossKg ?? null,
+        // the class follows the payload: up to 800 kg small, above medium
+        cargo_class: cargo && v.payloadKg ? cargoClassOf(v.payloadKg) : null,
         updated_at: new Date(),
       };
       await trx
@@ -746,7 +763,14 @@ export class DriversService {
   /** Operators may re-class a car or correct its features after an inspection. */
   async updateVehicle(
     driverId: string,
-    input: { class?: 'economy' | 'comfort'; features?: VehicleFeature[]; cngInTrunk?: boolean },
+    input: {
+      class?: 'economy' | 'comfort';
+      features?: VehicleFeature[];
+      cngInTrunk?: boolean;
+      /** Cargo cars: the payload measured at the inspection, and the class it serves. */
+      payloadKg?: number;
+      cargoClass?: CargoClass;
+    },
   ) {
     const v = await this.db.kysely
       .selectFrom('vehicles')
@@ -754,8 +778,26 @@ export class DriversService {
       .where('driver_id', '=', driverId)
       .executeTakeFirst();
     if (!v) throw new NotFoundException('Avtomobil topilmadi');
-    const next = { ...v, class: input.class ?? v.class, features: input.features ?? v.features };
-    const problems = checkVehicle(next, tashkentDate(new Date()));
+    if (!v.cargo_class && (input.payloadKg !== undefined || input.cargoClass !== undefined)) {
+      throw new BadRequestException('Bu taksi avtomobili: yuk sinfi berilmaydi');
+    }
+    const next = {
+      ...v,
+      class: input.class ?? v.class,
+      features: input.features ?? v.features,
+      payload_kg: input.payloadKg ?? v.payload_kg,
+      cargo_class: input.cargoClass ?? v.cargo_class,
+    };
+    const d = await this.db.kysely
+      .selectFrom('drivers')
+      .select('licence_categories')
+      .where('user_id', '=', driverId)
+      .executeTakeFirstOrThrow();
+    const problems = checkVehicle(
+      vehicleFacts(next),
+      tashkentDate(new Date()),
+      d.licence_categories,
+    );
     if (problems.length) throw invalid(problems);
     await this.db.kysely
       .updateTable('vehicles')
@@ -763,6 +805,8 @@ export class DriversService {
         class: next.class,
         features: [...new Set(next.features)],
         cng_in_trunk: input.cngInTrunk ?? v.cng_in_trunk,
+        payload_kg: next.payload_kg,
+        cargo_class: next.cargo_class,
         updated_at: new Date(),
       })
       .where('driver_id', '=', driverId)
@@ -1055,7 +1099,7 @@ export class DriversService {
         today,
       ),
       ...(v
-        ? checkVehicle(v, today)
+        ? checkVehicle(vehicleFacts(v), today, d.licence_categories)
         : [{ path: 'vehicle', message: 'Avtomobil ma’lumotlari yo‘q' }]),
     ];
     const docs = await trx
@@ -1125,6 +1169,28 @@ export function vehicleView(v: Selectable<VehiclesTable>) {
     cngInTrunk: v.cng_in_trunk,
     /** What luggage rides need: a big trunk without a gas tank in it. */
     luggage: v.features.includes('big_trunk') && !v.cng_in_trunk,
+    /** taxi: passenger rides and deliveries; cargo: cargo rides of its class only. */
+    service: v.cargo_class ? ('cargo' as const) : ('taxi' as const),
+    body: v.body,
+    payloadKg: v.payload_kg,
+    grossKg: v.gross_kg,
+    cargoClass: v.cargo_class,
+  };
+}
+
+/** The rules' view of a stored car: a car with a cargo class follows the cargo rules. */
+export function vehicleFacts(v: Selectable<VehiclesTable>): VehicleFacts {
+  return {
+    make: v.make,
+    model: v.model,
+    year: v.year,
+    seats: v.seats,
+    class: v.class,
+    features: v.features,
+    service: v.cargo_class ? 'cargo' : 'taxi',
+    body: v.body,
+    payloadKg: v.payload_kg,
+    grossKg: v.gross_kg,
   };
 }
 

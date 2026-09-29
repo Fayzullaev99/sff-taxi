@@ -128,6 +128,26 @@ export type LedgerKind =
   /** A deposit the rider lost by cancelling late: the waiting driver's compensation. */
   | 'deposit';
 export type RideClassColumn = 'economy' | 'comfort';
+/** Cargo classes (src/lib/cargo.ts): small (Damas/Labo), medium (Gazel/Porter). */
+export type CargoClassColumn = 'cargo_s' | 'cargo_m';
+export type VehicleBodyColumn = 'sedan' | 'hatchback' | 'minivan' | 'van' | 'pickup' | 'truck';
+
+/** A cargo ride's options (rides.cargo, quotes.cargo). */
+export interface CargoDetails {
+  /** Loaders ("yukchi") who load and unload, 0-2. */
+  loaders: number;
+  /** The customer rides in the cab (at most one person). */
+  riderRides: boolean;
+  description: string | null;
+  /** Approximate weight of the load. */
+  weightKg: number | null;
+}
+
+/** A delivery's parcel (rides.parcel). */
+export interface ParcelDetails {
+  description: string | null;
+  weightKg: number | null;
+}
 
 /** Dates (Postgres `date`) are read as "YYYY-MM-DD" strings: see database.ts. */
 type DateOnly = ColumnType<string, string, string>;
@@ -192,6 +212,11 @@ export interface VehiclesTable {
   features: Generated<VehicleFeature[]>;
   /** A CNG tank in the trunk: no room for luggage even in a big trunk. */
   cng_in_trunk: Generated<boolean>;
+  body: Generated<VehicleBodyColumn>;
+  payload_kg: number | null;
+  gross_kg: number | null;
+  /** A cargo car's class (cargo rides only); null = a taxi car. */
+  cargo_class: CargoClassColumn | null;
   photo_upload_id: string | null;
   updated_at: Timestamp;
 }
@@ -280,6 +305,9 @@ export interface VehicleSnapshot {
   colour: string;
   plate: string;
   class: RideClassColumn;
+  /** Cargo cars: the body and class (absent in snapshots taken before cargo). */
+  body?: VehicleBodyColumn;
+  cargoClass?: CargoClassColumn | null;
 }
 
 type Json<T> = ColumnType<T, string, string>;
@@ -305,6 +333,9 @@ export interface QuotesTable {
   scheduled_for: Timestamp | null;
   /** The fixed route between the ends, when there is one (RouteQuote). */
   route: NullableJson<Record<string, unknown>>;
+  service: Generated<RideService>;
+  /** Cargo options (CargoDetails) or a delivery's parcel (ParcelDetails) as quoted. */
+  cargo: NullableJson<Record<string, unknown>>;
   created_at: CreatedAt;
 }
 
@@ -320,7 +351,8 @@ export interface RidesTable {
   quote_id: string | null;
   city_id: string;
   kind: 'city' | 'intercity';
-  class: RideClassColumn;
+  /** A taxi class (taxi and delivery rides) or a cargo class (cargo rides). */
+  class: RideClassColumn | CargoClassColumn;
   pickup: Json<Place>;
   pickup_lat: number;
   pickup_lng: number;
@@ -380,6 +412,12 @@ export interface RidesTable {
   deposit_amount: Generated<number>;
   /** The code the rider tells the driver before the trip starts. */
   start_pin: string | null;
+  /** Cargo rides: loaders, the customer riding along, the load. */
+  cargo: NullableJson<CargoDetails>;
+  /** Deliveries: the parcel and who receives it. */
+  parcel: NullableJson<ParcelDetails>;
+  recipient_name: string | null;
+  recipient_phone: string | null;
   requested_at: Generated<Date>;
   assigned_at: Timestamp | null;
   arrived_at: Timestamp | null;

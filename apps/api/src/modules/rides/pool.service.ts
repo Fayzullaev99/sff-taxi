@@ -19,7 +19,7 @@ import {
   seatLayout,
   sharedMetres,
 } from '../../lib/pool.js';
-import { Tariff } from '../../lib/tariff.js';
+import { type RideClass, Tariff } from '../../lib/tariff.js';
 import { RoutingService } from '../geo/routing.service.js';
 import { SettingsService } from '../settings/settings.module.js';
 
@@ -247,7 +247,8 @@ export class PoolService {
         ],
         rules,
       ).driverTotal;
-      const perKm = Tariff.parse(ride.tariff).classes[ride.class].beyond_per_km;
+      // shared rides are taxi rides (cargo and deliveries are never shared)
+      const perKm = Tariff.parse(ride.tariff).classes[ride.class as RideClass].beyond_per_km;
       if (next - old < Math.ceil(insertion.addedM / 1000) * perKm) return null;
     }
     const occupied =
