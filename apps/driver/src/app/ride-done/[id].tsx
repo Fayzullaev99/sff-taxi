@@ -5,10 +5,21 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { driver } from '../../api/driver';
 import { useRide } from '../../data/queries';
-import { errorMessage } from '../../lib/api-client';
+import { errorMessage, isApiError } from '../../lib/api-client';
 import { COMMISSION_NOTES, digits, som } from '../../lib/format';
+import { withRetry } from '../../lib/ride-actions';
 import { amountToCollect, cashBreakdown, cashPartsText, owedFeeNote } from '../../lib/ride-flow';
-import { Banner, Button, Card, Choice, Loading, Muted, Row, Title } from '../../ui/components';
+import {
+  Banner,
+  Button,
+  Card,
+  Choice,
+  ErrorState,
+  Loading,
+  Muted,
+  Row,
+  Title,
+} from '../../ui/components';
 import { haptics } from '../../ui/haptics';
 import { Screen } from '../../ui/screen';
 import { colors, space } from '../../ui/theme';
@@ -25,7 +36,16 @@ export default function RideDone() {
   const [tags, setTags] = useState<string[]>([]);
 
   const rate = useMutation({
-    mutationFn: () => driver.rateRider(String(id), stars, tags, null),
+    mutationFn: () =>
+      withRetry(() => driver.rateRider(String(id), stars, tags, null), {
+        attempts: 3,
+        baseMs: 1_000,
+        maxMs: 4_000,
+      }).catch((error: unknown) => {
+        // already rated (a lost answer): nothing more to do
+        if (isApiError(error, 409)) return null;
+        throw error;
+      }),
     onSuccess: () => {
       haptics.success();
       router.replace('/home');
@@ -33,7 +53,15 @@ export default function RideDone() {
     onError: () => haptics.error(),
   });
 
-  if (!ride.data) return <Loading />;
+  if (!ride.data) {
+    if (!ride.isError) return <Loading />;
+    return (
+      <Screen title="Safar yakunlandi">
+        <ErrorState message={errorMessage(ride.error)} onRetry={() => void ride.refetch()} />
+        <Button title="Bosh sahifa" variant="secondary" onPress={() => router.replace('/home')} />
+      </Screen>
+    );
+  }
   const r = ride.data;
   const cash = r.paymentMethod === 'cash';
   const total = amountToCollect(r.fare);
@@ -60,6 +88,13 @@ export default function RideDone() {
             loading={rate.isPending}
             onPress={() => (stars ? rate.mutate() : router.replace('/home'))}
           />
+          {rate.error ? (
+            <Button
+              title="Baholamasdan davom etish"
+              variant="secondary"
+              onPress={() => router.replace('/home')}
+            />
+          ) : null}
         </>
       }
     >

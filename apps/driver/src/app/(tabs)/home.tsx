@@ -4,7 +4,7 @@ import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { driver } from '../../api/driver';
-import type { DriverMe } from '../../api/types';
+import type { DriverMe, DriverRide } from '../../api/types';
 import {
   keys,
   useCurrentRide,
@@ -14,25 +14,27 @@ import {
 } from '../../data/queries';
 import { ApiError, errorMessage, isApiError } from '../../lib/api-client';
 import { tashkentToday } from '../../lib/application';
-import { RIDE_STATUSES, som } from '../../lib/format';
+import { som } from '../../lib/format';
 import { balanceStatus, promoStatus } from '../../lib/money';
 import { withRetry } from '../../lib/ride-actions';
-import { scheduledLabel } from '../../lib/when';
 import {
   ensureLocationPermission,
   requestBackgroundPermission,
   restartTracking,
   sendCurrentPosition,
 } from '../../location/tracker';
+import { CurrentRideCard } from '../../home/current-ride-card';
 import { useBatteryOptimization } from '../../location/use-battery-optimization';
 import { useTrackingMode } from '../../location/use-tracking-mode';
 import { registerPushDevice, requestPushPermission } from '../../notifications/push';
 import { usePushPermission } from '../../notifications/use-push';
-import { Banner, Button, Card, Chip, Loading, Muted, Row, Title } from '../../ui/components';
+import { Banner, Button, Card, Loading, Row, Title } from '../../ui/components';
 import { haptics } from '../../ui/haptics';
 import { Screen } from '../../ui/screen';
 import { colors, radius, space } from '../../ui/theme';
 import { GpsIndicator, TopUpCard } from '../../ui/widgets';
+
+const NO_RIDES: DriverRide[] = [];
 
 class LocationUnavailable extends Error {
   constructor(readonly reason: 'denied' | 'services_off') {
@@ -105,7 +107,6 @@ export default function Home() {
   const money = balanceStatus(d.balance, d.minBalance);
   const promo = promoStatus(tashkentToday(), config.billing);
   const current = ride.data ?? null;
-  const scheduled = current ? scheduledLabel(current.scheduledFor, Date.now()) : null;
   // the balance is explained by its own card; the others are listed as they come
   const blockers = d.blockers.filter((b) => !/balans/i.test(b));
   const canGoOnline = money.canWork && blockers.length === 0;
@@ -138,7 +139,9 @@ export default function Home() {
     >
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.hello}>{d.fullName.split(' ')[1] ?? d.fullName}</Text>
+          <Text style={styles.hello} numberOfLines={1} maxFontSizeMultiplier={1.4}>
+            {d.fullName.split(' ')[1] ?? d.fullName}
+          </Text>
           {d.vehicle ? (
             <Text style={styles.car}>
               {d.vehicle.make} {d.vehicle.model} · {d.vehicle.plateFormatted}
@@ -151,25 +154,17 @@ export default function Home() {
           accessibilityLabel={`Ustuvorlik ${d.priority.score}`}
           style={styles.score}
         >
-          <Text style={styles.scoreValue}>{d.priority.score}</Text>
-          <Text style={styles.scoreLabel}>reyting</Text>
+          <Text style={styles.scoreValue} maxFontSizeMultiplier={1.1}>
+            {d.priority.score}
+          </Text>
+          <Text style={styles.scoreLabel} maxFontSizeMultiplier={1.1}>
+            reyting
+          </Text>
         </Pressable>
       </View>
 
-      {current ? (
-        <Card style={{ borderColor: colors.brand, borderWidth: 2 }}>
-          <Chip label={`#${current.number}`} tone="brand" />
-          <Title>{RIDE_STATUSES[current.status] ?? current.status}</Title>
-          {scheduled ? <Chip label={scheduled} tone="info" icon="calendar" /> : null}
-          <Muted>{current.pickup.address ?? current.pickup.landmark ?? 'Belgilangan nuqta'}</Muted>
-          <Button
-            title="Safarga qaytish"
-            icon="navigate"
-            big
-            onPress={() => router.navigate('/ride')}
-          />
-        </Card>
-      ) : null}
+      {/* the rides in hand (one today; shared rides add more, plus their pool panel) */}
+      <CurrentRideCard rides={current ? [current] : NO_RIDES} />
 
       <Pressable
         onPress={toggle}
@@ -189,7 +184,12 @@ export default function Home() {
           size={56}
           color={online ? colors.onSuccess : colors.onBrand}
         />
-        <Text style={[styles.switchText, { color: online ? colors.onSuccess : colors.onBrand }]}>
+        <Text
+          style={[styles.switchText, { color: online ? colors.onSuccess : colors.onBrand }]}
+          maxFontSizeMultiplier={1.4}
+          adjustsFontSizeToFit
+          numberOfLines={1}
+        >
           {shift.isPending ? 'Kuting…' : online ? 'LINIYADASIZ' : 'LINIYAGA CHIQISH'}
         </Text>
         <Text style={[styles.switchSub, { color: online ? colors.onSuccess : colors.onBrand }]}>

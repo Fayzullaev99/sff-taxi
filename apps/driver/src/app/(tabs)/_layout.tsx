@@ -16,6 +16,8 @@ export default function DriverTabs() {
         tabBarActiveTintColor: colors.brand,
         tabBarInactiveTintColor: colors.muted,
         tabBarLabelStyle: { fontSize: 13, fontWeight: '800' },
+        // the bar has a fixed height: huge system fonts would cut the labels off
+        tabBarAllowFontScaling: false,
         tabBarStyle: {
           height: 68 + insets.bottom,
           paddingTop: 6,

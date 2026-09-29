@@ -23,7 +23,7 @@ import {
   WaitingCard,
 } from '../ride/parts';
 import { navigateTo } from '../ui/actions';
-import { Banner, Button, Chip, EmptyState, Loading, Muted } from '../ui/components';
+import { Banner, Button, Chip, EmptyState, ErrorState, Loading, Muted } from '../ui/components';
 import { haptics } from '../ui/haptics';
 import { Screen } from '../ui/screen';
 import { colors, space } from '../ui/theme';
@@ -44,6 +44,14 @@ export default function RideScreen() {
   const rules = useWaitingRules(ride ? { lat: ride.pickup.lat, lng: ride.pickup.lng } : null);
 
   if (current.isPending) return <Loading />;
+  // a failed fetch is not "no ride": the driver may have a rider waiting
+  if (current.data === undefined && current.isError) {
+    return (
+      <Screen title="Safar" onBack={() => router.replace('/home')}>
+        <ErrorState message={errorMessage(current.error)} onRetry={() => void current.refetch()} />
+      </Screen>
+    );
+  }
   if (!ride) {
     return (
       <Screen title="Safar" onBack={() => router.replace('/home')}>
