@@ -12,6 +12,7 @@ import {
   PhoneCall,
   Radar,
   Receipt,
+  Route as RouteIcon,
   Scale,
   ScrollText,
   Settings,
@@ -83,6 +84,7 @@ const NAV: { title: string; items: NavItem[] }[] = [
     items: [
       { to: '/tariffs', label: 'Tariflar', icon: <Calculator size={18} /> },
       { to: '/cities', label: 'Shaharlar', icon: <MapIcon size={18} /> },
+      { to: '/routes', label: 'Yo‘nalish narxlari', icon: <RouteIcon size={18} /> },
       { to: '/settings', label: 'Sozlamalar', icon: <Settings size={18} /> },
       { to: '/outbox', label: 'Bajarilmagan amallar', icon: <Workflow size={18} /> },
     ],

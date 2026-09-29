@@ -17,6 +17,7 @@ const Taxes = lazy(() => import('./billing/Taxes'));
 const Tariffs = lazy(() => import('./settings/Tariffs'));
 const Cities = lazy(() => import('./settings/Cities'));
 const Settings = lazy(() => import('./settings/Settings'));
+const RouteFares = lazy(() => import('./settings/RouteFares'));
 const Account = lazy(() => import('./pages/Account'));
 const IntercityBoard = lazy(() => import('./intercity/IntercityBoard'));
 const TripPage = lazy(() => import('./intercity/TripPage'));
@@ -75,6 +76,7 @@ export function App() {
           <Route path="/taxes" element={<Taxes />} />
           <Route path="/tariffs" element={<Tariffs />} />
           <Route path="/cities" element={<Cities />} />
+          <Route path="/routes" element={<RouteFares />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/account" element={<Account me={me.data} />} />
           <Route path="*" element={<Navigate to="/dispatch" replace />} />

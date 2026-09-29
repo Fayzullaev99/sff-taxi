@@ -155,6 +155,52 @@ export interface BillingRules {
   min_balance: number;
 }
 
+/** GET/PUT /admin/settings/pool: shared-ride rules (apps/api/src/lib/pool.ts PoolRules). */
+export interface PoolRules {
+  enabled: boolean;
+  discount_percent: number;
+  full_discount_share_percent: number;
+  max_detour_seconds_city: number;
+  max_detour_seconds_intercity: number;
+  max_detour_percent: number;
+  max_pickup_eta_seconds: number;
+  search_radius_m: number;
+  pool_preference_seconds: number;
+  max_riders: number;
+}
+
+/** GET/PUT /admin/settings/booking: the card deposit of rides booked in advance. */
+export interface BookingRules {
+  deposit_percent: number;
+  deposit_min: number;
+  payment_minutes: number;
+}
+
+/** GET /admin/routes items: fixed route prices of rides between towns. */
+export interface RouteFare {
+  id: string;
+  class: RideClass;
+  /** One person in a shared car. */
+  seatPrice: number | null;
+  /** The whole car. */
+  carPrice: number | null;
+  isActive: boolean;
+  updatedAt: string;
+  from: { slug: string; name: string; lat: number; lng: number };
+  to: { slug: string; name: string; lat: number; lng: number };
+}
+
+/** PUT /admin/routes */
+export interface RouteFareBody {
+  from: string;
+  to: string;
+  class: RideClass;
+  seatPrice: number | null;
+  carPrice: number | null;
+  isActive: boolean;
+  bothWays: boolean;
+}
+
 // Rides ------------------------------------------------------------------------------------
 
 export const RIDE_STATUSES = [
@@ -227,6 +273,8 @@ export interface Place extends LatLng {
   landmark: string | null;
 }
 
+export type FareMode = 'car' | 'seat';
+
 export interface RideVehicle {
   make: string;
   model: string;
@@ -260,8 +308,28 @@ export interface RideBase {
     cancellationFeeStatus?: FeeStatus | null;
     /** Earlier rides' owed fees this ride collects in cash, on top of the fare. */
     owedFee?: number;
+    /** The shared-ride discount (the part of the trip shared with other riders). */
+    poolDiscount?: number;
+    /** Paid by card in advance (a ride booked for later). */
+    deposit?: number;
+    /** What the rider pays for the trip now: the fare after the discount, before waiting. */
+    pays?: number;
     breakdown: Fare;
   };
+  /** Wave 4 (docs/shared-rides.md): optional so older API builds still render. */
+  service?: string;
+  /** People riding: 1-3 (one in front, at most two in the back). */
+  passengers?: number;
+  /** The rider agreed to share the car ("Hamroh bilan"). */
+  shareable?: boolean;
+  /** A woman driver only. */
+  womenOnly?: boolean;
+  /** car: the whole car; seat: a fixed route's per-person price in a shared car. */
+  fareMode?: FareMode;
+  /** The shared car the ride is in, with the metres shared with other riders so far. */
+  pool?: { id: string; sharedM: number } | null;
+  /** The ride has a start code (the code itself is the rider's only). */
+  hasStartPin?: boolean;
   paymentMethod: 'cash' | 'card';
   paymentStatus: string;
   vehicle: RideVehicle | null;
@@ -396,6 +464,11 @@ export interface LiveDriver {
   rideStatus: RideStatus | null;
   offeredRideId: string | null;
   state: LiveDriverState;
+  /**
+   * Every open ride the car carries (a shared car carries up to 3). The API lists such a
+   * driver once per ride; the panel merges the rows (lib/pool.ts mergeLiveDrivers).
+   */
+  rideIds?: string[];
 }
 
 /** GET /admin/dispatch/live */
@@ -539,6 +612,36 @@ export interface AdminDriver {
   licenceChecks: LicenceCheck[];
   balance: number;
   cardMoney?: CardMoney;
+  /** Declared in the application; verified by an operator against the passport. */
+  gender?: Gender | null;
+  genderVerified?: boolean;
+  /** A verified woman driver takes women riders only. */
+  womenRidersOnly?: boolean;
+  /** Shared rides: the mode, people in the car without the app, where the driver heads. */
+  pool?: DriverPool;
+}
+
+export type Gender = 'female' | 'male';
+
+export interface SeatLayout {
+  occupied: number;
+  capacity: number;
+  front: number;
+  rear: number;
+  free: number;
+}
+
+export interface DriverPool {
+  enabled: boolean;
+  extraPassengers: number;
+  destination: {
+    lat: number;
+    lng: number;
+    address: string | null;
+    landmark?: string | null;
+  } | null;
+  destinationSetAt: string | null;
+  seats: SeatLayout;
 }
 
 /** Card money: fares riders prepaid by card, credited to the driver, minus payouts. */
