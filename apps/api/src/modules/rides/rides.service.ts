@@ -297,19 +297,7 @@ export class RidesService {
       this.settings.booking(),
     ]);
     // a rider's ride for later is booked with part of the fare paid by card in advance
-    const deposit =
-      scheduledFor && opts.forRider
-        ? {
-            percent: booking.deposit_percent,
-            min: booking.deposit_min,
-            amount: depositAmount(priced.fares.economy.total, booking),
-            amounts: Object.fromEntries(
-              RIDE_CLASSES.map((c) => [c, depositAmount(priced.fares[c].total, booking)]),
-            ),
-            freeCancelMinutes: SCHEDULED_FREE_CANCEL_MINUTES,
-            cardProviders: this.payments.providers(),
-          }
-        : null;
+    const deposit = scheduledFor && opts.forRider ? this.depositBlock(priced.fares, booking) : null;
     return {
       quoteId: id,
       service: 'taxi' as const,
@@ -438,6 +426,29 @@ export class RidesService {
    * it) for a parcel carried by a taxi car; the sender is not in the car, so no sharing and
    * no seats. The recipient's name and phone are asked for when ordering.
    */
+  /**
+   * What a rider's ride for later asks in advance, per class (taxi, delivery or cargo), with
+   * the rules; null when deposits are off.
+   */
+  private depositBlock(
+    fares: Record<string, { total: number }>,
+    booking: { deposit_percent: number; deposit_min: number },
+  ) {
+    const amounts = Object.fromEntries(
+      Object.entries(fares).map(([c, f]) => [c, depositAmount(f.total, booking)]),
+    );
+    const first = Object.values(amounts)[0] ?? 0;
+    if (first <= 0) return null;
+    return {
+      percent: booking.deposit_percent,
+      min: booking.deposit_min,
+      amount: first,
+      amounts,
+      freeCancelMinutes: SCHEDULED_FREE_CANCEL_MINUTES,
+      cardProviders: this.payments.providers(),
+    };
+  }
+
   private async deliveryQuoteView(
     user: AuthUser,
     q: {
@@ -471,6 +482,10 @@ export class RidesService {
       route: null,
       pool: RidesService.NO_POOL,
       womenOnly: null,
+      deposit:
+        q.scheduledFor && q.forRider
+          ? this.depositBlock(priced.fares, await this.settings.booking())
+          : null,
       delivery: {
         percent: q.delivery.percent,
         maxWeightKg: q.delivery.maxWeightKg,
@@ -584,6 +599,10 @@ export class RidesService {
       route: null,
       pool: RidesService.NO_POOL,
       womenOnly: null,
+      deposit:
+        scheduledFor && opts.forRider
+          ? this.depositBlock(fares, await this.settings.booking())
+          : null,
       cargo: {
         ...details,
         maxLoaders: rules.max_loaders,
