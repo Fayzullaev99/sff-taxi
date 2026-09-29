@@ -16,6 +16,7 @@ import { ApiError, errorMessage, isApiError } from '../../lib/api-client';
 import { tashkentToday } from '../../lib/application';
 import { RIDE_STATUSES, som } from '../../lib/format';
 import { balanceStatus, promoStatus } from '../../lib/money';
+import { withRetry } from '../../lib/ride-actions';
 import { scheduledLabel } from '../../lib/when';
 import {
   ensureLocationPermission,
@@ -23,6 +24,7 @@ import {
   restartTracking,
   sendCurrentPosition,
 } from '../../location/tracker';
+import { useBatteryOptimization } from '../../location/use-battery-optimization';
 import { useTrackingMode } from '../../location/use-tracking-mode';
 import { registerPushDevice, requestPushPermission } from '../../notifications/push';
 import { usePushPermission } from '../../notifications/use-push';
@@ -66,6 +68,7 @@ export default function Home() {
   const mode = useTrackingMode();
   const push = usePushPermission();
   const config = useDriverConfig();
+  const optimised = useBatteryOptimization(me.data?.isOnline ?? false);
 
   const shift = useMutation({
     mutationFn: async (goOnline: boolean): Promise<DriverMe> => {
@@ -79,7 +82,8 @@ export default function Home() {
           if (error instanceof ApiError && error.status !== 0) throw error;
         }
       }
-      return driver.shift(goOnline);
+      // going on or off shift twice is harmless: a lost answer is simply sent again
+      return withRetry(() => driver.shift(goOnline), { attempts: 3, baseMs: 1_000, maxMs: 4_000 });
     },
     onSuccess: (next) => {
       haptics.tap();
@@ -215,6 +219,22 @@ export default function Home() {
                   else await Linking.openSettings();
                 })
               }
+            />
+          }
+        />
+      ) : null}
+
+      {optimised ? (
+        <Banner
+          tone="warning"
+          icon="battery-half"
+          title="Batareya tejash yoqilgan"
+          text="Telefon ilovani fonda to‘xtatib qo‘yishi mumkin — buyurtmalar kelmay qoladi. Sozlamalarda “Batareya” → “Cheklovsiz” ni tanlang."
+          action={
+            <Button
+              title="Ochish"
+              variant="secondary"
+              onPress={() => void Linking.openSettings()}
             />
           }
         />

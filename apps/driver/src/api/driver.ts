@@ -64,7 +64,8 @@ export const driver = {
     api.post<void>('/v1/driver/location', payload, { timeoutMs }),
 
   offers: () => api.get<Offer[]>('/v1/driver/offers'),
-  accept: (offerId: string) => api.post<DriverRide>(`/v1/driver/offers/${offerId}/accept`),
+  accept: (offerId: string, timeoutMs?: number) =>
+    api.post<DriverRide>(`/v1/driver/offers/${offerId}/accept`, undefined, { timeoutMs }),
   /** The optional reason (a code of `declineReasons`) is kept with the offer for operators. */
   decline: (offerId: string, reason: string | null) =>
     api.post<void>(`/v1/driver/offers/${offerId}/decline`, reason ? { reason } : undefined),
@@ -73,8 +74,8 @@ export const driver = {
   ride: (id: string) => api.get<DriverRide>(`/v1/driver/rides/${id}`),
   rides: (cursor?: string) =>
     api.get<Page<DriverRide>>(`/v1/driver/rides${cursor ? `?cursor=${cursor}` : ''}`),
-  step: (id: string, action: 'arrive' | 'start' | 'complete') =>
-    api.post<DriverRide>(`/v1/driver/rides/${id}/${action}`),
+  step: (id: string, action: 'arrive' | 'start' | 'complete', timeoutMs?: number) =>
+    api.post<DriverRide>(`/v1/driver/rides/${id}/${action}`, undefined, { timeoutMs }),
   cancel: (id: string, reasonCode: CancelReason, note: string | null) =>
     api.post<void>(`/v1/driver/rides/${id}/cancel`, { reasonCode, note }),
   rateRider: (id: string, stars: number, tags: string[], comment: string | null) =>
