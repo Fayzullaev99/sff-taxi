@@ -2060,6 +2060,38 @@ textarea:disabled {
 .settings-grid .card + .card {
   margin-top: 0;
 }
+.settings-grid .settings-wide {
+  grid-column: 1 / -1;
+}
+.pool-calc {
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.pool-calc h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+.seat-layout {
+  display: inline-flex;
+  gap: 4px;
+  vertical-align: middle;
+}
+.seat-layout span {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+}
+.seat-layout .is-taken {
+  background: var(--border-strong);
+}
+.seat-layout .seat-gap {
+  width: 6px;
+  border: 0;
+}
 .toggle-field {
   justify-content: flex-end;
   padding-bottom: 10px;
@@ -2487,4 +2519,9 @@ textarea:disabled {
 .summary-main {
   margin: 0 0 8px;
   font-size: 1.15rem;
+}
+.live-ride-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }

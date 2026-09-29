@@ -2,11 +2,19 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Save } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { api } from '../api/client';
-import { useBillingRules, useDispatchRules, useIntercityRules } from '../api/queries';
-import type { BillingRules, DispatchRules, IntercityRules } from '../api/types';
+import {
+  useBillingRules,
+  useBookingRules,
+  useDispatchRules,
+  useIntercityRules,
+  usePoolRules,
+} from '../api/queries';
+import type { BillingRules, BookingRules, DispatchRules, IntercityRules } from '../api/types';
 import { date, som, tashkentToday } from '../lib/format';
+import { depositFor } from '../lib/pool';
 import { Button, Field, MoneyInput, NumberInput, PageHeader, Toggle } from '../ui/controls';
 import { ErrorBox, Loading, useConfirm, useToast } from '../ui/feedback';
+import { PoolSettingsCard } from './PoolSettings';
 
 type Draft<T> = { [K in keyof T]: T[K] extends number ? number | null : T[K] };
 
@@ -304,11 +312,34 @@ const INTERCITY_SPECS: NumSpec<IntercityRules>[] = [
   },
 ];
 
+const BOOKING_SPECS: NumSpec<BookingRules>[] = [
+  {
+    key: 'deposit_percent',
+    label: 'Depozit',
+    hint: 'Narxdan shuncha foiz kartadan oldindan; qolgani haydovchiga naqd',
+    suffix: '%',
+    min: 0,
+    max: 100,
+  },
+  { key: 'deposit_min', label: 'Eng kam depozit', money: true, min: 0, max: 10_000_000 },
+  {
+    key: 'payment_minutes',
+    label: 'To‘lash uchun vaqt',
+    hint: 'Shu vaqtda to‘lanmagan bron bekor bo‘ladi',
+    suffix: 'daq',
+    min: 1,
+    max: 1440,
+  },
+];
+
 /** Dispatch parameters and driver billing (commission promo, caps, passes, tax, minimum). */
 export default function Settings() {
   const dispatch = useDispatchRules();
   const billing = useBillingRules();
   const intercity = useIntercityRules();
+  const pool = usePoolRules();
+  // null: this API has no deposits yet (404), the section stays hidden
+  const booking = useBookingRules();
   return (
     <div>
       <PageHeader
@@ -322,6 +353,8 @@ export default function Settings() {
       {intercity.error && (
         <ErrorBox error={intercity.error} onRetry={() => void intercity.refetch()} />
       )}
+      {pool.error && <ErrorBox error={pool.error} onRetry={() => void pool.refetch()} />}
+      {booking.error && <ErrorBox error={booking.error} onRetry={() => void booking.refetch()} />}
       {dispatch.isPending || billing.isPending ? (
         <Loading />
       ) : (
@@ -427,6 +460,25 @@ export default function Settings() {
               queryKey={['settings', 'intercity']}
               data={intercity.data}
               specs={INTERCITY_SPECS}
+            />
+          )}
+          {pool.data && <PoolSettingsCard data={pool.data} />}
+          {booking.data && (
+            <SettingsCard<BookingRules>
+              title="Oldindan bron depoziti"
+              intro={
+                <>
+                  Keyinroqqa buyurtma va shaharlararo o‘rindiq bron qilinganda narxning bir qismi
+                  kartadan oldindan to‘lanadi. O‘z vaqtida yoki platforma bekor qilsa qaytariladi;
+                  kech bekor qilinsa yoki yo‘lovchi chiqmasa, kutgan haydovchiga beriladi. Operator
+                  telefon bronlari depozitsiz. Masalan 60 000 so‘mlik bron:{' '}
+                  {som(depositFor(60_000, booking.data))} depozit.
+                </>
+              }
+              path="/v1/admin/settings/booking"
+              queryKey={['settings', 'booking']}
+              data={booking.data}
+              specs={BOOKING_SPECS}
             />
           )}
         </div>
