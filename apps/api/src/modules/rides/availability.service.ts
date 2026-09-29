@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { sql } from 'kysely';
 import { Database } from '../../core/db/database.js';
 import { ACTIVE_RIDE_STATUSES } from '../../core/db/schema.js';
+import { CARGO_CLASSES, type CargoClass, carClassesFor } from '../../lib/cargo.js';
 import { etaSeconds, type Point } from '../../lib/geo.js';
 import { RIDE_CLASSES, type RideClass } from '../../lib/tariff.js';
 import { RoutingService } from '../geo/routing.service.js';
@@ -31,47 +32,75 @@ export class AvailabilityService {
   ) {}
 
   async near(pickup: Point, riderId: string): Promise<Record<RideClass, ClassAvailability>> {
-    const rules = await this.settings.dispatch();
-    const straight = sql<number>`taxi_distance_m(d.lat, d.lng, ${pickup.lat}, ${pickup.lng})`;
-    const rows = await this.db.kysely
-      .selectFrom('drivers as d')
-      .innerJoin('vehicles as v', 'v.driver_id', 'd.user_id')
-      .select(['d.lat', 'd.lng', 'v.class', straight.as('straight')])
-      .where('d.is_online', '=', true)
-      .where('d.status', '=', 'active')
-      .where('d.lat', 'is not', null)
-      .where('d.located_at', '>=', new Date(Date.now() - rules.location_max_age_seconds * 1000))
-      .where('d.user_id', '!=', riderId)
-      .where(straight, '<=', rules.search_radius_m)
-      .where(({ not, exists, selectFrom }) =>
-        not(
-          exists(
-            selectFrom('rides as r')
-              .select('r.id')
-              .whereRef('r.driver_id', '=', 'd.user_id')
-              .where('r.status', 'in', [...ACTIVE_RIDE_STATUSES]),
-          ),
-        ),
-      )
-      .orderBy(straight)
-      .limit(50)
-      .execute();
+    const rows = await this.freeCars(pickup, riderId, false);
     const out = {} as Record<RideClass, ClassAvailability>;
     for (const rideClass of RIDE_CLASSES) {
       // a comfort car can take an economy ride, not the other way round
-      const cars = rows.filter((r) => rideClass === 'economy' || r.class === 'comfort');
-      if (!cars.length) {
-        out[rideClass] = { etaS: null, cars: 0 };
-        continue;
-      }
-      const nearest = cars.slice(0, NEAREST);
-      const routes = await this.routing.routes(
-        nearest.map((c) => ({ lat: c.lat!, lng: c.lng! })),
+      out[rideClass] = await this.nearest(
+        rows.filter((r) => rideClass === 'economy' || r.class === 'comfort'),
         pickup,
       );
-      out[rideClass] = { etaS: Math.min(...routes.map(etaSeconds)), cars: cars.length };
     }
     return out;
+  }
+
+  /** The same for cargo cars per cargo class (a medium car takes small loads too). */
+  async nearCargo(pickup: Point, riderId: string): Promise<Record<CargoClass, ClassAvailability>> {
+    const rows = await this.freeCars(pickup, riderId, true);
+    const out = {} as Record<CargoClass, ClassAvailability>;
+    for (const rideClass of CARGO_CLASSES) {
+      const fits = carClassesFor(rideClass) as (string | null)[];
+      out[rideClass] = await this.nearest(
+        rows.filter((r) => fits.includes(r.cargo_class)),
+        pickup,
+      );
+    }
+    return out;
+  }
+
+  private async nearest(
+    cars: { lat: number | null; lng: number | null }[],
+    pickup: Point,
+  ): Promise<ClassAvailability> {
+    if (!cars.length) return { etaS: null, cars: 0 };
+    const routes = await this.routing.routes(
+      cars.slice(0, NEAREST).map((c) => ({ lat: c.lat!, lng: c.lng! })),
+      pickup,
+    );
+    return { etaS: Math.min(...routes.map(etaSeconds)), cars: cars.length };
+  }
+
+  /** Free taxi cars (cargo = false) or free cargo cars near the pickup, nearest first. */
+  private async freeCars(pickup: Point, riderId: string, cargo: boolean) {
+    const rules = await this.settings.dispatch();
+    const straight = sql<number>`taxi_distance_m(d.lat, d.lng, ${pickup.lat}, ${pickup.lng})`;
+    return (
+      this.db.kysely
+        .selectFrom('drivers as d')
+        .innerJoin('vehicles as v', 'v.driver_id', 'd.user_id')
+        .select(['d.lat', 'd.lng', 'v.class', 'v.cargo_class', straight.as('straight')])
+        // a cargo car never takes taxi rides, a taxi car never cargo
+        .where('v.cargo_class', cargo ? 'is not' : 'is', null)
+        .where('d.is_online', '=', true)
+        .where('d.status', '=', 'active')
+        .where('d.lat', 'is not', null)
+        .where('d.located_at', '>=', new Date(Date.now() - rules.location_max_age_seconds * 1000))
+        .where('d.user_id', '!=', riderId)
+        .where(straight, '<=', rules.search_radius_m)
+        .where(({ not, exists, selectFrom }) =>
+          not(
+            exists(
+              selectFrom('rides as r')
+                .select('r.id')
+                .whereRef('r.driver_id', '=', 'd.user_id')
+                .where('r.status', 'in', [...ACTIVE_RIDE_STATUSES]),
+            ),
+          ),
+        )
+        .orderBy(straight)
+        .limit(50)
+        .execute()
+    );
   }
 
   /**
@@ -83,7 +112,9 @@ export class AvailabilityService {
     const straight = sql<number>`taxi_distance_m(d.lat, d.lng, ${pickup.lat}, ${pickup.lng})`;
     const rows = await this.db.kysely
       .selectFrom('drivers as d')
+      .innerJoin('vehicles as v', 'v.driver_id', 'd.user_id')
       .select(['d.lat', 'd.lng'])
+      .where('v.cargo_class', 'is', null)
       .where('d.is_online', '=', true)
       .where('d.status', '=', 'active')
       .where('d.gender', '=', 'female')

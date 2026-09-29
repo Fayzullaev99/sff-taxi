@@ -5,6 +5,7 @@ import type { AuthUser } from '../../core/auth/auth-context.js';
 import { Database, type Tx } from '../../core/db/database.js';
 import { ACTIVE_RIDE_STATUSES, type RidesTable } from '../../core/db/schema.js';
 import { emit } from '../../core/outbox/outbox.js';
+import { type CargoClass, carClassesFor } from '../../lib/cargo.js';
 import { etaSeconds, type Point } from '../../lib/geo.js';
 import type { PlanStop } from '../../lib/pool.js';
 import { priority } from '../../lib/priority.js';
@@ -371,6 +372,12 @@ export class DispatchService {
       .where('d.user_id', '!=', ride.rider_id)
       .where(straight, '<=', radiusM)
       .$if(ride.class === 'comfort', (q) => q.where('v.class', '=', 'comfort'))
+      // cargo rides go to cargo cars whose class fits (a medium car takes small loads);
+      // taxi rides and deliveries (a parcel in a taxi car) never to a cargo car
+      .$if(ride.service === 'cargo', (q) =>
+        q.where('v.cargo_class', 'in', carClassesFor(ride.class as CargoClass)),
+      )
+      .$if(ride.service !== 'cargo', (q) => q.where('v.cargo_class', 'is', null))
       .$if(features.length > 0, (q) =>
         q.where(sql<boolean>`v.features @> ${sql.val(features)}::text[]`),
       )
@@ -488,6 +495,9 @@ export class DispatchService {
         'r.shareable',
         'r.women_only as womenOnly',
         'r.fare_mode as fareMode',
+        'r.service',
+        'r.cargo',
+        'r.parcel',
         'o.detour_s as detourS',
         'o.pool_plan as poolPlan',
         'u.rider_rating_sum',
@@ -526,6 +536,10 @@ export class DispatchService {
         shareable: r.shareable,
         womenOnly: r.womenOnly,
         fareMode: r.fareMode,
+        // taxi, cargo (loaders, the load, the customer riding along) or a parcel delivery
+        service: r.service,
+        cargo: r.cargo,
+        parcel: r.parcel,
         riderRating: Math.round(((r.rider_rating_sum + 24) / (r.rider_rating_count + 5)) * 10) / 10,
       },
     }));
@@ -664,6 +678,7 @@ export class DispatchService {
           'd.online_since as onlineSince',
           'v.plate',
           'v.class',
+          'v.cargo_class as cargoClass',
           'r.id as rideId',
           'r.status as rideStatus',
           'o.ride_id as offeredRideId',

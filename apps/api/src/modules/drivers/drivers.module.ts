@@ -17,6 +17,7 @@ import { AdminOnly, type AuthUser, CurrentUser } from '../../core/auth/auth-cont
 import { DOCUMENT_KINDS, DRIVER_STATUSES, VEHICLE_FEATURES } from '../../core/db/schema.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
 import { isUzPlate, normalizeLicenceNumber, normalizePlate } from '../../lib/driver-rules.js';
+import { CARGO_CLASSES, VEHICLE_BODIES } from '../../lib/cargo.js';
 import { BillingModule } from '../billing/billing.module.js';
 import { GeoCoreModule } from '../geo/geo-core.module.js';
 import { RealtimeBus } from '../realtime/realtime.publisher.js';
@@ -42,6 +43,16 @@ const VehicleBody = z.object({
   features: z.array(Feature).max(4).default([]),
   /** A CNG tank in the trunk (many Cobalts/Nexias): no luggage rides even with a big trunk. */
   cngInTrunk: z.boolean().default(false),
+  /**
+   * taxi: a passenger car (Resolution 200: no vans, <= 4 seats, <= 15 years); cargo: a van,
+   * pickup or truck (Damas, Labo, Gazel, Porter) for cargo rides only (<= 25 years, payload).
+   */
+  service: z.enum(['taxi', 'cargo']).default('taxi'),
+  body: z.enum(VEHICLE_BODIES).optional(),
+  /** Cargo cars: how much it loads (kg); up to 800 kg it is a small car, above medium. */
+  payloadKg: z.number().int().min(1).max(20_000).nullable().default(null),
+  /** Total (gross) mass, kg: above 3 500 a category C licence is needed. */
+  grossKg: z.number().int().min(500).max(40_000).nullable().default(null),
 });
 
 const ApplicationBody = z.object({
@@ -120,6 +131,9 @@ const VehiclePatch = z
     class: z.enum(['economy', 'comfort']),
     features: z.array(Feature).max(4),
     cngInTrunk: z.boolean(),
+    /** Cargo cars only. */
+    payloadKg: z.number().int().min(1).max(20_000),
+    cargoClass: z.enum(CARGO_CLASSES),
   })
   .partial();
 const AppealBody = z.object({ text: z.string().trim().min(5).max(1000) });

@@ -50,13 +50,27 @@ export interface ReceiptInput {
   to: string | null;
   /** For intercity bookings: seats. */
   quantity: number;
+  /** A ride's service: cargo and delivery rides have their own item names. */
+  service?: 'taxi' | 'cargo' | 'delivery';
   rules: {
     city_item_name: string;
     intercity_item_name: string;
+    cargo_item_name?: string;
+    delivery_item_name?: string;
     mxik_code: string;
     package_code: string;
     vat_percent: number;
   };
+}
+
+/** The receipt item's name: by the ride's service, or the intercity seat. */
+function itemName(i: ReceiptInput): string {
+  if (i.kind === 'intercity') return i.rules.intercity_item_name;
+  if (i.service === 'cargo') return i.rules.cargo_item_name ?? 'Yuk tashish xizmati';
+  if (i.service === 'delivery') {
+    return i.rules.delivery_item_name ?? 'Yetkazib berish xizmati (posilka)';
+  }
+  return i.rules.city_item_name;
 }
 
 export function buildReceiptPayload(i: ReceiptInput): ReceiptPayload {
@@ -70,7 +84,7 @@ export function buildReceiptPayload(i: ReceiptInput): ReceiptPayload {
     orderNumber: i.number,
     items: [
       {
-        name: i.kind === 'ride' ? i.rules.city_item_name : i.rules.intercity_item_name,
+        name: itemName(i),
         mxik: i.rules.mxik_code,
         packageCode: i.rules.package_code,
         amount: i.quantity * 1000,
