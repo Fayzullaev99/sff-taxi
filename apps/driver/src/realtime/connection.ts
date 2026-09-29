@@ -11,7 +11,7 @@ import {
 } from '../lib/sse';
 
 /**
- * The server pings every 25 s; silence for one ping plus a grace period means the link is
+ * The server pings every 10 s; 25 s of silence (two missed pings) means the link is
  * dead (mobile networks drop connections without closing them).
  */
 const SILENCE_TIMEOUT_MS = STREAM_DEAD_AFTER_MS;

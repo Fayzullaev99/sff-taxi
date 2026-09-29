@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
@@ -7,9 +7,10 @@ import type { DriverRide } from '../api/types';
 import { keys, useCurrentRide, useWaitingRules } from '../data/queries';
 import { errorMessage } from '../lib/api-client';
 import { PAYMENT_METHODS, som } from '../lib/format';
+import { isPinError, offerBadges, poolRideIds, ridePool } from '../lib/pool';
 import { optimisticStatus, runRideStep } from '../lib/ride-actions';
 import { canCancel, cashBreakdown, owedFeeNote, type RideAction, stepOf } from '../lib/ride-flow';
-import { nextStop, stopList } from '../lib/stops';
+import { nextStop, stopList, stopsFromPool } from '../lib/stops';
 import type { WaitingRules } from '../lib/waiting';
 import { scheduledLabel } from '../lib/when';
 import { markRideEndedHere } from '../realtime/use-realtime';
@@ -22,6 +23,8 @@ import {
   StopList,
   WaitingCard,
 } from '../ride/parts';
+import { PinPad } from '../ride/pin-pad';
+import { PoolRidersCard } from '../ride/pool-riders';
 import { navigateTo } from '../ui/actions';
 import { Banner, Button, Chip, EmptyState, ErrorState, Loading, Muted } from '../ui/components';
 import { haptics } from '../ui/haptics';
@@ -32,10 +35,11 @@ import { colors, space } from '../ui/theme';
 const STEP_TIMEOUT_MS = 12_000;
 
 /**
- * The ride in progress, one big button per step: go to the pickup → "Yetib keldim"
- * (free waiting, then paid) → "Yo‘lovchi chiqdi — Boshlash" → go to the destination →
- * "Yakunlash". Navigation opens the driver's navigator; the rider can be called; SOS is
- * always one tap away.
+ * The ride in progress, one big button per stop: go to the pickup → "Yetib keldim"
+ * (free waiting, then paid) → "Yo‘lovchi chiqdi — Boshlash" (with the rider's 4-digit code
+ * when the ride has one) → go to the destination → "Yakunlash". With several riders the
+ * API's stop list decides the next stop and the button acts on that stop's ride.
+ * Navigation opens the driver's navigator; each rider can be called; SOS is one tap away.
  */
 export default function RideScreen() {
   const router = useRouter();
@@ -76,51 +80,91 @@ export default function RideScreen() {
 
 const STEP_ICON = { arrive: 'flag', start: 'play', complete: 'checkmark-done' } as const;
 
+interface StepVars {
+  rideId: string;
+  action: RideAction;
+  pin?: string;
+}
+
 function ActiveRide(props: {
   ride: DriverRide;
   rules: WaitingRules;
   refreshing: boolean;
   onRefresh: () => void;
 }) {
-  const { ride, rules } = props;
+  const { rules } = props;
   const router = useRouter();
   const qc = useQueryClient();
   const [cancelling, setCancelling] = useState(false);
   const [retries, setRetries] = useState(0);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pinError, setPinError] = useState<{ text: string; n: number } | null>(null);
   /** When "Yetib keldim" was tapped: the waiting timer starts at once. */
   const tappedAt = useRef<number | null>(null);
 
+  // several riders: every ride's own view (cash to take, phone), refreshed with the current one
+  const pool = ridePool(props.ride);
+  const ids = pool ? poolRideIds(pool, props.ride.id) : [];
+  const views = useQueries({
+    queries: ids.map((id) => ({
+      queryKey: keys.ride(id),
+      queryFn: () => driver.ride(id),
+      staleTime: 5_000,
+      refetchInterval: 30_000,
+    })),
+  });
+  const poolRides = views.map((v) => v.data).filter((r): r is DriverRide => !!r);
+
+  // the stop to act on: the API's first stop (its ride is the current one), else this ride
+  const baseStops = useMemo(() => (pool ? stopsFromPool(pool.stops) : null), [pool]);
+  const firstStop = baseStops ? nextStop(baseStops) : null;
+  const focus: DriverRide =
+    (firstStop &&
+      (firstStop.rideId.toLowerCase() === props.ride.id.toLowerCase()
+        ? props.ride
+        : poolRides.find((r) => r.id.toLowerCase() === firstStop.rideId.toLowerCase()))) ||
+    props.ride;
+
   const act = useMutation({
-    mutationFn: (action: RideAction) => {
-      if (action === 'complete') markRideEndedHere(ride.id);
+    mutationFn: (v: StepVars) => {
+      if (v.action === 'complete') markRideEndedHere(v.rideId);
       return runRideStep({
-        send: () => driver.step(ride.id, action, STEP_TIMEOUT_MS),
-        fetchRide: () => driver.ride(ride.id),
-        action,
+        send: () => driver.step(v.rideId, v.action, { timeoutMs: STEP_TIMEOUT_MS, pin: v.pin }),
+        fetchRide: () => driver.ride(v.rideId),
+        action: v.action,
         retry: { onRetry: (n) => setRetries(n) },
       });
     },
-    onMutate: (action) => {
+    onMutate: (v) => {
       setRetries(0);
-      if (action === 'arrive') tappedAt.current = Date.now();
+      if (v.action === 'arrive') tappedAt.current = Date.now();
     },
-    onSuccess: (next, action) => {
+    onSuccess: (next, v) => {
       haptics.success();
-      if (action === 'complete') {
+      setPinOpen(false);
+      setPinError(null);
+      qc.setQueryData(keys.ride(next.id), next);
+      if (v.action === 'complete') {
         qc.setQueryData(keys.current, null);
-        qc.setQueryData(keys.ride(next.id), next);
+        void qc.invalidateQueries({ queryKey: keys.current });
         void qc.invalidateQueries({ queryKey: keys.balance });
         void qc.invalidateQueries({ queryKey: keys.me });
         void qc.invalidateQueries({ queryKey: ['driver', 'earnings'] });
         router.replace(`/ride-done/${next.id}`);
         return;
       }
-      qc.setQueryData(keys.current, next);
+      if (!pool) qc.setQueryData(keys.current, next);
+      // with several riders the next stop may belong to another ride now
+      void qc.invalidateQueries({ queryKey: keys.current });
     },
-    onError: (error) => {
-      // the optimistic step is undone by itself: the screen shows the ride as it is
+    onError: (error, v) => {
       tappedAt.current = null;
       haptics.error();
+      if (v.action === 'start' && isPinError(error)) {
+        setPinError({ text: 'Kod noto‘g‘ri. Yo‘lovchidan qayta so‘rang.', n: Date.now() });
+        return;
+      }
+      setPinOpen(false);
       Alert.alert('Amal bajarilmadi', errorMessage(error));
       void qc.invalidateQueries({ queryKey: keys.current });
     },
@@ -129,40 +173,54 @@ function ActiveRide(props: {
 
   // arrive and start show their result at once (optimistic); completing waits for the
   // server's final fare
-  const pendingAction = act.isPending ? act.variables : null;
-  const optimistic = pendingAction && pendingAction !== 'complete' ? pendingAction : null;
-  const status = optimisticStatus(ride.status, optimistic);
+  const pending = act.isPending ? act.variables : null;
+  const optimistic =
+    pending && pending.action !== 'complete' && pending.rideId === focus.id ? pending.action : null;
+  const status = optimisticStatus(focus.status, optimistic);
   const step = stepOf(status);
-  const shown = useMemo(() => ({ ...ride, status }) as DriverRide, [ride, status]);
-  const stops = useMemo(() => stopList([shown]), [shown]);
+  const shown = useMemo(() => ({ ...focus, status }) as DriverRide, [focus, status]);
+  const stops = useMemo(() => {
+    if (!baseStops) return stopList([shown]);
+    // an optimistic "Boshlash" passes the pickup already
+    return optimistic === 'start' ? stopsFromPool(pool!.stops.slice(1)) : baseStops;
+  }, [baseStops, shown, optimistic, pool]);
   const target = nextStop(stops);
-  const arrivedAt = arrivedAtOf(ride, optimistic === 'arrive' ? tappedAt.current : null);
+  const arrivedAt = arrivedAtOf(focus, optimistic === 'arrive' ? tappedAt.current : null);
   const waitingNow = status === 'driver_arrived' && arrivedAt !== null;
+
+  const run = (action: RideAction, pin?: string) =>
+    act.mutate({ rideId: focus.id, action, ...(pin ? { pin } : {}) });
 
   const onStep = () => {
     if (!step || act.isPending) return;
+    if (step.action === 'start' && focus.hasStartPin) {
+      setPinError(null);
+      setPinOpen(true);
+      return;
+    }
     if (step.action === 'complete') {
-      const cash = cashBreakdown(ride);
+      const cash = cashBreakdown(focus);
       const owedNote = owedFeeNote(cash.owedFee);
       Alert.alert(
         'Safarni yakunlaysizmi?',
-        ride.paymentMethod === 'card'
+        focus.paymentMethod === 'card'
           ? cash.total > 0
             ? `Safar kartada oldindan to‘langan. Kutish uchun ${som(cash.total)} naqd oling.`
             : 'Safar kartada oldindan to‘langan: naqd pul olmang.'
-          : `Yo‘lovchidan ${som(cash.total)} oling.${owedNote ? ` (${owedNote}.)` : ''}`,
+          : `${focus.rider?.name ?? 'Yo‘lovchi'}dan ${som(cash.total)} oling.${owedNote ? ` (${owedNote}.)` : ''}`,
         [
           { text: 'Yo‘q', style: 'cancel' },
-          { text: 'Yakunlash', onPress: () => act.mutate('complete') },
+          { text: 'Yakunlash', onPress: () => run('complete') },
         ],
       );
       return;
     }
-    act.mutate(step.action);
+    run(step.action);
   };
 
-  const scheduled = scheduledLabel(ride.scheduledFor, Date.now());
+  const scheduled = scheduledLabel(focus.scheduledFor, Date.now());
   const navTitle = target?.kind === 'dropoff' ? 'Manzilga yo‘l' : 'Yo‘lovchiga yo‘l';
+  const badges = offerBadges(focus);
 
   return (
     <Screen
@@ -171,22 +229,26 @@ function ActiveRide(props: {
       footer={
         cancelling || !step ? null : (
           <>
-            {pendingAction ? (
+            {pending ? (
               <Text style={styles.pending} accessibilityLiveRegion="polite">
                 {retries > 0
                   ? `Aloqa sust — qayta yuborilmoqda (${retries})…`
-                  : pendingAction === 'complete'
+                  : pending.action === 'complete'
                     ? 'Yakunlanmoqda…'
                     : 'Yuborilmoqda…'}
               </Text>
             ) : null}
             <Button
-              title={step.button}
+              title={
+                pool && step.action !== 'arrive' && focus.rider?.name
+                  ? `${step.button} · ${focus.rider.name}`
+                  : step.button
+              }
               big
               variant={step.action === 'complete' ? 'success' : 'primary'}
               icon={STEP_ICON[step.action]}
               // an optimistic step shows the next button, which waits for the first to land
-              loading={pendingAction === 'complete'}
+              loading={pending?.action === 'complete'}
               disabled={act.isPending}
               onPress={onStep}
               style={{ minHeight: 76 }}
@@ -201,11 +263,19 @@ function ActiveRide(props: {
             {step?.title ?? 'Safar'}
           </Text>
           <Muted>
-            #{ride.number} · {PAYMENT_METHODS[ride.paymentMethod] ?? ride.paymentMethod}
+            #{focus.number} · {PAYMENT_METHODS[focus.paymentMethod] ?? focus.paymentMethod}
+            {pool ? ` · ${pool.riders ?? ids.length} yo‘lovchi` : ''}
           </Muted>
           {scheduled ? <Chip label={scheduled} tone="info" icon="calendar" /> : null}
+          {badges.length ? (
+            <View style={styles.badges}>
+              {badges.map((b) => (
+                <Chip key={b.label} label={b.label} tone={b.tone} />
+              ))}
+            </View>
+          ) : null}
         </View>
-        <SosButton rideId={ride.id} />
+        <SosButton rideId={focus.id} />
       </View>
 
       {retries > 1 ? (
@@ -229,12 +299,16 @@ function ActiveRide(props: {
       {waitingNow && arrivedAt ? <WaitingCard arrivedAt={arrivedAt} rules={rules} /> : null}
 
       {status === 'in_progress' || status === 'driver_arrived' ? (
-        <CashCard ride={ride} arrivedAt={arrivedAt} waitingNow={waitingNow} rules={rules} />
+        <CashCard ride={focus} arrivedAt={arrivedAt} waitingNow={waitingNow} rules={rules} />
       ) : null}
 
-      <StopList stops={stops} ride={ride} />
+      <StopList stops={stops} ride={focus} />
 
-      {ride.rider ? <RiderCard rider={ride.rider} channel={ride.channel} /> : null}
+      {pool && poolRides.length ? (
+        <PoolRidersCard rides={poolRides} focusId={focus.id} seats={pool.occupancy ?? null} />
+      ) : focus.rider ? (
+        <RiderCard rider={focus.rider} channel={focus.channel} />
+      ) : null}
 
       {canCancel(status) ? (
         cancelling ? (
@@ -246,7 +320,7 @@ function ActiveRide(props: {
           />
         ) : (
           <Button
-            title="Buyurtmani bekor qilish"
+            title={pool ? `#${focus.number} buyurtmani bekor qilish` : 'Buyurtmani bekor qilish'}
             icon="close-circle"
             variant="danger"
             disabled={act.isPending}
@@ -256,6 +330,15 @@ function ActiveRide(props: {
       ) : (
         <Muted center>Safar boshlangan: muammo bo‘lsa operatorga qo‘ng‘iroq qiling.</Muted>
       )}
+
+      <PinPad
+        visible={pinOpen}
+        riderName={focus.rider?.name ?? null}
+        busy={act.isPending}
+        error={pinError}
+        onSubmit={(pin) => run('start', pin)}
+        onClose={() => setPinOpen(false)}
+      />
     </Screen>
   );
 }
@@ -264,4 +347,5 @@ const styles = StyleSheet.create({
   head: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   status: { fontSize: 28, fontWeight: '900', color: colors.text },
   pending: { color: colors.warning, fontSize: 15, fontWeight: '800', textAlign: 'center' },
+  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
 });

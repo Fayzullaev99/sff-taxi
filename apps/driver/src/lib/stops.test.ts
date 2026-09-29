@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextStop, stopList, type StopRide } from './stops';
+import { nextStop, stopList, type StopRide, stopsFromPool } from './stops';
 
 const place = (name: string) => ({ lat: 40.49, lng: 68.78, address: name, landmark: null });
 
@@ -35,5 +35,30 @@ describe('stopList', () => {
     );
     expect(stops.map((s) => s.key)).toEqual(['a:pickup', 'b:pickup', 'a:dropoff', 'b:dropoff']);
     expect(nextStop(stops)?.key).toBe('b:pickup');
+  });
+});
+
+describe('stopsFromPool', () => {
+  it('keeps the API order, the first stop current', () => {
+    const stops = stopsFromPool([
+      {
+        rideId: 'b',
+        number: 7,
+        type: 'pickup',
+        lat: 1,
+        lng: 2,
+        place: { address: 'Bozor', landmark: null },
+        riderName: 'Aziza',
+        passengers: 2,
+        status: 'driver_assigned',
+      },
+      { rideId: 'a', type: 'dropoff', lat: 3, lng: 4, place: null, status: 'in_progress' },
+    ]);
+    expect(stops.map((s) => [s.key, s.current, s.passengers])).toEqual([
+      ['b:pickup', true, 2],
+      ['a:dropoff', false, 1],
+    ]);
+    expect(nextStop(stops)?.riderName).toBe('Aziza');
+    expect(stops[1]!.place.address).toBeNull();
   });
 });

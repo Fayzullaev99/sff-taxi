@@ -14,12 +14,14 @@ import type {
   DriverRide,
   DriverTrip,
   Earnings,
+  GeoAddress,
   IntercityFare,
   IntercityPoint,
   LedgerEntry,
   Offer,
   Page,
   Pass,
+  PreferencesBody,
   PublishedTariff,
   PublishTripBody,
   Topup,
@@ -62,6 +64,9 @@ export const driver = {
   /** 422 `{reason}` when the API refuses the fix (see lib/gps-quality). */
   location: (payload: LocationPayload, timeoutMs?: number) =>
     api.post<void>('/v1/driver/location', payload, { timeoutMs }),
+  /** Shared rides, people in the car, the heading filter, women riders only → the profile. */
+  preferences: (body: PreferencesBody) =>
+    api.request<DriverMe>('PUT', '/v1/driver/preferences', { body }),
 
   offers: () => api.get<Offer[]>('/v1/driver/offers'),
   accept: (offerId: string, timeoutMs?: number) =>
@@ -74,8 +79,17 @@ export const driver = {
   ride: (id: string) => api.get<DriverRide>(`/v1/driver/rides/${id}`),
   rides: (cursor?: string) =>
     api.get<Page<DriverRide>>(`/v1/driver/rides${cursor ? `?cursor=${cursor}` : ''}`),
-  step: (id: string, action: 'arrive' | 'start' | 'complete', timeoutMs?: number) =>
-    api.post<DriverRide>(`/v1/driver/rides/${id}/${action}`, undefined, { timeoutMs }),
+  /** `start` of a ride with a start code needs the 4 digits the rider tells (400 otherwise). */
+  step: (
+    id: string,
+    action: 'arrive' | 'start' | 'complete',
+    opts: { timeoutMs?: number; pin?: string | null } = {},
+  ) =>
+    api.post<DriverRide>(
+      `/v1/driver/rides/${id}/${action}`,
+      action === 'start' && opts.pin ? { pin: opts.pin } : undefined,
+      { timeoutMs: opts.timeoutMs },
+    ),
   cancel: (id: string, reasonCode: CancelReason, note: string | null) =>
     api.post<void>(`/v1/driver/rides/${id}/cancel`, { reasonCode, note }),
   rateRider: (id: string, stars: number, tags: string[], comment: string | null) =>
@@ -140,6 +154,18 @@ export const intercity = {
     api.post<DriverTrip>(`/v1/driver/intercity/trips/${id}/bookings/${bookingId}/board`),
   cancel: (id: string, reason: string) =>
     api.post<DriverTrip>(`/v1/driver/intercity/trips/${id}/cancel`, { reason }),
+};
+
+/** Address search (public; biased to the driver's area when a point is given). */
+export const geo = {
+  search: (q: string, near: { lat: number; lng: number } | null, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ q, lang: 'uz' });
+    if (near) {
+      params.set('lat', near.lat.toFixed(5));
+      params.set('lng', near.lng.toFixed(5));
+    }
+    return api.get<GeoAddress[]>('/v1/geo/search?' + params.toString(), { auth: false, signal });
+  },
 };
 
 export const devices = {

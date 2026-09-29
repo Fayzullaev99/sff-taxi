@@ -24,6 +24,7 @@ import {
   sendCurrentPosition,
 } from '../../location/tracker';
 import { CurrentRideCard } from '../../home/current-ride-card';
+import { PoolPanel } from '../../home/pool-panel';
 import { useBatteryOptimization } from '../../location/use-battery-optimization';
 import { useTrackingMode } from '../../location/use-tracking-mode';
 import { registerPushDevice, requestPushPermission } from '../../notifications/push';
@@ -163,7 +164,7 @@ export default function Home() {
         </Pressable>
       </View>
 
-      {/* the rides in hand (one today; shared rides add more, plus their pool panel) */}
+      {/* the rides in hand: the next stop's ride and, when shared, every stop ahead */}
       <CurrentRideCard rides={current ? [current] : NO_RIDES} />
 
       <Pressable
@@ -202,6 +203,9 @@ export default function Home() {
       </Pressable>
 
       {online ? <GpsIndicator /> : null}
+
+      {/* shared rides, people in the car, the heading filter (hidden on an older API) */}
+      <PoolPanel me={d} />
 
       {online && mode === 'foreground' ? (
         <Banner

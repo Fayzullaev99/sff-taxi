@@ -155,8 +155,12 @@ export const StopList = memo(function StopList(props: {
           />
           <View style={{ flex: 1 }}>
             <Text style={styles.stopLabel}>
-              {STOP_LABEL[s.kind]}
-              {s.kind === 'dropoff' ? ` · ${distance(ride.distanceM)}` : ''}
+              {s.riderName !== undefined
+                ? // several riders: whose stop, how many get in or out
+                  `${s.kind === 'pickup' ? 'Olish' : 'Tushirish'} · ${s.riderName ?? 'Yo‘lovchi'}${
+                    (s.passengers ?? 1) > 1 ? ` · ${s.passengers} kishi` : ''
+                  }${s.rideNumber ? ` · #${s.rideNumber}` : ''}`
+                : `${STOP_LABEL[s.kind]}${s.kind === 'dropoff' ? ` · ${distance(ride.distanceM)}` : ''}`}
               {s.current ? ' · hozir' : s.done ? ' · o‘tildi' : ''}
             </Text>
             <Text style={styles.stopText}>{s.place.address ?? 'Xaritadagi nuqta'}</Text>

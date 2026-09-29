@@ -155,6 +155,14 @@ export function useRealtime(enabled: boolean): void {
           break;
         case 'driver.updated':
           void qc.invalidateQueries({ queryKey: keys.me });
+          // the heading filter clears itself when the driver gets there
+          if (event.status === 'destination_reached') {
+            haptics.success();
+            Alert.alert(
+              'Manzilga yetdingiz',
+              'Yo‘nalish filtri o‘chirildi: endi hamma buyurtmalar keladi.',
+            );
+          }
           void qc.invalidateQueries({ queryKey: keys.appeals });
           break;
         case 'intercity.updated':

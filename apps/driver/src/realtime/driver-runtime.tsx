@@ -32,7 +32,9 @@ export function DriverRuntime() {
   const current = useCurrentRide();
   const ride = current.data ?? null;
   const online = me.data?.isOnline ?? false;
-  const offers = useOffers(online, ride !== null);
+  // with shared rides on, riders on the way are offered while the car already carries some
+  const sharing = me.data?.pool?.enabled === true;
+  const offers = useOffers(online, ride !== null && !sharing);
 
   useRealtime(true);
   useNotificationRouting(true);
@@ -84,7 +86,9 @@ export function DriverRuntime() {
   const rideId = ride?.id ?? null;
   useEffect(() => {
     // (while the offer screen is open it moves to the ride itself after accepting)
-    if (rideId && rideId !== lastRideId.current && pathname !== '/ride' && !showing) {
+    // (the done screen of a shared ride leads to the next rider itself)
+    const done = pathname.startsWith('/ride-done');
+    if (rideId && rideId !== lastRideId.current && pathname !== '/ride' && !showing && !done) {
       haptics.warning();
       router.navigate('/ride');
     }

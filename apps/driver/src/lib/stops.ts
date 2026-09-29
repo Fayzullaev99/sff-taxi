@@ -31,6 +31,46 @@ export interface Stop {
   done: boolean;
   /** The stop the driver is heading to (or standing at) now. */
   current: boolean;
+  /** Shared rides: whose stop it is, how many get in or out, the ride's status. */
+  riderName?: string | null;
+  passengers?: number;
+  status?: string;
+}
+
+/**
+ * The stops ahead of a car with several riders (`driver/rides/current` → `pool.stops`), in
+ * the API's order: none is done yet, the first is where the driver goes now.
+ */
+export function stopsFromPool(
+  stops: readonly {
+    rideId: string;
+    number?: number;
+    type: 'pickup' | 'dropoff';
+    lat: number;
+    lng: number;
+    place?: { address: string | null; landmark: string | null } | null;
+    riderName?: string | null;
+    passengers?: number;
+    status: string;
+  }[],
+): Stop[] {
+  return stops.map((s, i) => ({
+    key: `${s.rideId}:${s.type}`,
+    kind: s.type,
+    rideId: s.rideId,
+    rideNumber: s.number ?? 0,
+    place: {
+      lat: s.lat,
+      lng: s.lng,
+      address: s.place?.address ?? null,
+      landmark: s.place?.landmark ?? null,
+    },
+    done: false,
+    current: i === 0,
+    riderName: s.riderName ?? null,
+    passengers: s.passengers ?? 1,
+    status: s.status,
+  }));
 }
 
 function pickedUp(status: string): boolean {

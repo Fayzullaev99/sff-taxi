@@ -9,7 +9,9 @@ import { keys, useDriverConfig, useTrip } from '../../data/queries';
 import { errorMessage } from '../../lib/api-client';
 import { formatPhone, som } from '../../lib/format';
 import {
+  alongTheWayText,
   BOOKING_STATUS_TEXT,
+  bookingMoney,
   TRIP_STATUS_TEXT,
   tripActions,
   tripEditable,
@@ -120,7 +122,7 @@ export default function TripScreen() {
     .filter((b) => b.status === 'completed')
     .reduce(
       (s, b) => ({
-        cash: s.cash + b.price,
+        cash: s.cash + bookingMoney(b).cash,
         commission: s.commission + b.commission,
         tax: s.tax + b.tax,
       }),
@@ -322,6 +324,8 @@ function BookingCard(props: {
   onBoard: () => void;
 }) {
   const b = props.booking;
+  const money = bookingMoney(b);
+  const along = alongTheWayText(b);
   const tone =
     b.status === 'boarded' || b.status === 'completed'
       ? 'success'
@@ -341,8 +345,17 @@ function BookingCard(props: {
         <Chip label={`${b.seats} o‘rin`} tone="neutral" icon="person" />
         {b.front ? <Chip label="Old o‘rindiq" tone="info" /> : null}
         {b.channel === 'phone' ? <Chip label="Operator orqali" tone="neutral" /> : null}
-        <Chip label={som(b.price)} tone="success" icon="cash" />
+        <Chip label={`Naqd: ${som(money.cash)}`} tone="success" icon="cash" />
+        {money.deposit > 0 ? (
+          <Chip label={`${som(money.deposit)} oldindan to‘langan`} tone="info" icon="card" />
+        ) : null}
       </View>
+      {along ? (
+        <View style={styles.note}>
+          <Ionicons name="git-branch" size={18} color={colors.brand} />
+          <Text style={styles.noteText}>Yo‘l ustida: {along}</Text>
+        </View>
+      ) : null}
       {b.pickupNote ? (
         <View style={styles.note}>
           <Ionicons name="location" size={18} color={colors.brand} />

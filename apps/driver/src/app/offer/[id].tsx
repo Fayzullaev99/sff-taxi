@@ -15,7 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { serverClock } from '../../api/client';
 import { driver } from '../../api/driver';
-import type { Offer } from '../../api/types';
+import type { DriverRide, Offer } from '../../api/types';
 import { keys, useDriverConfig, useStreamOpen } from '../../data/queries';
 import { offerCountdown } from '../../lib/countdown';
 import {
@@ -27,6 +27,7 @@ import {
   RIDE_OPTIONS,
   som,
 } from '../../lib/format';
+import { alongLine, alongStopLines, offerBadges, ridePool } from '../../lib/pool';
 import { acceptOffer } from '../../lib/ride-actions';
 import {
   OFFER_FAILURE_TEXT,
@@ -126,6 +127,15 @@ export default function OfferScreen() {
   useEffect(() => {
     if (cached && !offer) setOffer(cached);
   }, [cached, offer]);
+
+  // riders already in the car, by ride id: the along-the-way plan names them
+  const inHand = qc.getQueryData<DriverRide | null>(keys.current) ?? null;
+  const [riderNames] = useState(() => {
+    const m = new Map<string, string | null>();
+    if (inHand) m.set(inHand.id, inHand.rider?.name ?? null);
+    for (const st of ridePool(inHand)?.stops ?? []) m.set(st.rideId, st.riderName ?? null);
+    return m;
+  });
 
   const closedStatus = useOfferClosed(offerId);
   const [declining, setDeclining] = useState(false);
@@ -353,6 +363,7 @@ export default function OfferScreen() {
             />
             <OfferHeadline offer={offer} />
           </View>
+          <AlongPlan offer={offer} names={riderNames} />
           <OfferDetails offer={offer} minute={Math.floor(now / 60_000)} />
         </ScrollView>
         {actions}
@@ -383,7 +394,33 @@ const OfferHeadline = memo(function OfferHeadline({ offer }: { offer: Offer }) {
         />
         <Chip label={RIDE_CLASSES[r.class] ?? r.class} tone="neutral" />
         {r.kind === 'intercity' ? <Chip label="Shaharlararo" tone="warning" /> : null}
+        {offerBadges(r).map((b) => (
+          <Chip key={b.label} label={b.label} tone={b.tone} />
+        ))}
       </View>
+    </View>
+  );
+});
+
+/** An offer on the car's way: how much longer the trip gets and the new order of stops. */
+const AlongPlan = memo(function AlongPlan(props: {
+  offer: Offer;
+  names: ReadonlyMap<string, string | null>;
+}) {
+  const along = props.offer.along;
+  if (!along) return null;
+  const lines = alongStopLines(along.stops ?? [], props.offer.ride.id, props.names);
+  return (
+    <View style={styles.along}>
+      <View style={styles.alongHead}>
+        <Ionicons name="git-merge" size={22} color={colors.brand} />
+        <Text style={styles.alongTitle}>{alongLine(along.detourS)}</Text>
+      </View>
+      {lines.map((l, i) => (
+        <Text key={l.key} style={[styles.alongStop, l.isNew && { color: colors.brand }]}>
+          {i + 1}. {l.text}
+        </Text>
+      ))}
     </View>
   );
 });
@@ -515,6 +552,15 @@ const styles = StyleSheet.create({
   },
   reasonText: { color: colors.text, fontSize: 16, fontWeight: '700' },
   row: { flexDirection: 'row', gap: space.sm },
+  along: {
+    gap: space.xs,
+    backgroundColor: colors.brandSoft,
+    padding: space.md,
+    borderRadius: radius.md,
+  },
+  alongHead: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  alongTitle: { flex: 1, color: colors.brand, fontSize: 18, fontWeight: '900' },
+  alongStop: { color: colors.text, fontSize: 16, fontWeight: '700' },
   closed: {
     flex: 1,
     alignItems: 'center',

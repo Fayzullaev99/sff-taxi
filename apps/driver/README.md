@@ -123,7 +123,7 @@ appeal answer shows at once.
   with backoff (1 → 30 s), at once when NetInfo reports the connection back; a 422 refusal
   only changes the GPS indicator. The phase is saved so a background-only JS runtime keeps
   the right pace.
-- **Stream health**: the API pings every 25 s; 35 s of silence means a dead link and the
+- **Stream health**: the API pings every 10 s; 25 s of silence means a dead link and the
   stream reconnects (polling speeds up meanwhile), at once when the network returns or the
   app comes to the foreground; a stream past 256 KB is renewed. While on shift with the
   background location service, the stream stays open in the background too, so an offer
@@ -139,6 +139,27 @@ appeal answer shows at once.
 - **Stops, not "pickup and drop-off"**: the ride and home screens render `lib/stops.ts`'s
   ordered stop list (`src/ride/parts.tsx`, `src/home/current-ride-card.tsx`), so several
   riders at once only add stops.
+- **Shared rides** (docs/shared-rides.md, `lib/pool.ts`): home's pool panel
+  (`src/home/pool-panel.tsx`) switches "Boshqa yo‘lovchi olaman", counts people riding
+  without the app (0–3; more than 0 asks "Qayerga ketyapsiz?" first) and sets the heading
+  filter (`destination` screen: the region's towns, recent places, address search — no map
+  SDK), all through `PUT /driver/preferences`, whose answer replaces the profile; the chip
+  "Faqat yo‘lingizdagi buyurtmalar: → Yangiyer" clears in one tap, and `driver.updated
+destination_reached` announces the automatic clear. The seats come from `driver/me
+pool.seats` (one in front, never more than two in the back). With sharing on, offers keep
+  coming during a ride. Offers show "Yo‘lingizda: +N daq aylanish" and the new stop order,
+  and badges for people, "Hamroh", "Ayol haydovchi so‘ralgan" and seat mode. With several
+  riders the ride screen follows `pool.stops` (the button acts on the first stop's ride),
+  lists every rider with their own cash (`GET driver/rides/:id` → `collectCash`) and phone;
+  the done screen leads on to the next stop.
+- **Start code**: when the ride `hasStartPin`, "Boshlash" opens a big keypad for the rider's
+  4 digits (`{pin}`); a wrong code says "Kod noto‘g‘ri" and lets the driver type again.
+- **Women drivers**: the application asks the gender (optional, verified by an operator
+  against the passport); a verified woman driver can switch on "Faqat ayol yo‘lovchilar"
+  (profile).
+- **Trip board seating**: at most 3 seats, never more than 2 in the back (without the front
+  seat: 2), whatever the car has or an API says; bookings show the cash to take (`payCash`),
+  the deposit paid in advance and a seat along the way ("Boyovut → Yangiyer").
 - **Decline asks for an optional reason** (the API's `declineReasons`) after the tap, accept is
   a single 84 px button (on the right on a landscape tablet).
 - **Low-end Android**: no maps SDK, no SVG/animation libraries (the ring is 36 plain
@@ -191,17 +212,13 @@ Still open:
     with no total "owed to you" figure in `GET /driver/balance`.
 12. **`scope=upcoming` is capped at 100 trips** with `nextCursor: null`; harmless for one
     driver today, but the list would silently cut off.
-13. **The stream's heartbeat is 25 s**: a dead mobile link is noticed only after ~35 s
-    (the reference is a 4 s ping and a 7 s dead-link limit). A 5–10 s ping (a few bytes)
-    would let the app switch to polling much sooner.
+13. ~~The stream's heartbeat is 25 s~~: 10 s since wave 4 (the app's dead-link limit: 25 s).
 14. **`POST /driver/location` takes one fix stamped with the server's clock**: a fix held
     during an outage cannot be sent with its real time, and no short trail can be sent when
     the link comes back (an optional `at` and a `trail[]` of ≤10 fixes would fix both).
-15. **Accept and ride steps are not idempotent**: a retry after a lost answer gets 409
-    ("Taklif endi amal qilmaydi" / "Buyurtma holati mos emas"); the app reconciles by
-    re-reading the ride. An idempotency key, or answering 200 with the ride when it is
-    already in the step's status, would save that round trip on a bad network (and allow
-    Uber-style offline steps with client timestamps).
+15. **Accept and ride steps were not idempotent** (a retry after a lost answer got 409): being
+    fixed in the API (a repeat by the same driver answers with the current view); the app
+    keeps re-reading the ride on a 409 as the fallback for an older API.
 
 ## Checks
 

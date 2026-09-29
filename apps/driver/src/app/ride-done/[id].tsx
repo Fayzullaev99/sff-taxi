@@ -1,10 +1,11 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { driver } from '../../api/driver';
-import { useRide } from '../../data/queries';
+import type { DriverRide } from '../../api/types';
+import { keys, useRide } from '../../data/queries';
 import { errorMessage, isApiError } from '../../lib/api-client';
 import { COMMISSION_NOTES, digits, som } from '../../lib/format';
 import { withRetry } from '../../lib/ride-actions';
@@ -34,6 +35,10 @@ export default function RideDone() {
   const ride = useRide(String(id));
   const [stars, setStars] = useState(0);
   const [tags, setTags] = useState<string[]>([]);
+  const qc = useQueryClient();
+  // a shared car may still carry riders: then on to the next stop
+  const next = () =>
+    router.replace(qc.getQueryData<DriverRide | null>(keys.current) ? '/ride' : '/home');
 
   const rate = useMutation({
     mutationFn: () =>
@@ -48,7 +53,7 @@ export default function RideDone() {
       }),
     onSuccess: () => {
       haptics.success();
-      router.replace('/home');
+      next();
     },
     onError: () => haptics.error(),
   });
@@ -86,14 +91,10 @@ export default function RideDone() {
             big
             icon="arrow-forward"
             loading={rate.isPending}
-            onPress={() => (stars ? rate.mutate() : router.replace('/home'))}
+            onPress={() => (stars ? rate.mutate() : next())}
           />
           {rate.error ? (
-            <Button
-              title="Baholamasdan davom etish"
-              variant="secondary"
-              onPress={() => router.replace('/home')}
-            />
+            <Button title="Baholamasdan davom etish" variant="secondary" onPress={() => next()} />
           ) : null}
         </>
       }

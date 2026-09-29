@@ -130,6 +130,7 @@ function RootNavigator() {
           />
           <Stack.Screen name="ride" options={{ gestureEnabled: false }} />
           <Stack.Screen name="ride-done/[id]" options={{ gestureEnabled: false }} />
+          <Stack.Screen name="destination" />
           <Stack.Screen name="ledger" />
           <Stack.Screen name="rides" />
           <Stack.Screen name="topup" />

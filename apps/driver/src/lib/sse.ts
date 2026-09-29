@@ -69,12 +69,12 @@ export function reconnectDelayMs(attempt: number, random: number = Math.random()
 }
 
 /**
- * The API writes a ping every 25 s (apps/api realtime.module.ts `HEARTBEAT_MS`). Silence
- * longer than one heartbeat plus a grace period means the link is dead (a mobile network
+ * The API writes a ping every 10 s (apps/api realtime.module.ts `HEARTBEAT_MS`). Silence
+ * for 25 s (two missed pings and a grace period) means the link is dead (a mobile network
  * often drops a connection without closing it): reconnect instead of waiting for TCP.
  */
-export const SERVER_HEARTBEAT_MS = 25_000;
-export const STREAM_DEAD_AFTER_MS = SERVER_HEARTBEAT_MS + 10_000;
+export const SERVER_HEARTBEAT_MS = 10_000;
+export const STREAM_DEAD_AFTER_MS = 25_000;
 
 /** Whether the stream has been silent for too long to be trusted. */
 export function streamIsStale(
