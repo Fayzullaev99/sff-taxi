@@ -206,6 +206,46 @@ function tickSummary(a, b) {
 }
 const ticksAtStart = await tickHistogram();
 
+/**
+ * Work, not latency (the laptop is shared, latencies are noisy): the API's and the worker's
+ * CPU seconds and the database's buffer hits, read before and after a phase.
+ */
+const stat = new pg.Client({ connectionString: process.env.LOAD_DB });
+await stat.connect();
+async function cpuSeconds(base) {
+  const res = await fetch(`${base}/metrics`).catch(() => null);
+  if (!res?.ok) return null;
+  const m = /^process_cpu_seconds_total\{.*\} (\S+)$/m.exec(await res.text());
+  return m ? Number(m[1]) : null;
+}
+async function work() {
+  await stat.query('SELECT pg_stat_force_next_flush()').catch(() => null);
+  const { rows } = await stat.query(
+    `SELECT blks_hit + blks_read AS blocks, xact_commit FROM pg_stat_database
+     WHERE datname = current_database()`,
+  );
+  return {
+    api: await cpuSeconds(API),
+    worker: await cpuSeconds(WORKER),
+    blocks: Number(rows[0].blocks),
+    commits: Number(rows[0].xact_commit),
+  };
+}
+const workRows = [];
+/** Per unit of the phase (a quote, an order): API and worker CPU ms, database blocks. */
+function perUnit(label, a, b, units) {
+  if (!units) return;
+  workRows.push({
+    phase: label,
+    units,
+    apiCpuMs: a.api === null ? null : Math.round(((b.api - a.api) * 1000 * 10) / units) / 10,
+    workerCpuMs:
+      a.worker === null ? null : Math.round(((b.worker - a.worker) * 1000 * 10) / units) / 10,
+    dbBlocks: Math.round((b.blocks - a.blocks) / units),
+    dbCommits: Math.round(((b.commits - a.commits) * 10) / units) / 10,
+  });
+}
+
 await call(null, 'POST', '/auth/code', null, { phone: '+998900000001' });
 const adminLogin = await call(null, 'POST', '/auth/verify', null, {
   phone: '+998900000001',
@@ -409,13 +449,18 @@ let riderIndex = 0;
 const nextRider = () => riders[riderIndex++ % riders.length];
 
 // Phase 1: quotes --------------------------------------------------------------------------
+const workAtQuotes = await work();
+let quotes = 0;
 await phase('quote', 20, PHASE_S, async () => {
+  quotes++;
   const r = nextRider();
   await call('rides/quote', 'POST', '/rides/quote', r.token, {
     pickup: around(CENTER, 3000),
     dropoff: around(CENTER, 6000),
   });
 });
+
+perUnit('quote phase, per quote', workAtQuotes, await work(), quotes);
 
 // Phase 2: operators' views, alone --------------------------------------------------------------
 await phase('admin live map', 5, PHASE_S, () =>
@@ -442,6 +487,7 @@ await phase('admin drivers', 3, Math.max(8, PHASE_S / 2), () =>
 const cycleMs = [];
 const cycleMsShared = [];
 const ticksAtCycle = await tickHistogram();
+const workAtCycle = await work();
 let missed = 0;
 const until = Date.now() + CYCLE_S * 1000;
 const watchers = [
@@ -507,6 +553,8 @@ await Promise.all([
   }),
 ]);
 const ticksAtEnd = await tickHistogram();
+perUnit('order cycle, per order', workAtCycle, await work(), orders);
+await stat.end();
 running = false;
 await Promise.all(locationLoops);
 await sub.quit();
@@ -575,5 +623,7 @@ for (const [label, t] of [
   });
 }
 console.table(rows.map(({ codes, ...r }) => ({ ...r, codes: JSON.stringify(codes) })));
+console.table(workRows);
 console.log(JSON.stringify(rows));
+console.log(JSON.stringify(workRows));
 agent.destroy();
