@@ -17,6 +17,7 @@ import type {
   AdminRideItem,
   AdminTrip,
   Candidate,
+  CargoRules,
   Complaint,
   CustomerLookup,
   DriverAppeal,
@@ -47,6 +48,10 @@ const R3 = '01a0de48-0000-7000-8000-000000000003';
 const R4 = '01a0de48-0000-7000-8000-000000000004';
 const R5 = '01a0de48-0000-7000-8000-000000000005';
 const R6 = '01a0de48-0000-7000-8000-000000000006';
+const R7 = '01a0de48-0000-7000-8000-000000000007';
+const R8 = '01a0de48-0000-7000-8000-000000000008';
+const T2 = '01a0de48-5555-7000-8000-000000000002';
+const T3 = '01a0de48-5555-7000-8000-000000000003';
 const RF1 = '01a0de48-aaaa-7000-8000-000000000001';
 const RF2 = '01a0de48-aaaa-7000-8000-000000000002';
 const D1 = '01a0de48-1111-7000-8000-000000000001';
@@ -887,6 +892,20 @@ const routeFare = {
 
 const refunds: Refund[] = [
   {
+    id: 'P2',
+    amount: 28_000,
+    provider: 'payme',
+    paidAt: iso(300),
+    refundRequestedAt: iso(30),
+    purpose: 'booking',
+    rideId: null,
+    rideNumber: null,
+    bookingId: B1,
+    bookingNumber: 77,
+    riderPhone: '+998935550011',
+    cancelReason: 'Qatnov bekor qilindi',
+  },
+  {
     id: P1,
     amount: 12_000,
     provider: 'click',
@@ -1033,11 +1052,14 @@ const intentSummary = [
   { purpose: 'ride', status: 'refund_pending', count: 1, amount: 12_000 },
   { purpose: 'ride', status: 'expired', count: 3, amount: 30_000 },
   { purpose: 'topup', status: 'paid', count: 2, amount: 90_000 },
+  { purpose: 'booking', status: 'paid', count: 3, amount: 42_000 },
 ];
 
 const fiscalRules: FiscalRules = {
   city_item_name: 'Taksi xizmati (yo‘lovchi tashish)',
   intercity_item_name: 'Shaharlararo yo‘lovchi tashish (o‘rindiq)',
+  cargo_item_name: 'Yuk tashish xizmati',
+  delivery_item_name: 'Yetkazib berish xizmati (posilka)',
   mxik_code: '00000000000000000',
   package_code: '0000000',
   vat_percent: 0,
@@ -1050,6 +1072,7 @@ const intercityRules = {
   free_cancel_minutes: 60,
   late_cancel_fee_percent: 30,
   boarding_opens_minutes: 60,
+  along_route_max_km: 15,
 };
 
 const outboxEvent: OutboxEvent = {
@@ -1167,8 +1190,142 @@ const pooledRide = rideItem({
   pool: { id: 'pl1', sharedM: 20_000 },
 });
 const pooledLive: LiveBoard = {
-  drivers: [...live.drivers, { ...live.drivers[0]!, rideId: R6, rideStatus: 'in_progress' }],
+  // Bobur drives a cargo van
+  drivers: [
+    // (a fresh fix: an earlier test's positions batch dropped his older one)
+    ...live.drivers.map((d) =>
+      d.id === D2 ? { ...d, cargoClass: 'cargo_s' as const, locatedAt: iso(0) } : d,
+    ),
+    { ...live.drivers[0]!, rideId: R6, rideStatus: 'in_progress' },
+  ],
   rides: [{ ...assigned, shareable: true, pool: { id: 'pl1', sharedM: 0 } }, pooledRide, waiting],
+};
+
+// Cargo and delivery, deposits, the trip board's new bookings ----------------------------------
+
+const cargoRules: CargoRules = {
+  enabled: true,
+  classes: {
+    cargo_s: {
+      base: 35_000,
+      included_km: 10,
+      included_minutes: 20,
+      per_km: 1500,
+      intercity_per_km: 1500,
+      per_minute: 300,
+      max_payload_kg: 700,
+    },
+    cargo_m: {
+      base: 56_000,
+      included_km: 10,
+      included_minutes: 20,
+      per_km: 2400,
+      intercity_per_km: 2400,
+      per_minute: 400,
+      max_payload_kg: 1500,
+    },
+  },
+  loader_price: 30_000,
+  max_loaders: 2,
+  night: { percent: 20, from: '23:00', to: '06:00' },
+  intercity_from_km: 20,
+  delivery: { enabled: true, percent: 100, max_weight_kg: 10 },
+};
+
+/** A Gazel with two loaders moving a fridge, the customer in the cab. */
+const cargoDetail: AdminRide = {
+  ...rideDetail,
+  id: R7,
+  number: 1007,
+  status: 'driver_assigned',
+  service: 'cargo',
+  class: 'cargo_m',
+  cargo: { loaders: 2, riderRides: true, description: 'Muzlatgich', weightKg: 120 },
+  delivery: null,
+};
+
+/** A parcel for later, held until its card deposit is paid. */
+const deliveryDetail: AdminRide = {
+  ...rideDetail,
+  id: R8,
+  number: 1008,
+  status: 'awaiting_payment',
+  scheduledFor: iso(-120),
+  service: 'delivery',
+  cargo: null,
+  delivery: {
+    parcel: { description: 'Hujjatlar papkasi', weightKg: 1 },
+    recipientName: 'Olim',
+    recipientPhone: '+998907654321',
+  },
+  fare: { ...rideDetail.fare, quoted: 20_000, deposit: 5000, pays: 20_000 },
+};
+
+/** A small cargo van (Damas) with its payload from the inspection. */
+const cargoDriverDetail: AdminDriver = {
+  ...activeDetail,
+  id: D2,
+  fullName: 'Bobur Toshev',
+  vehicle: {
+    ...activeDetail.vehicle!,
+    make: 'Chevrolet',
+    model: 'Damas',
+    service: 'cargo',
+    body: 'van',
+    payloadKg: 700,
+    grossKg: 1300,
+    cargoClass: 'cargo_s',
+  },
+};
+
+const tripTown = (slug: string, nameUz: string) => ({ id: slug, slug, nameUz, nameRu: nameUz });
+
+/** A trip with a paid deposit, one waiting for it (a seat along the way) and one expired. */
+const depositTrip: AdminTrip = {
+  ...trip,
+  id: T2,
+  number: 502,
+  bookings: [
+    { ...tripBooking, depositAmount: 28_000, payCash: 112_000 },
+    {
+      ...tripBooking,
+      id: 'b3',
+      number: 79,
+      status: 'awaiting_payment',
+      seats: 1,
+      price: 56_000,
+      depositAmount: 12_000,
+      payCash: 44_000,
+      pickupNote: null,
+      alongTheWay: true,
+      pickup: tripTown('yangiyer', 'Yangiyer'),
+      dropoff: tripTown('toshkent', 'Toshkent'),
+    },
+    {
+      ...tripBooking,
+      id: 'b4',
+      number: 80,
+      status: 'cancelled',
+      cancelledBy: 'system',
+      cancelledAt: iso(10),
+      depositAmount: 28_000,
+      payCash: 112_000,
+    },
+  ],
+};
+
+/** A Tashkent trip passing the caller's towns: the seat priced for their part. */
+const alongTrip = {
+  ...trip,
+  id: T3,
+  number: 503,
+  from: { ...points[0]!, id: 'p0', slug: 'sirdaryo', nameUz: 'Sirdaryo' },
+  alongTheWay: true,
+  pickup: points[0]!,
+  dropoff: points[1]!,
+  share: 0.8,
+  price: { rear: 56_000, front: 64_000 },
+  fullPrice: { rear: 70_000, front: 80_000 },
 };
 
 type Init = RequestInit | undefined;
@@ -1305,7 +1462,11 @@ const routes: [RegExp, Mock][] = [
           ? collectingDetail
           : path.includes(R6)
             ? pooledDetail
-            : (state.rideAfterAction ?? rideDetail),
+            : path.includes(R7)
+              ? cargoDetail
+              : path.includes(R8)
+                ? deliveryDetail
+                : (state.rideAfterAction ?? rideDetail),
   ],
   [
     /^\/v1\/admin\/rides$/,
@@ -1373,7 +1534,8 @@ const routes: [RegExp, Mock][] = [
   [/^\/v1\/admin\/drivers\/[^/]+\/vehicle$/, driverDetail],
   [
     /^\/v1\/admin\/drivers\/[^/]+$/,
-    (_init: Init, path: string) => (path.includes(D1) ? activeDetail : driverDetail),
+    (_init: Init, path: string) =>
+      path.includes(D1) ? activeDetail : path.includes(D2) ? cargoDriverDetail : driverDetail,
   ],
   [
     /^\/v1\/admin\/drivers$/,
@@ -1420,13 +1582,16 @@ const routes: [RegExp, Mock][] = [
   [/^\/v1\/admin\/payments\/[^/]+\/refunded$/, { id: P1, status: 'refunded' }],
   [/^\/v1\/intercity\/points$/, points],
   [/^\/v1\/intercity\/fares$/, routeFare],
-  [/^\/v1\/admin\/intercity\/search$/, [trip]],
+  [/^\/v1\/admin\/intercity\/search$/, [trip, alongTrip]],
   [/^\/v1\/admin\/intercity\/trips\/[^/]+\/bookings$/, { ...tripBooking, id: 'b2', number: 78 }],
   [
     /^\/v1\/admin\/intercity\/trips\/[^/]+\/cancel$/,
     { ...trip, status: 'cancelled', cancelledBy: 'operator', cancelReason: 'Mashina buzildi' },
   ],
-  [/^\/v1\/admin\/intercity\/trips\/[^/]+$/, trip],
+  [
+    /^\/v1\/admin\/intercity\/trips\/[^/]+$/,
+    (_init: Init, path: string) => (path.includes(T2) ? depositTrip : trip),
+  ],
   [/^\/v1\/admin\/intercity\/trips$/, [trip]],
   [/^\/v1\/admin\/intercity\/bookings\/[^/]+\/cancel$/, { ...tripBooking, status: 'cancelled' }],
   [
@@ -1489,6 +1654,10 @@ const routes: [RegExp, Mock][] = [
   ],
   [/^\/v1\/admin\/geo\/cities\/[^/]+$/, (init: Init) => ({ ...adminCities[1]!, ...body(init) })],
   [/^\/v1\/admin\/geo\/cities$/, adminCities],
+  [
+    /^\/v1\/admin\/settings\/cargo$/,
+    (init: Init) => (method(init) === 'PUT' ? body(init) : cargoRules),
+  ],
   [
     /^\/v1\/admin\/settings\/pool$/,
     (init: Init) => (method(init) === 'PUT' ? body(init) : poolRules),
@@ -1795,7 +1964,19 @@ describe('panel smoke', () => {
       `/intercity/${T1}`,
       ['#501: Guliston → Toshkent', 'Nodira', 'Bozor oldida', 'Bron qilingan', 'Mijoz uchun bron'],
     ],
-    ['/payments', ['To‘lovlar', 'Qaytarishlar (1)', '#990', '12 000 so‘m', 'Click', 'Qaytarildi']],
+    [
+      '/payments',
+      [
+        'To‘lovlar',
+        'Qaytarishlar (2)',
+        '#990',
+        '12 000 so‘m',
+        'Click',
+        'Qaytarildi',
+        'bron #77 (depozit)',
+        '28 000 so‘m',
+      ],
+    ],
     [
       '/payments?tab=payouts',
       ['Haydovchilarga to‘lov', 'Aziz Karimov', '80 000 so‘m', '30 000 so‘m', 'balans 25 000 so‘m'],
@@ -1899,6 +2080,65 @@ describe('panel smoke', () => {
         '1/3 band',
       ],
     ],
+    [
+      '/settings?cargo=1',
+      [
+        'Yuk tashish va yetkazish',
+        'Kichik yuk (Damas/Labo)',
+        'Yetkazish (posilka)',
+        // 15 km, one loader, by day: 35 000 + 5 km × 1 500 + 30 000
+        '72 500 so‘m',
+        'Yo‘l ustidagi shaharlar',
+      ],
+    ],
+    [
+      `/rides/${R7}`,
+      [
+        'Yuk',
+        'O‘rta yuk (Gazel/Porter)',
+        'Yukchilar',
+        '2 kishi',
+        '~120 kg',
+        'kabinada birga',
+        'Muzlatgich',
+      ],
+    ],
+    [
+      `/rides/${R8}`,
+      [
+        'Yetkazish',
+        'Depozit kutilmoqda',
+        'Depozit (5 000 so‘m) kartadan to‘lanishi kutilmoqda',
+        'Posilka',
+        'Qabul qiluvchi: Olim',
+        'Hujjatlar papkasi · ~1 kg',
+      ],
+    ],
+    [
+      `/drivers/${D2}`,
+      [
+        'Bobur Toshev',
+        'Yuk mashinasi · Yuk S (≤ 800 kg)',
+        'Furgon',
+        '700 kg yuk',
+        'Faqat o‘z sinfidagi yuk buyurtmalarini oladi',
+      ],
+    ],
+    [
+      `/intercity/${T2}`,
+      [
+        'Depozit kutilmoqda',
+        'depozit 28 000 so‘m · naqd 112 000 so‘m',
+        '112 000 so‘m naqd',
+        '+ 28 000 so‘m depozit (karta)',
+        '1 ta bron (joylar ushlab turiladi)',
+        'Yo‘l ustida',
+        'Yangiyer → Toshkent',
+        'tizim (depozit vaqtida to‘lanmadi)',
+      ],
+    ],
+    ['/payments?tab=intents&x=1', ['Bron depoziti', '42 000 so‘m']],
+    ['/fiscal?tab=settings&x=1', ['Yuk tashish nomi', 'Yetkazish (posilka) nomi']],
     ['/account', ['Hisob', 'Ismingiz']],
     ['/nowhere', ['Jonli xarita']],
   ];
@@ -2728,6 +2968,94 @@ describe('panel smoke', () => {
     await click(marker);
     await settle(4);
     expect(document.body.textContent).toContain('Mashinada 2 ta buyurtma, 3 kishi');
+    // the cargo van: a square "Y" marker; the "Yuk" filter keeps cargo cars only
+    const cargo = document.querySelector<HTMLElement>('.map-marker.is-cargo')!;
+    expect(cargo.textContent).toBe('Y');
+    await click(button('Yuk'));
+    await settle(4);
+    expect(document.querySelectorAll('.map-marker-driver-busy')).toHaveLength(0);
+    expect(document.querySelectorAll('.map-marker.is-cargo')).toHaveLength(1);
+    // no cargo ride is open: the list is empty
+    expect(document.body.textContent).toContain('Ochiq buyurtmalar (0)');
+  });
+
+  it('saves cargo prices with a live calculator', async () => {
+    calls.length = 0;
+    await render('/settings');
+    const form = [...document.querySelectorAll<HTMLElement>('.settings-form')].find((f) =>
+      f.textContent?.includes('Yuk tashish va yetkazish'),
+    )!;
+    const input = (text: string) => {
+      const label = [...form.querySelectorAll('label')].find((l) => l.textContent === text)!;
+      return document.getElementById(label.htmlFor) as HTMLInputElement;
+    };
+    await typeInto(input('Kichik yuk (Damas/Labo): Asosiy narx'), '40000');
+    expect(form.textContent).toContain('77 500 so‘m');
+    await typeInto(input('O‘rta yuk (Gazel/Porter): Eng og‘ir yuk'), '500');
+    expect(form.textContent).toContain('O‘rta sinf kichigidan kam ko‘tarmaydi');
+    await typeInto(input('O‘rta yuk (Gazel/Porter): Eng og‘ir yuk'), '1600');
+    await click([...form.querySelectorAll('button')].find((b) => b.textContent === 'Saqlash')!);
+    await settle(4);
+    await click(button('Saqlash'));
+    await settle();
+    expect(posted('/v1/admin/settings/cargo', 'PUT').at(-1)!.body).toEqual({
+      ...cargoRules,
+      classes: {
+        cargo_s: { ...cargoRules.classes.cargo_s, base: 40_000 },
+        cargo_m: { ...cargoRules.classes.cargo_m, max_payload_kg: 1600 },
+      },
+    });
+  });
+
+  it('filters rides by service on the server', async () => {
+    calls.length = 0;
+    await render('/rides');
+    const select = document.querySelector<HTMLSelectElement>('#ride-service')!;
+    await act(async () => {
+      select.value = 'cargo';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await settle();
+    expect(calls.some((c) => c.path.includes('service=cargo'))).toBe(true);
+  });
+
+  it('corrects a cargo car’s payload and class', async () => {
+    calls.length = 0;
+    await render(`/drivers/${D2}`);
+    const payload = [...document.querySelectorAll('label')].find(
+      (l) => l.textContent === 'Yuk ko‘tarish (texnik ko‘rikda)',
+    )!;
+    await typeInto(document.getElementById(payload.htmlFor) as HTMLInputElement, '1200');
+    expect(document.body.textContent).toContain('Bu yukga mos sinf: Yuk M (≤ 1,5 t)');
+    await click(button('Yuk M (≤ 1,5 t)'));
+    await click(button('Saqlash'));
+    await settle();
+    expect(posted(`/v1/admin/drivers/${D2}/vehicle`, 'PATCH').at(-1)!.body).toMatchObject({
+      payloadKg: 1200,
+      cargoClass: 'cargo_m',
+    });
+  });
+
+  it('books a seat along the way for the caller’s own towns', async () => {
+    calls.length = 0;
+    const text = await render('/intercity?tab=book');
+    expect(text).toContain('Yo‘l ustida');
+    expect(text).toContain('Sirdaryo → Toshkent qatnovi · yo‘lning 80%');
+    expect(text).toContain('butun yo‘l 70 000 so‘m');
+    await click(button('Bron qilish'));
+    await settle(4);
+    expect(document.body.textContent).toContain('Bron: Guliston → Toshkent');
+    await typeInto(
+      document.querySelector<HTMLInputElement>('dialog input[type="tel"]')!,
+      '93 555 00 22',
+    );
+    await click(button('Bron qilish ·'));
+    await settle();
+    expect(posted(`/v1/admin/intercity/trips/${T3}/bookings`).at(-1)!.body).toMatchObject({
+      seats: 1,
+      from: 'guliston',
+      to: 'toshkent',
+    });
   });
 
   it('called only mocked endpoints', () => {
