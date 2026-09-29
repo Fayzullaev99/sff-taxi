@@ -38,7 +38,13 @@ import { areaNotice } from '../location/service-area';
 import { type Located, LocationNotice, useLocator } from '../location/useLocator';
 import { getDraft, orderPath, updateDraft, useDraft } from '../trip/draft';
 import { usePlaces } from '../trip/places-store';
-import { markRideShown, wasRideShown } from '../trip/shown-rides';
+import {
+  markRideShown,
+  rideNoticeText,
+  showRideNotice,
+  takeoverFor,
+  wasRideShown,
+} from '../trip/shown-rides';
 import { Banner, Button, Chip, Icon, IconButton, T } from '../ui/primitives';
 import { colors, radius, shadow, space } from '../ui/theme';
 
@@ -89,15 +95,22 @@ export default function HomeScreen() {
   const resolve = useResolve(pickupPoint, serviceable === false);
 
   // an open ride nobody looked at yet (app start, ordered by phone through the operator)
-  // takes over once; after that the pill at the top leads back to it
+  // takes over once, from the map; on another screen (an order, a cargo order, paying) a
+  // ride for later whose search starts only shows a notice. The pill at the top leads to it.
   const openRide = current.data && isOpenStatus(current.data.status) ? current.data : null;
   const openRideId = openRide?.id;
+  const openRideLater = openRide?.scheduledFor ?? null;
   useEffect(() => {
-    if (openRideId && !wasRideShown(openRideId)) {
-      markRideShown(openRideId);
+    if (!openRideId) return;
+    const action = takeoverFor(openRideId, wasRideShown(openRideId), focused);
+    if (!action) return;
+    markRideShown(openRideId);
+    if (action === 'open') {
       router.push({ pathname: '/ride/[id]', params: { id: openRideId } });
+    } else {
+      showRideNotice({ rideId: openRideId, text: rideNoticeText({ scheduledFor: openRideLater }) });
     }
-  }, [openRideId]);
+  }, [openRideId, openRideLater, focused]);
 
   const onSettled = useCallback(async (lat: number, lng: number) => {
     setMoving(false);

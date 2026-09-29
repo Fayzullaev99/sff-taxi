@@ -19,6 +19,7 @@ import { PushManager } from '../notifications/PushManager';
 import { resetDraft } from '../trip/draft';
 import { clearLegacyPlaces, migrateLegacyPlaces } from '../trip/places-store';
 import { OfflineBanner } from '../ui/OfflineBanner';
+import { RideNoticeBanner } from '../ui/RideNoticeBanner';
 import { colors } from '../ui/theme';
 import { UpdateRequired } from '../ui/UpdateRequired';
 
@@ -65,6 +66,7 @@ export default function RootLayout() {
               <PushManager />
             </AfterStart>
             <UpdateRequired />
+            <RideNoticeBanner />
           </Gate>
           <OfflineBanner />
         </RealtimeProvider>
