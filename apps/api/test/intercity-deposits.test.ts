@@ -60,7 +60,7 @@ describe('trip board: seating rule, deposits, seats along the way', () => {
       .post('/v1/driver/intercity/trips')
       .send({ from: 'guliston', to: 'toshkent', departureAt: inMinutes(180), seats: 3, ...over })
       .expect(201);
-    return res.body as { id: string; departureAt: string };
+    return res.body as { id: string; departureAt: string; distanceM: number };
   }
 
   function book(rider: Session, tripId: string, body: Record<string, unknown> = {}) {
@@ -446,6 +446,32 @@ describe('trip board: seating rule, deposits, seats along the way', () => {
   });
 
   describe('seats along the way', () => {
+    function expectStops(
+      view: {
+        boardingPoint: { name: string; meetingPoint: string; estimatedAt: string };
+        alightingPoint: { name: string; meetingPoint: string };
+        partDistanceM: number;
+      },
+      trip: { departureAt: string; distanceM: number },
+    ) {
+      expect(view.boardingPoint).toMatchObject({
+        name: 'Sirdaryo',
+        meetingPoint: 'Sirdaryo markazi, bozor yonida',
+      });
+      expect(view.alightingPoint).toEqual({
+        name: 'Toshkent',
+        meetingPoint: 'Olmazor, Sirdaryo yo‘nalishi avtoturargohi',
+      });
+      const at = new Date(view.boardingPoint.estimatedAt).getTime();
+      const departure = new Date(trip.departureAt).getTime();
+      // Sirdaryo is about a third of the way: well after departure, well before arrival
+      expect(at - departure).toBeGreaterThan(20 * 60_000);
+      expect(at - departure).toBeLessThan(90 * 60_000);
+      expect(at % (5 * 60_000)).toBe(0);
+      // their part, not the whole trip
+      expect(view.partDistanceM).toBeGreaterThan(trip.distanceM * 0.5);
+      expect(view.partDistanceM).toBeLessThan(trip.distanceM * 0.8);
+    }
     it('finds trips passing the rider’s towns and prices the rider’s part', async () => {
       const d = await createDriver(app, { online: false });
       const trip = await publish(d, { departureAt: inMinutes(240) });
@@ -468,6 +494,8 @@ describe('trip board: seating rule, deposits, seats along the way', () => {
         fullPrice: { rear: 70_000, front: 80_000 },
       });
       expect(along.share).toBeCloseTo(0.73, 2);
+      // the rider gets in at their own town's meeting point, about when the car passes it
+      expectStops(along, trip);
       // only the exact route when asked so; never the other way round
       const exact = await http
         .get(`/v1/intercity/trips?from=sirdaryo&to=toshkent&date=${day}&along=false`)
@@ -508,6 +536,9 @@ describe('trip board: seating rule, deposits, seats along the way', () => {
         dropoff: { nameUz: 'Toshkent' },
         payCash: 40_000,
       });
+      expectStops(driverView.body.bookings[0], trip);
+      const mine = await http.get(`/v1/intercity/bookings/${booked.body.id}`).expect(200);
+      expectStops(mine.body, trip);
 
       // towns the trip does not pass
       const off = await book(await signIn(app), trip.id, { from: 'shirin', to: 'toshkent' });

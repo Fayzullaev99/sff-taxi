@@ -24,6 +24,7 @@ import { tashkentDayStart } from '../../lib/commission.js';
 import { depositAmount } from '../../lib/deposit.js';
 import { formatPlate, tashkentDate } from '../../lib/driver-rules.js';
 import {
+  alongStops,
   alongTheWayShare,
   bookingPrice,
   driverSeatPrices,
@@ -34,6 +35,7 @@ import {
   type SeatPrices,
   seatingError,
 } from '../../lib/intercity.js';
+import { estimatedDurationS } from '../../lib/geo.js';
 import { priority } from '../../lib/priority.js';
 import type { RideClass } from '../../lib/tariff.js';
 import { RideChargesService } from '../billing/charges.service.js';
@@ -498,6 +500,7 @@ export class IntercityService {
         alongTheWay: true,
         pickup: pointView(from),
         dropoff: pointView(to),
+        ...this.stops(t, byId, from.id, to.id),
         // the rider's part of the trip, and what their seats cost; fullPrice: the whole trip
         share: Math.round(share * 100) / 100,
         price: partSeatPrices(view.price, share),
@@ -958,7 +961,45 @@ export class IntercityService {
     };
   }
 
-  private bookingBase(b: Booking, points: Map<string, Point>) {
+  /**
+   * Where a rider gets in and out of a trip: their towns' meeting points for a seat along the
+   * way ("Sirdaryo markazi, bozor yonida"), with about when the car passes (departure + the
+   * share of the driving time, to 5 min), else the trip's own meeting point at departure.
+   * `partDistanceM`: the rider's part of the trip's road metres.
+   */
+  private stops(
+    trip: Trip,
+    points: Map<string, Point>,
+    fromId: string | null,
+    toId: string | null,
+  ) {
+    const start = points.get(trip.from_point_id)!;
+    const end = points.get(trip.to_point_id)!;
+    const from = (fromId && points.get(fromId)) || start;
+    const to = (toId && points.get(toId)) || end;
+    const part = alongStops(
+      {
+        start,
+        end,
+        departureAt: trip.departure_at,
+        distanceM: trip.distance_m,
+        durationS: estimatedDurationS(trip.distance_m),
+      },
+      from,
+      to,
+    );
+    return {
+      boardingPoint: {
+        name: from.name_uz,
+        meetingPoint: from.id === start.id ? trip.meeting_point : from.meeting_point,
+        estimatedAt: from.id === start.id ? trip.departure_at : part.boardingAt,
+      },
+      alightingPoint: { name: to.name_uz, meetingPoint: to.meeting_point },
+      partDistanceM: part.partDistanceM,
+    };
+  }
+
+  private bookingBase(b: Booking, points: Map<string, Point>, trip: Trip) {
     const town = (id: string | null) => {
       const p = id ? points.get(id) : undefined;
       return p ? { id: p.id, slug: p.slug, nameUz: p.name_uz, nameRu: p.name_ru } : null;
@@ -980,6 +1021,8 @@ export class IntercityService {
       alongTheWay: b.pickup_point_id !== null,
       pickup: town(b.pickup_point_id),
       dropoff: town(b.dropoff_point_id),
+      // where and about when the rider gets in and out, and how far they ride
+      ...this.stops(trip, points, b.pickup_point_id, b.dropoff_point_id),
       pickupNote: b.pickup_note,
       cancelledBy: b.cancelled_by,
       cancelReason: b.cancel_reason,
@@ -1021,7 +1064,7 @@ export class IntercityService {
             : 0
           : lateCancelFee(b.price, trip.departure_at, rules, now);
     return {
-      ...this.bookingBase(b, points),
+      ...this.bookingBase(b, points, trip),
       // the deposit's card payment: checkout links while it waits, refund status later
       payment,
       // the cancellation rules this booking is under: free until then, later a share is owed
@@ -1249,12 +1292,13 @@ export class IntercityService {
 
   async adminBooking(bookingId: string) {
     const b = await this.findBooking(bookingId);
-    const [points, payment] = await Promise.all([
+    const [points, payment, trip] = await Promise.all([
       this.allPoints(),
       b.deposit_amount > 0 ? this.intents.forBooking(b.id) : null,
+      this.findTrip(b.trip_id),
     ]);
     return {
-      ...this.bookingBase(b, points),
+      ...this.bookingBase(b, points, trip),
       payment,
       riderId: b.rider_id,
       riderPhone: b.rider_phone,
@@ -1295,7 +1339,7 @@ export class IntercityService {
       arrivedAt: trip.arrived_at,
       cancelledAt: trip.cancelled_at,
       bookings: bookings.map((b) => ({
-        ...this.bookingBase(b, points),
+        ...this.bookingBase(b, points, trip),
         riderId: b.rider_id,
         riderName: b.rider_name,
         riderPhone: b.rider_phone,

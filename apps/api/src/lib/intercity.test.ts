@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  alongStops,
   alongTheWayShare,
   bookingPrice,
   driverSeatPrices,
+  fractionAlong,
   partSeatPrice,
   partSeatPrices,
   priceBand,
@@ -99,5 +101,28 @@ describe('seats along the way', () => {
       rear: 70_000,
       front: 80_000,
     });
+  });
+
+  it('says where and about when an along-the-way rider gets in, and their part', () => {
+    expect(fractionAlong(guliston, toshkent, guliston)).toBe(0);
+    expect(fractionAlong(guliston, toshkent, toshkent)).toBe(1);
+    expect(fractionAlong(guliston, toshkent, sirdaryo)).toBeCloseTo(0.35, 2);
+    const trip = {
+      start: guliston,
+      end: toshkent,
+      departureAt: new Date('2026-10-01T03:00:00Z'), // 08:00 in Tashkent
+      distanceM: 132_000,
+      durationS: 8_340, // ~2 h 19 min
+    };
+    // Sirdaryo -> Toshkent: the car passes Sirdaryo ~49 min after leaving, rounded to 08:50
+    const s = alongStops(trip, sirdaryo, toshkent);
+    expect(s.boardingAt.toISOString()).toBe('2026-10-01T03:50:00.000Z');
+    expect(s.partDistanceM).toBe(85_700);
+    // the trip's own ends: departure and the whole way
+    const whole = alongStops(trip, guliston, toshkent);
+    expect(whole.boardingAt).toEqual(trip.departureAt);
+    expect(whole.partDistanceM).toBe(132_000);
+    // Guliston -> Sirdaryo: from the start, about a third of the way
+    expect(alongStops(trip, guliston, sirdaryo).partDistanceM).toBe(46_300);
   });
 });

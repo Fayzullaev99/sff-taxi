@@ -146,3 +146,39 @@ export function partSeatPrices(prices: SeatPrices, share: number): SeatPrices {
   if (share >= 1) return prices;
   return { rear: partSeatPrice(prices.rear, share), front: partSeatPrice(prices.front, share) };
 }
+
+// Where a rider along the way gets in and out ------------------------------------------------
+
+/**
+ * How far along the trip `start` -> `end` a town lies, 0..1: its distance from the start over
+ * the way through it (straight lines; the towns a trip passes lie on its road).
+ */
+export function fractionAlong(start: LatLng, end: LatLng, p: LatLng): number {
+  const d = (a: LatLng, b: LatLng) => distanceM(a.lat, a.lng, b.lat, b.lng);
+  const before = d(start, p);
+  const after = d(p, end);
+  if (before + after <= 0) return 0;
+  return Math.min(1, Math.max(0, before / (before + after)));
+}
+
+const FIVE_MINUTES_MS = 5 * 60_000;
+
+/**
+ * A rider's part of a trip: when the car passes their town (departure + that share of the
+ * trip's driving time, rounded to 5 minutes; an estimate, "taxminan") and how far they ride
+ * (their share of the trip's road metres, rounded to 100 m). The trip's own ends: departure
+ * and the whole distance.
+ */
+export function alongStops(
+  trip: { start: LatLng; end: LatLng; departureAt: Date; distanceM: number; durationS: number },
+  pickup: LatLng,
+  dropoff: LatLng,
+): { boardingAt: Date; partDistanceM: number } {
+  const from = fractionAlong(trip.start, trip.end, pickup);
+  const to = fractionAlong(trip.start, trip.end, dropoff);
+  const at = trip.departureAt.getTime() + from * trip.durationS * 1000;
+  return {
+    boardingAt: new Date(Math.round(at / FIVE_MINUTES_MS) * FIVE_MINUTES_MS),
+    partDistanceM: Math.round((Math.max(0, to - from) * trip.distanceM) / 100) * 100,
+  };
+}
