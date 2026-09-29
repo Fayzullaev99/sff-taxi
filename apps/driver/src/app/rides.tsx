@@ -6,6 +6,7 @@ import type { DriverRide } from '../api/types';
 import { useRides } from '../data/queries';
 import { errorMessage } from '../lib/api-client';
 import { CANCEL_FEE_STATUS, dateTime, RIDE_STATUSES, som } from '../lib/format';
+import { SERVICE_LABELS, serviceOf } from '../lib/service';
 import { Button, EmptyState, ErrorState, Loading } from '../ui/components';
 import { OfflineBanner } from '../ui/screen';
 import { colors, space } from '../ui/theme';
@@ -21,6 +22,7 @@ const RideRow = memo(function RideRow({ item }: { item: DriverRide }) {
         <Text style={styles.meta}>
           {dateTime(item.completedAt ?? item.cancelledAt ?? item.requestedAt)} ·{' '}
           {RIDE_STATUSES[item.status] ?? item.status}
+          {serviceOf(item) !== 'taxi' ? ' · ' + SERVICE_LABELS[serviceOf(item)] : ''}
           {!done && item.cancelReason ? ` · ${item.cancelReason}` : ''}
         </Text>
         {!done && item.fare.cancellationFee > 0 && item.fare.cancellationFeeStatus ? (

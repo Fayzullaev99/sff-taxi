@@ -15,6 +15,10 @@ import {
   formFromProfile,
   LICENCE_CATEGORIES,
   POPULAR_CARS,
+  CARGO_BODIES,
+  CARGO_BODY_LABELS,
+  CARGO_CARS,
+  cargoClassText,
   STEP_FIELDS,
   tashkentToday,
   toApplicationBody,
@@ -41,6 +45,10 @@ function fieldOfPath(path: string): keyof ApplicationForm | null {
     'vehicle.seats': 'seats',
     'vehicle.class': 'vehicleClass',
     'vehicle.features': 'features',
+    'vehicle.service': 'service',
+    'vehicle.body': 'body',
+    'vehicle.payloadKg': 'payloadKg',
+    'vehicle.grossKg': 'grossKg',
   };
   if (map[path]) return map[path]!;
   return path in EMPTY_FORM ? (path as keyof ApplicationForm) : null;
@@ -78,6 +86,7 @@ export default function Apply() {
     setForm((f) => ({ ...f, [key]: value }));
     setShown((e) => ({ ...e, [key]: undefined }));
   };
+  const cargo = form.service === 'cargo';
 
   const submit = useMutation({
     mutationFn: () => driver.apply(toApplicationBody(form)),
@@ -256,16 +265,47 @@ export default function Apply() {
 
       {step === 2 ? (
         <>
-          <SectionTitle>Tez tanlash</SectionTitle>
+          <SectionTitle>Nima tashiysiz?</SectionTitle>
           <Choice
-            options={POPULAR_CARS.map((c) => ({ value: `${c.make}|${c.model}`, label: c.model }))}
-            selected={[`${form.make}|${form.model}`]}
-            onToggle={(v) => {
-              const [make, model] = v.split('|');
-              set('make', make!);
-              set('model', model!);
-            }}
+            options={[
+              { value: 'taxi' as const, label: 'Yo‘lovchi (taksi)' },
+              { value: 'cargo' as const, label: 'Yuk tashish' },
+            ]}
+            selected={[form.service]}
+            onToggle={(v) => set('service', v)}
           />
+          {cargo ? (
+            <Banner
+              tone="info"
+              icon="cube"
+              text="Yuk mashinasiga (Damas, Labo, Gazel, Porter…) faqat yuk buyurtmalari keladi: yo‘lovchi va posilka kelmaydi. To‘liq massasi 3,5 tonnadan og‘ir mashina uchun C toifali guvohnoma kerak."
+            />
+          ) : null}
+          <SectionTitle>Tez tanlash</SectionTitle>
+          {cargo ? (
+            <Choice
+              options={CARGO_CARS.map((c) => ({ value: c.model, label: c.model }))}
+              selected={[form.model]}
+              onToggle={(v) => {
+                const c = CARGO_CARS.find((x) => x.model === v)!;
+                set('make', c.make);
+                set('model', c.model);
+                set('body', c.body);
+                set('payloadKg', String(c.payloadKg));
+                set('grossKg', String(c.grossKg));
+              }}
+            />
+          ) : (
+            <Choice
+              options={POPULAR_CARS.map((c) => ({ value: `${c.make}|${c.model}`, label: c.model }))}
+              selected={[`${form.make}|${form.model}`]}
+              onToggle={(v) => {
+                const [make, model] = v.split('|');
+                set('make', make!);
+                set('model', model!);
+              }}
+            />
+          )}
           <Field
             label="Marka"
             value={form.make}
@@ -312,7 +352,7 @@ export default function Apply() {
             </View>
             <View style={{ flex: 1 }}>
               <Field
-                label="Yo‘lovchi o‘rni"
+                label={cargo ? 'Kabinada o‘rin' : 'Yo‘lovchi o‘rni'}
                 value={form.seats}
                 onChangeText={(v) => set('seats', v.replace(/\D/g, ''))}
                 keyboardType="number-pad"
@@ -321,33 +361,78 @@ export default function Apply() {
               />
             </View>
           </View>
-          <View style={{ gap: space.xs }}>
-            <Text style={styles.label}>Sinf</Text>
-            <Choice
-              options={[
-                { value: 'economy' as const, label: 'Ekonom' },
-                { value: 'comfort' as const, label: 'Komfort (≤5 yil, konditsioner)' },
-              ]}
-              selected={[form.vehicleClass]}
-              onToggle={(v) => set('vehicleClass', v)}
-            />
-            {shown.vehicleClass ? <Text style={styles.error}>{shown.vehicleClass}</Text> : null}
-          </View>
-          <ToggleRow
-            label="Metan (gaz) ballon yukxonada"
-            description="Ko‘p Cobalt va Nexialarda shunday: yukxona katta bo‘lsa ham katta yukli buyurtmalar sizga berilmaydi"
-            value={form.cng}
-            onChange={(v) => set('cng', v)}
-          />
-          <View style={{ gap: space.xs }}>
-            <Text style={styles.label}>Qulayliklar</Text>
-            <Choice
-              options={VEHICLE_FEATURES.map((f) => ({ value: f, label: FEATURE_LABELS[f] }))}
-              selected={form.features}
-              onToggle={toggleFeature}
-            />
-            {shown.features ? <Text style={styles.error}>{shown.features}</Text> : null}
-          </View>
+          {cargo ? (
+            <>
+              <View style={{ gap: space.xs }}>
+                <Text style={styles.label}>Kuzov turi</Text>
+                <Choice
+                  options={CARGO_BODIES.map((b) => ({ value: b, label: CARGO_BODY_LABELS[b] }))}
+                  selected={form.body ? [form.body] : []}
+                  onToggle={(v) => set('body', v)}
+                />
+                {shown.body ? <Text style={styles.error}>{shown.body}</Text> : null}
+              </View>
+              <View style={styles.pair}>
+                <View style={{ flex: 1 }}>
+                  <Field
+                    label="Yuk ko‘tarish, kg"
+                    value={form.payloadKg}
+                    onChangeText={(v) => set('payloadKg', v.replace(/\D/g, ''))}
+                    keyboardType="number-pad"
+                    placeholder="550"
+                    maxLength={5}
+                    error={shown.payloadKg}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Field
+                    label="To‘liq massa, kg"
+                    value={form.grossKg}
+                    onChangeText={(v) => set('grossKg', v.replace(/\D/g, ''))}
+                    keyboardType="number-pad"
+                    placeholder="1400"
+                    maxLength={5}
+                    hint="Texpasportda; 3 500 kg dan oshsa C toifa kerak"
+                    error={shown.grossKg}
+                  />
+                </View>
+              </View>
+              {/^\d+$/.test(form.payloadKg) && Number(form.payloadKg) > 0 ? (
+                <Muted>Sizga keladi: {cargoClassText(Number(form.payloadKg))}</Muted>
+              ) : null}
+            </>
+          ) : null}
+          {cargo ? null : (
+            <>
+              <View style={{ gap: space.xs }}>
+                <Text style={styles.label}>Sinf</Text>
+                <Choice
+                  options={[
+                    { value: 'economy' as const, label: 'Ekonom' },
+                    { value: 'comfort' as const, label: 'Komfort (≤5 yil, konditsioner)' },
+                  ]}
+                  selected={[form.vehicleClass]}
+                  onToggle={(v) => set('vehicleClass', v)}
+                />
+                {shown.vehicleClass ? <Text style={styles.error}>{shown.vehicleClass}</Text> : null}
+              </View>
+              <ToggleRow
+                label="Metan (gaz) ballon yukxonada"
+                description="Ko‘p Cobalt va Nexialarda shunday: yukxona katta bo‘lsa ham katta yukli buyurtmalar sizga berilmaydi"
+                value={form.cng}
+                onChange={(v) => set('cng', v)}
+              />
+              <View style={{ gap: space.xs }}>
+                <Text style={styles.label}>Qulayliklar</Text>
+                <Choice
+                  options={VEHICLE_FEATURES.map((f) => ({ value: f, label: FEATURE_LABELS[f] }))}
+                  selected={form.features}
+                  onToggle={toggleFeature}
+                />
+                {shown.features ? <Text style={styles.error}>{shown.features}</Text> : null}
+              </View>
+            </>
+          )}
           <Muted>
             Keyingi qadamda hujjatlar rasmlarini yuklaysiz: litsenziya kartochkasi, guvohnoma,
             pasport, texpasport, sug‘urta, avtomobil rasmi va selfi.

@@ -160,6 +160,16 @@ pool.seats` (one in front, never more than two in the back). With sharing on, of
 - **Trip board seating**: at most 3 seats, never more than 2 in the back (without the front
   seat: 2), whatever the car has or an API says; bookings show the cash to take (`payCash`),
   the deposit paid in advance and a seat along the way ("Boyovut → Yangiyer").
+- **Cargo and delivery** (docs/shared-rides.md §8, `lib/service.ts`): the wizard asks "Nima
+  tashiysiz?" — a cargo car (Damas, Labo, Gazel, Porter… quick picks with typical figures)
+  gives its body (furgon, pikap, yuk kuzovi), payload and total mass; it gets cargo orders
+  only, is checked with the cargo rules (≤25 years, C licence above 3.5 t; API rule errors
+  land on their fields) and shows which loads it gets by payload. Offers and the ride screen
+  show the cargo class, loaders, weight, the load and "Mijoz ham boradi"; a delivery shows
+  the parcel, and the recipient with a call button once it is picked up, with delivery words
+  ("Posilkani oldim — Boshlash", "Posilkani topshirdim"). The cash card, the confirm and the
+  done screen say "Oldindan to‘langan X, naqd oling Y" when part was paid in advance; ride
+  history and the done screen name the service.
 - **Decline asks for an optional reason** (the API's `declineReasons`) after the tap, accept is
   a single 84 px button (on the right on a landscape tablet).
 - **Low-end Android**: no maps SDK, no SVG/animation libraries (the ring is 36 plain

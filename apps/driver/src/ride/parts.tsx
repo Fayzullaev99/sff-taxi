@@ -17,6 +17,7 @@ import {
   cashPartsText,
   owedFeeNote,
 } from '../lib/ride-flow';
+import { customerWord, depositLine, serviceOf } from '../lib/service';
 import type { Stop } from '../lib/stops';
 import { waitingState, type WaitingRules } from '../lib/waiting';
 import { markRideEndedHere } from '../realtime/use-realtime';
@@ -99,11 +100,13 @@ export const CashCard = memo(function CashCard(props: {
   const cash = cashBreakdown(ride, liveWaiting);
   const owedNote = owedFeeNote(cash.owedFee);
   const parts = cashPartsText(cash);
+  // part paid by card in advance (a ride booked for later): the rest is cash
+  const deposit = depositLine(ride.fare.deposit, cash.total);
   return (
     <Card>
       <Text style={styles.label}>
         {ride.paymentMethod === 'cash'
-          ? 'Yo‘lovchidan olinadi (naqd)'
+          ? `${customerWord(serviceOf(ride))}dan olinadi (naqd)`
           : cash.total > 0
             ? 'Kutish uchun naqd olinadi'
             : 'Naqd olmang — safar kartada to‘langan'}
@@ -119,6 +122,12 @@ export const CashCard = memo(function CashCard(props: {
       {ride.paymentMethod === 'card' ? (
         <Muted>
           Safar narxi {som(ride.fare.quoted)} kartada oldindan to‘langan — balansingizga yoziladi
+        </Muted>
+      ) : deposit ? (
+        <Banner tone="info" icon="card" text={deposit} />
+      ) : ride.fare.poolDiscount ? (
+        <Muted>
+          Narx {som(ride.fare.quoted)}, hamroh chegirmasi −{som(ride.fare.poolDiscount)}
         </Muted>
       ) : parts ? (
         <Muted>{parts}</Muted>

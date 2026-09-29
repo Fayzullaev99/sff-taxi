@@ -85,6 +85,8 @@ export const PAYMENT_METHODS: Record<string, string> = {
 export const RIDE_CLASSES: Record<string, string> = {
   economy: 'Ekonom',
   comfort: 'Komfort',
+  cargo_s: 'Kichik yuk',
+  cargo_m: 'O‘rta yuk',
 };
 
 export const RIDE_OPTIONS: Record<string, string> = {

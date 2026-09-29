@@ -29,6 +29,7 @@ import {
 } from '../../lib/format';
 import { alongLine, alongStopLines, offerBadges, ridePool } from '../../lib/pool';
 import { acceptOffer } from '../../lib/ride-actions';
+import { cargoLines, parcelLines, SERVICE_LABELS, serviceOf } from '../../lib/service';
 import {
   OFFER_FAILURE_TEXT,
   type OfferFailure,
@@ -431,8 +432,30 @@ const OfferDetails = memo(function OfferDetails(props: { offer: Offer; minute: n
   const r = offer.ride;
   const scheduled = scheduledLabel(r.scheduledFor, props.minute * 60_000);
   const pickupText = r.pickup.address ?? r.pickup.landmark ?? 'Xaritadagi nuqta';
+  const service = serviceOf(r);
+  // cargo: class, loaders, weight, the load, the customer riding along; delivery: the parcel
+  // (the recipient is shown only after accepting)
+  const serviceLines =
+    service === 'cargo'
+      ? cargoLines(r.cargo, r.class)
+      : service === 'delivery'
+        ? parcelLines(r.parcel)
+        : [];
   return (
     <>
+      {serviceLines.length ? (
+        <View style={styles.service}>
+          <View style={styles.alongHead}>
+            <Ionicons name={service === 'cargo' ? 'cube' : 'mail'} size={22} color={colors.info} />
+            <Text style={styles.serviceTitle}>{SERVICE_LABELS[service]}</Text>
+          </View>
+          {serviceLines.map((l) => (
+            <Text key={l} style={styles.alongStop}>
+              {l}
+            </Text>
+          ))}
+        </View>
+      ) : null}
       {scheduled ? (
         <View style={styles.scheduled}>
           <Ionicons name="calendar" size={22} color={colors.info} />
@@ -559,6 +582,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   alongHead: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  service: {
+    gap: space.xs,
+    backgroundColor: colors.infoSoft,
+    padding: space.md,
+    borderRadius: radius.md,
+  },
+  serviceTitle: { flex: 1, color: colors.info, fontSize: 18, fontWeight: '900' },
   alongTitle: { flex: 1, color: colors.brand, fontSize: 18, fontWeight: '900' },
   alongStop: { color: colors.text, fontSize: 16, fontWeight: '700' },
   closed: {

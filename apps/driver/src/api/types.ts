@@ -31,6 +31,12 @@ export interface Vehicle {
   luggage?: boolean;
   /** The car photo riders see (15-minute read URL), null until uploaded. */
   photoUrl?: string | null;
+  /** taxi: passenger rides and deliveries; cargo: cargo rides of its class only. */
+  service?: 'taxi' | 'cargo';
+  body?: string | null;
+  payloadKg?: number | null;
+  grossKg?: number | null;
+  cargoClass?: 'cargo_s' | 'cargo_m' | null;
 }
 
 export interface DriverDocument {
@@ -199,7 +205,7 @@ export interface Offer {
   ride: {
     id: string;
     number: number;
-    class: 'economy' | 'comfort';
+    class: 'economy' | 'comfort' | 'cargo_s' | 'cargo_m';
     kind: 'city' | 'intercity';
     pickup: Place;
     dropoff: Place;
@@ -221,7 +227,25 @@ export interface Offer {
     womenOnly?: boolean;
     /** 'seat': a fixed per-seat route price (a shared car); 'car': the whole car. */
     fareMode?: 'car' | 'seat';
+    service?: 'taxi' | 'cargo' | 'delivery';
+    cargo?: CargoDetails | null;
+    /** A delivery's parcel (the recipient is shown only after accepting). */
+    parcel?: ParcelDetails | null;
   };
+}
+
+export interface CargoDetails {
+  /** Loaders ("yukchi") who load and unload, 0–2. */
+  loaders: number;
+  /** The customer rides in the cab (one person). */
+  riderRides: boolean;
+  description: string | null;
+  weightKg: number | null;
+}
+
+export interface ParcelDetails {
+  description: string | null;
+  weightKg: number | null;
 }
 
 export type RideStatus =
@@ -248,7 +272,7 @@ export interface DriverRide {
   status: RideStatus;
   channel: string;
   kind: 'city' | 'intercity';
-  class: 'economy' | 'comfort';
+  class: 'economy' | 'comfort' | 'cargo_s' | 'cargo_m';
   cityId: string | null;
   pickup: Place;
   dropoff: Place;
@@ -279,6 +303,16 @@ export interface DriverRide {
   fareMode?: 'car' | 'seat';
   /** The trip starts only with the 4-digit code the rider tells the driver. */
   hasStartPin?: boolean;
+  /** taxi (default), cargo or delivery; `class` is cargo_s/cargo_m for cargo. */
+  service?: 'taxi' | 'cargo' | 'delivery';
+  /** Cargo rides: loaders, the customer riding along, the load (null otherwise). */
+  cargo?: CargoDetails | null;
+  /** Deliveries: the parcel and who receives it. */
+  delivery?: {
+    parcel: ParcelDetails | null;
+    recipientName: string | null;
+    recipientPhone: string | null;
+  } | null;
   /**
    * The current ride / a ride by id: the stops ahead when the car carries several riders
    * (null for one). Ride history items carry `{id, sharedM}` instead (see lib/pool).
