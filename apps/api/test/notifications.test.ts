@@ -24,6 +24,7 @@ import {
   signIn,
   signInAdmin,
   uniquePhone,
+  startPin,
 } from './helpers.js';
 
 interface PushSent {
@@ -139,7 +140,8 @@ describe('notifications', () => {
     );
 
     await driver.http.post(`/v1/driver/rides/${id}/arrive`).expect(200);
-    await driver.http.post(`/v1/driver/rides/${id}/start`).expect(200);
+    const pin = await startPin(app, id);
+    await driver.http.post(`/v1/driver/rides/${id}/start`).send({ pin }).expect(200);
     await driver.http.post(`/v1/driver/rides/${id}/complete`).expect(200);
     await drain();
     expect(pushed(riderToken).map((m) => m.title)).toEqual([

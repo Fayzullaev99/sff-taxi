@@ -18,6 +18,7 @@ import {
   RealtimePublisher,
 } from '../src/modules/realtime/realtime.publisher.js';
 import type { ObjectStorage } from '../src/modules/uploads/object-storage.js';
+import { DEFAULT_BOOKING } from '../src/modules/settings/settings.module.js';
 import { OBJECT_STORAGE } from '../src/modules/uploads/uploads.service.js';
 import { payWithPayme } from './payments-helpers.js';
 import {
@@ -32,6 +33,7 @@ import {
   signIn,
   signInAdmin,
   uniquePhone,
+  startPin,
 } from './helpers.js';
 
 const inMinutes = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
@@ -82,8 +84,14 @@ describe('app gaps, wave 3: operator panel and rider app', () => {
     sub = new Redis(process.env.REDIS_URL!);
     await sub.subscribe(REALTIME_CHANNEL);
     sub.on('message', (_c, raw: string) => heard.push(JSON.parse(raw) as RealtimeMessage));
+    // seats booked without a deposit here (test/intercity-deposits.test.ts has them)
+    await admin
+      .put('/v1/admin/settings/booking')
+      .send({ ...DEFAULT_BOOKING, deposit_percent: 0 })
+      .expect(200);
   });
   afterAll(async () => {
+    await admin.put('/v1/admin/settings/booking').send(DEFAULT_BOOKING).expect(200);
     await sub.quit();
     await app.close();
     for (const key of Object.keys(EXTRA_ENV)) delete process.env[key];
@@ -152,9 +160,9 @@ describe('app gaps, wave 3: operator panel and rider app', () => {
       const driver = await createDriver(app, { online: false });
       const trip = await driver.http
         .post('/v1/driver/intercity/trips')
-        .send({ from: 'guliston', to: 'toshkent', departureAt: inMinutes(300), seats: 4 })
+        .send({ from: 'guliston', to: 'toshkent', departureAt: inMinutes(300), seats: 3 })
         .expect(201);
-      const body = { riderPhone: uniquePhone(), seats: 2, clientRequestId: randomUUID() };
+      const body = { riderPhone: uniquePhone(), seats: 1, clientRequestId: randomUUID() };
       const first = await admin
         .post(`/v1/admin/intercity/trips/${trip.body.id}/bookings`)
         .send(body)
@@ -187,7 +195,7 @@ describe('app gaps, wave 3: operator panel and rider app', () => {
         .select('seats_booked')
         .where('id', '=', trip.body.id)
         .executeTakeFirstOrThrow();
-      expect(seats.seats_booked).toBe(4);
+      expect(seats.seats_booked).toBe(3);
     });
 
     it('lists card payments (ride prepayments and top-ups) with filters and totals', async () => {
@@ -569,7 +577,8 @@ describe('app gaps, wave 3: operator panel and rider app', () => {
       await driver.http.post(`/v1/driver/rides/${id}/arrive`).expect(200);
       const before = await api(app, rider.accessToken).get(`/v1/rides/${id}`).expect(200);
       expect(before.body.destinationEta).toBeNull();
-      await driver.http.post(`/v1/driver/rides/${id}/start`).expect(200);
+      const pin = await startPin(app, id);
+      await driver.http.post(`/v1/driver/rides/${id}/start`).send({ pin }).expect(200);
       heard.length = 0;
       await driver.http.post('/v1/driver/location').send(near(150)).expect(204);
       await new Promise((r) => setTimeout(r, 100));

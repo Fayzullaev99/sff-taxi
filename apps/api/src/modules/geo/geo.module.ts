@@ -1,23 +1,34 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Inject,
   Module,
   Param,
   ParseUUIDPipe,
   Patch,
+  Put,
   Query,
 } from '@nestjs/common';
 import { z } from 'zod';
 import { ENV, type Env } from '../../config/env.js';
-import { AdminOnly, Meta, Public, type RequestMeta } from '../../core/auth/auth-context.js';
+import {
+  AdminOnly,
+  type AuthUser,
+  CurrentUser,
+  Meta,
+  Public,
+  type RequestMeta,
+} from '../../core/auth/auth-context.js';
 import { RateLimit } from '../../core/http/rate-limit.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
 import { RateLimiter } from '../../core/redis/rate-limiter.js';
 import { GeoCoreModule } from './geo-core.module.js';
 import { GeocodingService } from './geocoding.service.js';
 import { GeoService, publicCity, UpdateCityBody } from './geo.service.js';
+import { RouteFareBody, RouteFaresService } from './route-fares.service.js';
 
 const Lat = z.coerce.number().min(-90).max(90);
 const Lng = z.coerce.number().min(-180).max(180);
@@ -133,8 +144,44 @@ export class AdminGeoController {
   }
 }
 
+/** Fixed route prices riders see before ordering: "Yangiyer → Guliston 10 000 so‘m/kishi". */
+@Controller('routes')
+@Public()
+export class RoutesController {
+  constructor(private readonly routes: RouteFaresService) {}
+
+  @Get()
+  @RateLimit({ name: 'geo:routes', by: 'ip', max: 60, windowSeconds: 60 })
+  list() {
+    return this.routes.list({ activeOnly: true });
+  }
+}
+
+@Controller('admin/routes')
+@AdminOnly()
+export class AdminRoutesController {
+  constructor(private readonly routes: RouteFaresService) {}
+
+  @Get()
+  list() {
+    return this.routes.list({ activeOnly: false });
+  }
+
+  /** Creates or changes a route's seat/car prices (bothWays: the way back too). */
+  @Put()
+  save(@CurrentUser() user: AuthUser, @Body(new ZodPipe(RouteFareBody)) body: RouteFareBody) {
+    return this.routes.save(user.userId, body);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(@Param('id', ParseUUIDPipe) id: string) {
+    await this.routes.remove(id);
+  }
+}
+
 @Module({
   imports: [GeoCoreModule],
-  controllers: [GeoController, AdminGeoController],
+  controllers: [GeoController, AdminGeoController, RoutesController, AdminRoutesController],
 })
 export class GeoModule {}

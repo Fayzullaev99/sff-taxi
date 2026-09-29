@@ -6,8 +6,10 @@ import { Database, type Tx } from '../../core/db/database.js';
 import { ACTIVE_RIDE_STATUSES, type RidesTable } from '../../core/db/schema.js';
 import { emit } from '../../core/outbox/outbox.js';
 import { etaSeconds, type Point } from '../../lib/geo.js';
+import type { PlanStop } from '../../lib/pool.js';
 import { priority } from '../../lib/priority.js';
 import { RoutingService } from '../geo/routing.service.js';
+import { PoolService } from '../rides/pool.service.js';
 import { RidesService } from '../rides/rides.service.js';
 import { type DispatchRules, SettingsService } from '../settings/settings.module.js';
 
@@ -29,9 +31,17 @@ export interface Candidate {
   etaS: number;
   distanceM: number;
   score: number;
+  /** A car on its way (carrying riders, or its driver heading somewhere): the stops it would follow. */
+  plan?: PlanStop[];
+  /** How much longer the car's plan gets with this ride. */
+  detourS?: number;
+  /** People in the car now (a rider joining a shared car sees them). */
+  inCar?: number;
 }
 
 type Exclude = 'any_offer' | 'declined';
+/** free: cars with nothing to do; along: cars carrying riders or heading somewhere. */
+type Mode = 'free' | 'along';
 
 /**
  * Finds drivers for waiting rides (market analysis §6.4):
@@ -57,6 +67,7 @@ export class DispatchService {
     private readonly rides: RidesService,
     private readonly routing: RoutingService,
     private readonly settings: SettingsService,
+    private readonly pool: PoolService,
   ) {}
 
   /** One dispatcher cycle: expire answered-too-late offers, then move every waiting ride on. */
@@ -217,6 +228,8 @@ export class DispatchService {
         distance_m: c.distanceM,
         score: c.score,
         expires_at: expiresAt,
+        pool_plan: c.plan ? JSON.stringify(c.plan) : null,
+        detour_s: c.detourS ?? null,
       })
       .execute();
     if (kind === 'direct') {
@@ -239,6 +252,7 @@ export class DispatchService {
       kind,
       etaS: c.etaS,
       score: c.score,
+      ...(c.plan ? { along: true, detourS: c.detourS } : {}),
     });
     await emit(trx, 'ride.offer_created', { offerId: id, rideId: ride.id, driverId: c.driverId });
   }
@@ -264,24 +278,58 @@ export class DispatchService {
       exclude,
       Math.max(limit, rules.candidates),
       lock,
+      'free',
     );
-    if (!nearest.length) return [];
     const pickup = { lat: ride.pickup_lat, lng: ride.pickup_lng };
-    const routes = await this.routing.routes(
-      nearest.map((d) => d.position),
-      pickup,
-    );
-    const ranked = nearest.map((d, i) => ({
+    const routes = nearest.length
+      ? await this.routing.routes(
+          nearest.map((d) => d.position),
+          pickup,
+        )
+      : [];
+    const ranked: (Candidate & { rankS: number })[] = nearest.map((d, i) => ({
       ...d,
       etaS: etaSeconds(routes[i]!),
       distanceM: routes[i]!.distanceM,
+      rankS: etaSeconds(routes[i]!),
     }));
-    ranked.sort((a, b) => a.etaS - b.etaS);
-    const best = ranked[0]!.etaS;
-    const tied = ranked.filter((c) => c.etaS - best <= rules.tie_window_seconds);
-    tied.sort((a, b) => b.score - a.score || a.etaS - b.etaS);
+
+    // cars already going that way (shared rides, drivers heading home): each checked
+    // with the detour limits and the seating rule; a car carrying riders is preferred
+    // (it fills a seat instead of taking another car off the street)
+    const poolRules = await this.settings.pool(trx);
+    const along = await this.eligible(
+      trx,
+      ride,
+      rules,
+      poolRules.search_radius_m,
+      exclude,
+      6,
+      lock,
+      'along',
+    );
+    for (const d of along) {
+      const car = await this.pool.car(trx, d.driverId);
+      const fit = car ? await this.pool.fit(car, ride, poolRules) : null;
+      if (!car || !fit) continue;
+      const carries = car.rides.length > 0 || car.extra > 0;
+      ranked.push({
+        ...d,
+        etaS: fit.insertion.pickupEtaS,
+        distanceM: 0,
+        plan: fit.insertion.stops,
+        detourS: fit.insertion.addedS,
+        inCar: fit.occupied,
+        rankS: fit.insertion.pickupEtaS - (carries ? poolRules.pool_preference_seconds : 0),
+      });
+    }
+    if (!ranked.length) return [];
+    ranked.sort((a, b) => a.rankS - b.rankS);
+    const best = ranked[0]!.rankS;
+    const tied = ranked.filter((c) => c.rankS - best <= rules.tie_window_seconds);
+    tied.sort((a, b) => b.score - a.score || a.rankS - b.rankS);
     const rest = ranked.filter((c) => !tied.includes(c));
-    return [...tied, ...rest].slice(0, limit);
+    return [...tied, ...rest].slice(0, limit).map(({ rankS: _rankS, ...c }) => c);
   }
 
   private async eligible(
@@ -292,8 +340,10 @@ export class DispatchService {
     exclude: Exclude,
     limit: number,
     lock: boolean,
+    mode: Mode,
   ): Promise<Omit<Candidate, 'etaS' | 'distanceM'>[]> {
     const billing = await this.settings.billing(db);
+    const poolOn = mode === 'along' && ride.shareable && (await this.settings.pool(db)).enabled;
     const features = [
       ...new Set(ride.options.map((o) => OPTION_FEATURE[o]).filter(Boolean)),
     ] as string[];
@@ -326,16 +376,29 @@ export class DispatchService {
       )
       // a big trunk with the CNG tank in it has no room for luggage
       .$if(ride.options.includes('luggage'), (q) => q.where('v.cng_in_trunk', '=', false))
-      .where(({ not, exists, selectFrom }) =>
-        not(
-          exists(
-            selectFrom('rides as r')
-              .select('r.id')
-              .whereRef('r.driver_id', '=', 'd.user_id')
-              .where('r.status', 'in', [...ACTIVE_RIDE_STATUSES]),
-          ),
-        ),
+      // a woman driver only: an operator verified her gender
+      .$if(ride.women_only, (q) =>
+        q.where('d.gender', '=', 'female').where('d.gender_verified_at', 'is not', null),
       )
+      // women drivers who take women riders only
+      .$if(ride.rider_gender !== 'female', (q) => q.where('d.women_riders_only', '=', false))
+      .where((eb) => {
+        const busy = eb.exists(
+          eb
+            .selectFrom('rides as r')
+            .select('r.id')
+            .whereRef('r.driver_id', '=', 'd.user_id')
+            .where('r.status', 'in', [...ACTIVE_RIDE_STATUSES]),
+        );
+        if (mode === 'free') {
+          // heading somewhere: only rides on the way (the along list)
+          return eb.and([eb.not(busy), eb('d.destination_lat', 'is', null)]);
+        }
+        return eb.or([
+          eb.and([eb.not(busy), eb('d.destination_lat', 'is not', null)]),
+          ...(poolOn ? [eb.and([busy, eb('d.pool_enabled', '=', true)])] : []),
+        ]);
+      })
       .where(({ not, exists, selectFrom }) =>
         not(
           exists(
@@ -421,6 +484,12 @@ export class DispatchService {
         'r.payment_method as paymentMethod',
         'r.scheduled_for as scheduledFor',
         'r.owed_fee as owedFee',
+        'r.passengers',
+        'r.shareable',
+        'r.women_only as womenOnly',
+        'r.fare_mode as fareMode',
+        'o.detour_s as detourS',
+        'o.pool_plan as poolPlan',
         'u.rider_rating_sum',
         'u.rider_rating_count',
       ])
@@ -435,6 +504,8 @@ export class DispatchService {
       expiresAt: r.expiresAt,
       etaS: r.etaS,
       distanceM: r.distanceM,
+      // a ride on the car's way: how much longer the trip gets, and the stops in order
+      along: r.poolPlan ? { detourS: r.detourS, stops: r.poolPlan } : null,
       ride: {
         id: r.rideId,
         number: r.number,
@@ -451,6 +522,10 @@ export class DispatchService {
         scheduledFor: r.scheduledFor,
         // fees the rider owes from earlier rides, collected in cash with this fare
         owedFee: r.owedFee,
+        passengers: r.passengers,
+        shareable: r.shareable,
+        womenOnly: r.womenOnly,
+        fareMode: r.fareMode,
         riderRating: Math.round(((r.rider_rating_sum + 24) / (r.rider_rating_count + 5)) * 10) / 10,
       },
     }));
@@ -493,7 +568,7 @@ export class DispatchService {
         .where('user_id', '=', user.userId)
         .executeTakeFirstOrThrow();
       if (!driver.is_online) throw new ConflictException('Avval liniyaga chiqing');
-      await this.rides.assignDriver(trx, ride, user.userId, {
+      await this.rides.giveToDriver(trx, ride, user.userId, {
         actor: 'driver',
         actorId: user.userId,
         offerId: offer.id,

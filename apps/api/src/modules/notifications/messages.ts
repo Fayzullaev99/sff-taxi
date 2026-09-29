@@ -57,6 +57,14 @@ export const push = {
           title: 'Belgilangan vaqtga mashina qidirilmoqda',
           body: 'Oldindan buyurtmangiz: haydovchi tez orada tayinlanadi.',
         },
+  poolJoined: (l: Locale, pays: number): PushText =>
+    l === 'ru'
+      ? { title: 'К вам подсел попутчик', body: `Поездка дешевле: теперь ${soum(pays)}.` }
+      : { title: 'Yo‘lingizga hamroh qo‘shildi', body: `Safar arzonlashdi: endi ${soum(pays)}.` },
+  poolLeft: (l: Locale, pays: number): PushText =>
+    l === 'ru'
+      ? { title: 'Попутчик отменил поездку', body: `Стоимость поездки: ${soum(pays)}.` }
+      : { title: 'Hamroh safarni bekor qildi', body: `Safar narxi: ${soum(pays)}.` },
   searchingAgain: (l: Locale): PushText =>
     l === 'ru'
       ? { title: 'Ищем другого водителя', body: 'Водитель не сможет приехать, ищем замену.' }

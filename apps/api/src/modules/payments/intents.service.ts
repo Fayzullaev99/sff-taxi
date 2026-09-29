@@ -33,7 +33,7 @@ type Intent = Selectable<PaymentIntentsTable>;
 export const REASON_TIMEOUT = 4;
 
 export interface IntentFilter {
-  purpose?: 'ride' | 'topup';
+  purpose?: 'ride' | 'topup' | 'booking';
   /** An intent status, or "failed": expired or cancelled without a payment. */
   status?: PaymentIntentStatus | 'failed';
   provider?: PaymentProvider;
@@ -111,6 +111,29 @@ export class IntentsService {
     return id;
   }
 
+  /**
+   * The deposit of a trip-board booking, in the booking's creating transaction: the booking
+   * waits for it (status awaiting_payment) until `expiresAt`.
+   */
+  async createForBooking(
+    trx: Tx,
+    b: { id: string; riderId: string; amount: number; expiresAt: Date },
+  ): Promise<string> {
+    const id = uuidv7();
+    await trx
+      .insertInto('payment_intents')
+      .values({
+        id,
+        purpose: 'booking',
+        booking_id: b.id,
+        user_id: b.riderId,
+        amount: b.amount,
+        expires_at: b.expiresAt,
+      })
+      .execute();
+    return id;
+  }
+
   /** A driver tops up the prepaid balance by card. */
   async createTopup(user: AuthUser, amount: number, now = new Date()) {
     if (!this.cardAvailable()) {
@@ -174,6 +197,15 @@ export class IntentsService {
     return row ? this.view(row) : null;
   }
 
+  async forBooking(bookingId: string) {
+    const row = await this.db.kysely
+      .selectFrom('payment_intents')
+      .selectAll()
+      .where('booking_id', '=', bookingId)
+      .executeTakeFirst();
+    return row ? this.view(row) : null;
+  }
+
   async topups(driverId: string) {
     const rows = await this.db.kysely
       .selectFrom('payment_intents')
@@ -228,6 +260,16 @@ export class IntentsService {
         .executeTakeFirstOrThrow();
       if (ride.status !== 'awaiting_payment') return 'closed';
     }
+    if (i.booking_id) {
+      // the booking still holds its seats for this deposit (not cancelled meanwhile)
+      const booking = await trx
+        .selectFrom('intercity_bookings')
+        .select('status')
+        .where('id', '=', i.booking_id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      if (booking.status !== 'awaiting_payment') return 'closed';
+    }
     return {
       id: i.id,
       purpose: i.purpose,
@@ -240,7 +282,8 @@ export class IntentsService {
 
   /**
    * The provider took the money. The single place an intent becomes paid: a ride goes to
-   * dispatch exactly as a cash ride would, a top-up is credited to the driver's balance.
+   * dispatch exactly as a cash ride would, a top-up is credited to the driver's balance, a
+   * booking's deposit confirms the booking (the platform holds it until the trip).
    */
   async markPaid(trx: Tx, intent: PayableIntent, provider: PaymentProvider): Promise<void> {
     const now = new Date();
@@ -264,6 +307,25 @@ export class IntentsService {
         amount: intent.amount,
         provider,
       });
+      return;
+    }
+    if (intent.purpose === 'booking') {
+      const b = await trx
+        .updateTable('intercity_bookings')
+        .set({ status: 'booked', updated_at: now })
+        .where('id', '=', intent.bookingId!)
+        .where('status', '=', 'awaiting_payment')
+        .returning(['id', 'trip_id'])
+        .executeTakeFirst();
+      if (b) {
+        // as for a booking without a deposit: the driver hears of it; the rider is told too
+        await emit(trx, 'intercity.booking_changed', {
+          bookingId: b.id,
+          tripId: b.trip_id,
+          status: 'booked',
+          by: 'payment',
+        });
+      }
       return;
     }
     // the search starts now, not when the rider opened the payment page
@@ -342,6 +404,9 @@ export class IntentsService {
         status: 'refunded',
         amount: i.amount,
       });
+    } else if (i.booking_id) {
+      // a deposit given back: the rider's booking view shows it (booking.payment); nothing
+      // is taken from anyone's balance
     } else {
       await this.ledger.post(trx, {
         driverId: i.driver_id!,
@@ -391,6 +456,47 @@ export class IntentsService {
     return i.status === 'refunded' ? 'refunded' : 'not_charged';
   }
 
+  // Bookings ---------------------------------------------------------------------------
+
+  /**
+   * A booking with a deposit was cancelled: an unpaid intent is closed (`expired` when its
+   * window passed); a paid one is queued for a refund when `refund`, else it stays paid (the
+   * deposit goes to the driver, see IntercityService). Returns the intent's status.
+   */
+  async onBookingCancelled(
+    trx: Tx,
+    bookingId: string,
+    opts: { refund: boolean; expired?: boolean },
+  ): Promise<PaymentIntentStatus | null> {
+    const i = await trx
+      .selectFrom('payment_intents')
+      .select(['id', 'status'])
+      .where('booking_id', '=', bookingId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!i) return null;
+    if (i.status === 'pending') {
+      const status = opts.expired ? 'expired' : 'cancelled';
+      await trx.updateTable('payment_intents').set({ status }).where('id', '=', i.id).execute();
+      return status;
+    }
+    if (i.status === 'paid' && opts.refund) {
+      await trx
+        .updateTable('payment_intents')
+        .set({ status: 'refund_pending', refund_requested_at: new Date() })
+        .where('id', '=', i.id)
+        .execute();
+      return 'refund_pending';
+    }
+    return i.status;
+  }
+
+  /** Bookings whose deposit window has closed (as for rides, a payment in progress waits). */
+  async dueBookingIntents(now: Date, limit: number): Promise<string[]> {
+    const rows = await this.dueQuery(now, 'booking', limit).select('i.booking_id').execute();
+    return rows.map((r) => r.booking_id!);
+  }
+
   /** Closes an unpaid ride intent whose window has passed (the ride is cancelled by the caller). */
   async expireRideIntent(trx: Tx, rideId: string): Promise<void> {
     await trx
@@ -429,7 +535,7 @@ export class IntentsService {
     return expired;
   }
 
-  private dueQuery(now: Date, purpose: 'ride' | 'topup', limit: number) {
+  private dueQuery(now: Date, purpose: 'ride' | 'topup' | 'booking', limit: number) {
     return this.db.kysely
       .selectFrom('payment_intents as i')
       .where('i.status', '=', 'pending')
@@ -453,6 +559,7 @@ export class IntentsService {
       .selectFrom('payment_intents as i')
       .innerJoin('users as u', 'u.id', 'i.user_id')
       .leftJoin('rides as r', 'r.id', 'i.ride_id')
+      .leftJoin('intercity_bookings as b', 'b.id', 'i.booking_id')
       .leftJoin('drivers as d', 'd.user_id', 'i.driver_id')
       .select([
         'i.id',
@@ -462,6 +569,8 @@ export class IntentsService {
         'i.provider',
         'i.ride_id as rideId',
         'r.number as rideNumber',
+        'i.booking_id as bookingId',
+        'b.number as bookingNumber',
         'i.driver_id as driverId',
         'd.full_name as driverName',
         'i.user_id as userId',
@@ -520,21 +629,28 @@ export class IntentsService {
       );
   }
 
-  /** Paid rides that were cancelled: the money must go back to the rider's card. */
+  /**
+   * Paid rides that were cancelled, and deposits of bookings cancelled in time or by the
+   * driver or an operator: the money must go back to the rider's card.
+   */
   async refundQueue() {
     return this.db.kysely
       .selectFrom('payment_intents as i')
-      .innerJoin('rides as r', 'r.id', 'i.ride_id')
+      .leftJoin('rides as r', 'r.id', 'i.ride_id')
+      .leftJoin('intercity_bookings as b', 'b.id', 'i.booking_id')
       .select([
         'i.id',
         'i.amount',
         'i.provider',
         'i.paid_at as paidAt',
         'i.refund_requested_at as refundRequestedAt',
+        'i.purpose',
         'r.id as rideId',
         'r.number as rideNumber',
-        'r.rider_phone as riderPhone',
-        'r.cancel_reason as cancelReason',
+        'b.id as bookingId',
+        'b.number as bookingNumber',
+        (eb) => eb.fn.coalesce('r.rider_phone', 'b.rider_phone').as('riderPhone'),
+        (eb) => eb.fn.coalesce('r.cancel_reason', 'b.cancel_reason').as('cancelReason'),
       ])
       .where('i.status', '=', 'refund_pending')
       .orderBy('i.refund_requested_at')

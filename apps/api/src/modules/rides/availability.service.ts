@@ -73,4 +73,41 @@ export class AvailabilityService {
     }
     return out;
   }
+
+  /**
+   * Women drivers free near the pickup (for the "a woman driver" option): how many, and the
+   * nearest one's road ETA. Only drivers whose gender an operator verified count.
+   */
+  async womenDrivers(pickup: Point, riderId: string) {
+    const rules = await this.settings.dispatch();
+    const straight = sql<number>`taxi_distance_m(d.lat, d.lng, ${pickup.lat}, ${pickup.lng})`;
+    const rows = await this.db.kysely
+      .selectFrom('drivers as d')
+      .select(['d.lat', 'd.lng'])
+      .where('d.is_online', '=', true)
+      .where('d.status', '=', 'active')
+      .where('d.gender', '=', 'female')
+      .where('d.gender_verified_at', 'is not', null)
+      .where('d.extra_passengers', '=', 0)
+      .where('d.lat', 'is not', null)
+      .where('d.located_at', '>=', new Date(Date.now() - rules.location_max_age_seconds * 1000))
+      .where('d.user_id', '!=', riderId)
+      .where(straight, '<=', rules.search_radius_m)
+      .where(({ not, exists, selectFrom }) =>
+        not(
+          exists(
+            selectFrom('rides as r')
+              .select('r.id')
+              .whereRef('r.driver_id', '=', 'd.user_id')
+              .where('r.status', 'in', [...ACTIVE_RIDE_STATUSES]),
+          ),
+        ),
+      )
+      .orderBy(straight)
+      .limit(20)
+      .execute();
+    if (!rows.length) return { cars: 0, etaS: null };
+    const [route] = await this.routing.routes([{ lat: rows[0]!.lat!, lng: rows[0]!.lng! }], pickup);
+    return { cars: rows.length, etaS: etaSeconds(route!) };
+  }
 }

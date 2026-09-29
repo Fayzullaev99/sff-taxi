@@ -20,20 +20,30 @@ import type {
 import { msg } from '../../core/http/messages.js';
 import { emit } from '../../core/outbox/outbox.js';
 import { tashkentDayStart } from '../../lib/commission.js';
+import { depositAmount } from '../../lib/deposit.js';
 import { formatPlate, tashkentDate } from '../../lib/driver-rules.js';
 import {
+  alongTheWayShare,
   bookingPrice,
   driverSeatPrices,
+  MAX_TRIP_SEATS,
+  partSeatPrices,
   priceBand,
   referenceSeatPrices,
   type SeatPrices,
+  seatingError,
 } from '../../lib/intercity.js';
 import { priority } from '../../lib/priority.js';
 import type { RideClass } from '../../lib/tariff.js';
 import { RideChargesService } from '../billing/charges.service.js';
 import { LedgerService } from '../billing/ledger.service.js';
 import { RoutingService } from '../geo/routing.service.js';
-import { type IntercityRules, SettingsService } from '../settings/settings.module.js';
+import { IntentsService } from '../payments/intents.service.js';
+import {
+  type BookingRules,
+  type IntercityRules,
+  SettingsService,
+} from '../settings/settings.module.js';
 import { UploadsService } from '../uploads/uploads.service.js';
 
 type Db = Tx | Database['kysely'];
@@ -45,6 +55,8 @@ type Point = Selectable<IntercityPointsTable>;
 export const TRIP_SPACING_HOURS = 2;
 const OPEN_TRIP: TripStatus[] = ['scheduled', 'boarding'];
 const LIVE_BOOKING: BookingStatus[] = ['booked', 'boarded'];
+/** Bookings holding seats: live ones and those waiting for their deposit. */
+const HOLDING: BookingStatus[] = ['awaiting_payment', 'booked', 'boarded'];
 
 export interface PublishInput {
   from: string;
@@ -75,6 +87,9 @@ export interface BookInput {
   front: boolean;
   pickupNote: string | null;
   clientRequestId: string | null;
+  /** The rider's own towns, for a seat along the way; the trip's ends when left out. */
+  from?: string | null;
+  to?: string | null;
 }
 
 export interface PhoneBookInput extends BookInput {
@@ -88,7 +103,12 @@ export interface PhoneBookInput extends BookInput {
  * departs and arrives. Seats are counted on the trip row under its lock, backed by checks:
  * however many riders tap "book" at once, a trip is never oversold and the front seat is
  * sold once. Seats are paid in cash to the driver; each completed booking is charged the
- * 1% tax and the intercity commission like a ride.
+ * 1% tax and the intercity commission like a ride. A rider booking in the app pays a
+ * deposit by card first (admin/settings/booking), the rest in cash; the platform holds the
+ * deposit until the trip and then credits it to the driver (or refunds it).
+ *
+ * Lock order: payment intents, then the trip, then its bookings (the payment callbacks
+ * lock an intent, then its booking).
  */
 @Injectable()
 export class IntercityService {
@@ -99,6 +119,7 @@ export class IntercityService {
     private readonly charges: RideChargesService,
     private readonly ledger: LedgerService,
     private readonly uploads: UploadsService,
+    private readonly intents: IntentsService,
   ) {}
 
   // Towns and prices -------------------------------------------------------------------
@@ -191,6 +212,8 @@ export class IntercityService {
     if (!standing.canWork) {
       throw new ForbiddenException('Balans juda past: qatnov e’lon qilish uchun to‘ldiring');
     }
+    const seating = seatingError(input.seats, input.frontSeat);
+    if (seating) throw new BadRequestException(seating);
     if (input.seats > driver.seats) {
       throw new BadRequestException(msg('Avtomobilda {0} ta yo‘lovchi o‘rni bor', driver.seats));
     }
@@ -304,9 +327,10 @@ export class IntercityService {
    */
   async depart(user: AuthUser, tripId: string) {
     await this.db.transaction(async (trx) => {
+      await this.lockDeposits(trx, { tripId });
       const trip = await this.lockOwnTrip(trx, user, tripId);
       if (trip.status !== 'boarding') throw this.wrongStatus(trip.status);
-      const bookings = await this.liveBookings(trx, trip.id);
+      const bookings = await this.liveBookings(trx, trip.id, HOLDING);
       if (!bookings.some((b) => b.status === 'boarded')) {
         throw new ConflictException('Hech kim o‘tirmagan: yo‘lovchini belgilang yoki bekor qiling');
       }
@@ -317,13 +341,23 @@ export class IntercityService {
           .set((eb) => ({ no_show_count: eb('no_show_count', '+', 1) }))
           .where('id', '=', b.rider_id)
           .execute();
+        // the driver kept the seat: the deposit is theirs
+        await this.creditDeposit(trx, trip, b, 'kelmagan yo‘lovchi');
+      }
+      // never paid: the seats were only held
+      for (const b of bookings.filter((x) => x.status === 'awaiting_payment')) {
+        await this.release(trx, trip, b, 'system', 'Oldindan to‘lov qilinmadi', 0);
+        await this.intents.onBookingCancelled(trx, b.id, { refund: false, expired: true });
       }
       await this.setTripStatus(trx, trip, 'departed', { departed_at: new Date() });
     });
     return this.driverTrip(user, tripId);
   }
 
-  /** Arrived: every passenger aboard paid in cash; each booking's tax and commission are charged. */
+  /**
+   * Arrived: every passenger aboard paid the rest in cash; a deposit the platform held is
+   * credited to the driver; each booking's tax and commission are charged on the full price.
+   */
   async arrive(user: AuthUser, tripId: string) {
     await this.db.transaction(async (trx) => {
       const trip = await this.lockOwnTrip(trx, user, tripId);
@@ -332,6 +366,7 @@ export class IntercityService {
       for (const b of await this.liveBookings(trx, trip.id)) {
         await this.setBookingStatus(trx, b, 'completed', 'driver', { completed_at: now });
         await emit(trx, 'fiscal.receipt_due', { bookingId: b.id });
+        await this.creditDeposit(trx, trip, b, 'yo‘lovchi yetkazildi');
         await this.charges.chargeBooking(trx, {
           id: b.id,
           number: b.number,
@@ -348,6 +383,7 @@ export class IntercityService {
   /** The driver calls a trip off before it leaves: every booking is cancelled, riders told. */
   async cancelByDriver(user: AuthUser, tripId: string, reason: string) {
     await this.db.transaction(async (trx) => {
+      await this.lockDeposits(trx, { tripId });
       const trip = await this.lockOwnTrip(trx, user, tripId);
       await this.cancelTrip(trx, trip, 'driver', reason);
     });
@@ -356,23 +392,26 @@ export class IntercityService {
 
   async cancelByOperator(tripId: string, reason: string) {
     await this.db.transaction(async (trx) => {
+      await this.lockDeposits(trx, { tripId });
       const trip = await this.lockTrip(trx, tripId);
       await this.cancelTrip(trx, trip, 'operator', reason);
     });
     return this.adminTrip(tripId);
   }
 
+  /** Every booking is cancelled; deposits paid go back to the riders' cards. */
   private async cancelTrip(trx: Tx, trip: Trip, by: 'driver' | 'operator', reason: string) {
     if (!OPEN_TRIP.includes(trip.status)) throw this.wrongStatus(trip.status);
-    const bookings = await this.liveBookings(trx, trip.id);
+    const bookings = await this.liveBookings(trx, trip.id, HOLDING);
     for (const b of bookings) {
       await this.setBookingStatus(trx, b, 'cancelled', by, {
         cancelled_at: new Date(),
         cancelled_by: by,
         cancel_reason: reason,
       });
+      await this.intents.onBookingCancelled(trx, b.id, { refund: true });
     }
-    if (by === 'driver' && bookings.length) {
+    if (by === 'driver' && bookings.some((b) => b.status !== 'awaiting_payment')) {
       // riders were counting on it: it counts against the driver's reliability
       await trx
         .updateTable('drivers')
@@ -391,34 +430,84 @@ export class IntercityService {
 
   // Riders book ------------------------------------------------------------------------
 
-  /** Open departures of a route on a Tashkent date (today: from now on), soonest first. */
-  async search(q: { from: string; to: string; date?: string; seats: number }, now = new Date()) {
+  /**
+   * Open departures of a route on a Tashkent date (today: from now on), soonest first; then
+   * trips between other towns passing the rider's towns ("along the way", `alongTheWay`:
+   * the seat priced for the rider's part, `pickup`/`dropoff` the rider's towns), unless
+   * `along` is false.
+   */
+  async search(
+    q: { from: string; to: string; date?: string; seats: number; along?: boolean },
+    now = new Date(),
+  ) {
     const [from, to] = await Promise.all([this.point(q.from), this.point(q.to)]);
     const day = q.date ? new Date(`${q.date}T00:00:00+05:00`) : tashkentDayStart(now);
     const start = new Date(Math.max(day.getTime(), now.getTime()));
     const end = new Date(day.getTime() + 86_400_000);
-    const rows = await this.db.kysely
-      .selectFrom('intercity_trips')
-      .selectAll()
+    const open = () =>
+      this.db.kysely
+        .selectFrom('intercity_trips')
+        .selectAll()
+        .where('status', 'in', OPEN_TRIP)
+        .where('departure_at', '>=', start)
+        .where('departure_at', '<', end)
+        .where(sql<boolean>`seats_total - seats_booked >= ${q.seats}`)
+        .orderBy('departure_at');
+    const rows = await open()
       .where('from_point_id', '=', from.id)
       .where('to_point_id', '=', to.id)
-      .where('status', 'in', OPEN_TRIP)
-      .where('departure_at', '>=', start)
-      .where('departure_at', '<', end)
-      .where(sql<boolean>`seats_total - seats_booked >= ${q.seats}`)
-      .orderBy('departure_at')
       .limit(100)
       .execute();
     const points = new Map([
       [from.id, from],
       [to.id, to],
     ]);
-    return Promise.all(rows.map((t) => this.publicTrip(t, points)));
+    const direct = await Promise.all(
+      rows.map(async (t) => ({ ...(await this.publicTrip(t, points)), alongTheWay: false })),
+    );
+    if (q.along === false || from.id === to.id) return direct;
+
+    const [rules, all] = await Promise.all([
+      this.settings.intercity(),
+      this.db.kysely.selectFrom('intercity_points').selectAll().execute(),
+    ]);
+    const byId = new Map(all.map((p) => [p.id, p]));
+    const others = await open()
+      .where((eb) => eb.or([eb('from_point_id', '!=', from.id), eb('to_point_id', '!=', to.id)]))
+      .limit(300)
+      .execute();
+    const along = [];
+    for (const t of others) {
+      const share = alongTheWayShare(
+        byId.get(t.from_point_id)!,
+        byId.get(t.to_point_id)!,
+        from,
+        to,
+        rules.along_route_max_km,
+      );
+      if (share === null) continue;
+      const view = await this.publicTrip(t, byId);
+      along.push({
+        ...view,
+        alongTheWay: true,
+        pickup: pointView(from),
+        dropoff: pointView(to),
+        // the rider's part of the trip, and what their seats cost; fullPrice: the whole trip
+        share: Math.round(share * 100) / 100,
+        price: partSeatPrices(view.price, share),
+        fullPrice: view.price,
+      });
+    }
+    return [...direct, ...along];
   }
 
   async trip(user: AuthUser, tripId: string) {
     const trip = await this.findTrip(tripId);
-    const [view, rules] = await Promise.all([this.publicTrip(trip), this.settings.intercity()]);
+    const [view, rules, booking] = await Promise.all([
+      this.publicTrip(trip),
+      this.settings.intercity(),
+      this.settings.booking(),
+    ]);
     const mine = await this.db.kysely
       .selectFrom('intercity_bookings')
       .select('id')
@@ -435,10 +524,20 @@ export class IntercityService {
         lateCancelFeePercent: rules.late_cancel_fee_percent,
         freeUntil: new Date(trip.departure_at.getTime() - rules.free_cancel_minutes * 60_000),
       },
+      // booking in the app: this share of the price is paid by card first, the rest in cash
+      depositRules: {
+        percent: booking.deposit_percent,
+        min: booking.deposit_min,
+        paymentMinutes: booking.payment_minutes,
+      },
     };
   }
 
-  /** Books seats; the same clientRequestId returns the same booking (safe retries). */
+  /**
+   * Books seats; the same clientRequestId returns the same booking (safe retries). With
+   * deposits on, the booking waits for its deposit (awaiting_payment, `payment.checkout`)
+   * holding its seats; unpaid in time it is cancelled.
+   */
   async book(user: AuthUser, tripId: string, input: BookInput) {
     if (input.clientRequestId) {
       const existing = await this.db.kysely
@@ -449,11 +548,17 @@ export class IntercityService {
         .executeTakeFirst();
       if (existing) return { created: false, booking: await this.riderBooking(user, existing.id) };
     }
-    const rider = await this.db.kysely
-      .selectFrom('users')
-      .select(['phone', 'full_name'])
-      .where('id', '=', user.userId)
-      .executeTakeFirstOrThrow();
+    const [rider, deposits] = await Promise.all([
+      this.db.kysely
+        .selectFrom('users')
+        .select(['phone', 'full_name'])
+        .where('id', '=', user.userId)
+        .executeTakeFirstOrThrow(),
+      this.settings.booking(),
+    ]);
+    if (deposits.deposit_percent > 0 && !this.intents.cardAvailable()) {
+      throw new BadRequestException('Oldindan bron uchun karta orqali to‘lov hali ulanmagan');
+    }
     const done = await this.db.transaction(async (trx) => {
       // a double tap racing the check above waits here and gets the first booking
       if (input.clientRequestId) {
@@ -475,6 +580,7 @@ export class IntercityService {
         riderName: rider.full_name,
         channel: 'app',
         createdBy: user.userId,
+        deposits,
       });
       return { id, created: true };
     });
@@ -484,6 +590,7 @@ export class IntercityService {
   /**
    * An operator books seats for a caller without the app; the caller gets an SMS. The
    * panel's clientRequestId makes a double click one booking (201, then 200 with it).
+   * No deposit: the operator vouches for the caller.
    */
   async bookByPhone(operator: AuthUser, tripId: string, input: PhoneBookInput) {
     const repeat = (db: Db) =>
@@ -523,6 +630,7 @@ export class IntercityService {
         riderName: input.riderName ?? rider.full_name,
         channel: 'phone',
         createdBy: operator.userId,
+        deposits: null,
       });
       return { id, created: true };
     });
@@ -543,10 +651,18 @@ export class IntercityService {
       riderName: string | null;
       channel: 'app' | 'phone';
       createdBy: string;
+      /** Deposit rules for app bookings; null: no deposit (operators' bookings). */
+      deposits: BookingRules | null;
     },
   ): Promise<string> {
+    if (b.seats > MAX_TRIP_SEATS) {
+      throw new BadRequestException(
+        'Bir mashinaga ko‘pi bilan 3 yo‘lovchi: oldinda 1, orqada 2 kishi',
+      );
+    }
     const trip = await this.lockTrip(trx, tripId);
-    if (!OPEN_TRIP.includes(trip.status) || trip.departure_at <= new Date()) {
+    const now = new Date();
+    if (!OPEN_TRIP.includes(trip.status) || trip.departure_at <= now) {
       throw new ConflictException('Bu qatnovga bron yopilgan');
     }
     if (trip.driver_id === b.riderId) {
@@ -566,12 +682,17 @@ export class IntercityService {
       .select('number')
       .where('trip_id', '=', trip.id)
       .where('rider_id', '=', b.riderId)
-      .where('status', 'in', LIVE_BOOKING)
+      .where('status', 'in', HOLDING)
       .executeTakeFirst();
     if (already) {
       throw new ConflictException(msg('Bu qatnovda broningiz bor: #{0}', already.number));
     }
-    const prices: SeatPrices = { rear: trip.price_rear, front: trip.price_front };
+    let prices: SeatPrices = { rear: trip.price_rear, front: trip.price_front };
+    const part = await this.partOf(trx, trip, b.from ?? null, b.to ?? null);
+    if (part) prices = partSeatPrices(prices, part.share);
+    const price = bookingPrice(b.seats, b.front, prices);
+    const deposit = b.deposits ? depositAmount(price, b.deposits) : 0;
+    const status: BookingStatus = deposit > 0 ? 'awaiting_payment' : 'booked';
     const id = uuidv7();
     await trx
       .insertInto('intercity_bookings')
@@ -586,56 +707,156 @@ export class IntercityService {
         client_request_id: b.clientRequestId,
         seats: b.seats,
         front: b.front,
-        price: bookingPrice(b.seats, b.front, prices),
+        price,
+        deposit_amount: deposit,
+        status,
         pickup_note: b.pickupNote,
-        updated_at: new Date(),
+        pickup_point_id: part?.pickup.id ?? null,
+        dropoff_point_id: part?.dropoff.id ?? null,
+        updated_at: now,
       })
       .execute();
+    if (deposit > 0) {
+      // the seats are held while the rider pays, never past departure
+      const window = new Date(now.getTime() + b.deposits!.payment_minutes * 60_000);
+      await this.intents.createForBooking(trx, {
+        id,
+        riderId: b.riderId,
+        amount: deposit,
+        expiresAt: window < trip.departure_at ? window : trip.departure_at,
+      });
+    }
     await trx
       .updateTable('intercity_trips')
       .set((eb) => ({
         seats_booked: eb('seats_booked', '+', b.seats),
         ...(b.front ? { front_booked: true } : {}),
-        updated_at: new Date(),
+        updated_at: now,
       }))
       .where('id', '=', trip.id)
       .execute();
     await emit(trx, 'intercity.booking_changed', {
       bookingId: id,
       tripId: trip.id,
-      status: 'booked',
+      status,
       by: b.channel === 'phone' ? 'operator' : 'rider',
     });
     return id;
   }
 
   /**
+   * The rider's part of a trip when they book between other towns it passes (along the
+   * way); null for the whole trip. Refused when the trip does not pass their towns.
+   */
+  private async partOf(trx: Tx, trip: Trip, fromRef: string | null, toRef: string | null) {
+    if (!fromRef && !toRef) return null;
+    const [pickup, dropoff] = await Promise.all([
+      fromRef ? this.point(fromRef, trx) : this.pointById(trip.from_point_id),
+      toRef ? this.point(toRef, trx) : this.pointById(trip.to_point_id),
+    ]);
+    if (pickup.id === trip.from_point_id && dropoff.id === trip.to_point_id) return null;
+    const [start, end, rules] = await Promise.all([
+      this.pointById(trip.from_point_id),
+      this.pointById(trip.to_point_id),
+      this.settings.intercity(trx),
+    ]);
+    const share =
+      pickup.id === dropoff.id
+        ? null
+        : alongTheWayShare(start, end, pickup, dropoff, rules.along_route_max_km);
+    if (share === null) {
+      throw new ConflictException(
+        msg('Bu qatnov {0} → {1} yo‘lidan o‘tmaydi', pickup.name_uz, dropoff.name_uz),
+      );
+    }
+    return { pickup, dropoff, share };
+  }
+
+  /**
    * The rider cancels: free until `free_cancel_minutes` before departure, later a share of
    * the price is owed (recorded). Not once the car has left or the rider is aboard.
+   */
+  /**
+   * The rider cancels: free until `free_cancel_minutes` before departure (a deposit paid
+   * goes back to the card), later a share of the price is owed (recorded) — or, with a
+   * deposit, the deposit is kept as the driver's compensation instead. Not once the car has
+   * left or the rider is aboard. A booking still waiting for its deposit is just dropped.
    */
   async cancelByRider(user: AuthUser, bookingId: string, reason: string | null, now = new Date()) {
     const rules = await this.settings.intercity();
     await this.db.transaction(async (trx) => {
-      const b = await this.lockBooking(trx, bookingId);
-      if (b.rider_id !== user.userId) throw new NotFoundException('Bron topilmadi');
-      if (b.status !== 'booked') throw new ConflictException('Bu bronni bekor qilib bo‘lmaydi');
-      const trip = await this.lockTrip(trx, b.trip_id);
+      const seen = await this.findBooking(bookingId, trx);
+      if (seen.rider_id !== user.userId) throw new NotFoundException('Bron topilmadi');
+      await this.lockDeposits(trx, { bookingId });
+      const trip = await this.lockTrip(trx, seen.trip_id);
+      const b = await this.lockBooking(trx, bookingId, trip.id);
+      if (b.status !== 'booked' && b.status !== 'awaiting_payment') {
+        throw new ConflictException('Bu bronni bekor qilib bo‘lmaydi');
+      }
       if (!OPEN_TRIP.includes(trip.status)) throw new ConflictException('Mashina jo‘nab ketgan');
+      if (b.status === 'awaiting_payment') {
+        await this.release(trx, trip, b, 'rider', reason, 0);
+        await this.intents.onBookingCancelled(trx, b.id, { refund: true });
+        return;
+      }
+      const late = isLate(trip.departure_at, rules, now);
+      if (b.deposit_amount > 0) {
+        await this.release(trx, trip, b, 'rider', reason, late ? b.deposit_amount : 0);
+        await this.intents.onBookingCancelled(trx, b.id, { refund: !late });
+        if (late) await this.creditDeposit(trx, trip, b, 'kech bekor qilingan bron');
+        return;
+      }
       const fee = lateCancelFee(b.price, trip.departure_at, rules, now);
       await this.release(trx, trip, b, 'rider', reason, fee);
     });
     return this.riderBooking(user, bookingId);
   }
 
+  /** An operator cancels a booking: its deposit, if paid, goes back to the rider's card. */
   async cancelBookingByOperator(bookingId: string, reason: string) {
     await this.db.transaction(async (trx) => {
-      const b = await this.lockBooking(trx, bookingId);
-      if (!LIVE_BOOKING.includes(b.status)) throw new ConflictException('Bu bron faol emas');
-      const trip = await this.lockTrip(trx, b.trip_id);
+      const seen = await this.findBooking(bookingId, trx);
+      await this.lockDeposits(trx, { bookingId });
+      const trip = await this.lockTrip(trx, seen.trip_id);
+      const b = await this.lockBooking(trx, bookingId, trip.id);
+      if (!HOLDING.includes(b.status)) throw new ConflictException('Bu bron faol emas');
       if (!OPEN_TRIP.includes(trip.status)) throw new ConflictException('Mashina jo‘nab ketgan');
       await this.release(trx, trip, b, 'operator', reason, 0);
+      await this.intents.onBookingCancelled(trx, b.id, { refund: true });
     });
     return this.adminBooking(bookingId);
+  }
+
+  /**
+   * Bookings whose deposit was not paid in time are cancelled and their seats released
+   * (the worker's housekeeping). Returns how many.
+   */
+  async expireUnpaidBookings(now = new Date(), limit = 100): Promise<number> {
+    const due = await this.intents.dueBookingIntents(now, limit);
+    let expired = 0;
+    for (const bookingId of due) {
+      const done = await this.db.transaction(async (trx) => {
+        // another worker (or the payment itself) has it: leave it to them
+        const intent = await trx
+          .selectFrom('payment_intents')
+          .select('id')
+          .where('booking_id', '=', bookingId)
+          .where('status', '=', 'pending')
+          .forUpdate()
+          .skipLocked()
+          .executeTakeFirst();
+        if (!intent) return false;
+        const seen = await this.findBooking(bookingId, trx);
+        const trip = await this.lockTrip(trx, seen.trip_id);
+        const b = await this.lockBooking(trx, bookingId, trip.id);
+        if (b.status !== 'awaiting_payment') return false;
+        await this.release(trx, trip, b, 'system', 'Oldindan to‘lov vaqtida qilinmadi', 0);
+        await this.intents.onBookingCancelled(trx, b.id, { refund: false, expired: true });
+        return true;
+      });
+      if (done) expired++;
+    }
+    return expired;
   }
 
   /** Gives a cancelled booking's seats back to the trip. */
@@ -643,7 +864,7 @@ export class IntercityService {
     trx: Tx,
     trip: Trip,
     b: Booking,
-    by: 'rider' | 'operator',
+    by: 'rider' | 'operator' | 'system',
     reason: string | null,
     fee: number,
   ) {
@@ -731,7 +952,11 @@ export class IntercityService {
     };
   }
 
-  private bookingBase(b: Booking) {
+  private bookingBase(b: Booking, points: Map<string, Point>) {
+    const town = (id: string | null) => {
+      const p = id ? points.get(id) : undefined;
+      return p ? { id: p.id, slug: p.slug, nameUz: p.name_uz, nameRu: p.name_ru } : null;
+    };
     return {
       id: b.id,
       number: b.number,
@@ -741,6 +966,14 @@ export class IntercityService {
       seats: b.seats,
       front: b.front,
       price: b.price,
+      // paid by card in advance (held by the platform, the driver's once the trip is done);
+      // the rest, payCash, is paid to the driver in cash
+      depositAmount: b.deposit_amount,
+      payCash: b.price - b.deposit_amount,
+      // a seat along the way: where the driver picks the rider up and drops them off
+      alongTheWay: b.pickup_point_id !== null,
+      pickup: town(b.pickup_point_id),
+      dropoff: town(b.dropoff_point_id),
       pickupNote: b.pickup_note,
       cancelledBy: b.cancelled_by,
       cancelReason: b.cancel_reason,
@@ -764,18 +997,35 @@ export class IntercityService {
       .where('d.user_id', '=', trip.driver_id)
       .executeTakeFirstOrThrow();
     const active = LIVE_BOOKING.includes(b.status) || b.status === 'completed';
-    const rules = await this.settings.intercity();
-    const canCancel = b.status === 'booked' && OPEN_TRIP.includes(trip.status);
+    const [rules, points, payment] = await Promise.all([
+      this.settings.intercity(),
+      this.allPoints(),
+      b.deposit_amount > 0 ? this.intents.forBooking(b.id) : null,
+    ]);
+    const canCancel =
+      (b.status === 'booked' || b.status === 'awaiting_payment') && OPEN_TRIP.includes(trip.status);
+    const now = new Date();
+    // with a deposit, a late cancellation keeps the deposit instead of the recorded fee
+    const feeNow =
+      b.status !== 'booked'
+        ? 0
+        : b.deposit_amount > 0
+          ? isLate(trip.departure_at, rules, now)
+            ? b.deposit_amount
+            : 0
+          : lateCancelFee(b.price, trip.departure_at, rules, now);
     return {
-      ...this.bookingBase(b),
+      ...this.bookingBase(b, points),
+      // the deposit's card payment: checkout links while it waits, refund status later
+      payment,
       // the cancellation rules this booking is under: free until then, later a share is owed
       cancelRules: {
         freeCancelMinutes: rules.free_cancel_minutes,
         lateCancelFeePercent: rules.late_cancel_fee_percent,
       },
       cancelFreeUntil: new Date(trip.departure_at.getTime() - rules.free_cancel_minutes * 60_000),
-      cancelFeeNow: canCancel ? lateCancelFee(b.price, trip.departure_at, rules, new Date()) : 0,
-      trip: await this.publicTrip(trip),
+      cancelFeeNow: canCancel ? feeNow : 0,
+      trip: await this.publicTrip(trip, points),
       contact: active
         ? {
             driverName: contact.full_name,
@@ -873,7 +1123,7 @@ export class IntercityService {
         .selectFrom('intercity_bookings')
         .select('id')
         .where('trip_id', '=', trip.id)
-        .where('status', 'in', LIVE_BOOKING)
+        .where('status', 'in', HOLDING)
         .executeTakeFirst();
       if (booked || trip.seats_booked > 0) {
         throw new ConflictException(
@@ -910,6 +1160,12 @@ export class IntercityService {
           throw new ConflictException(msg('Shu vaqtga yaqin qatnovingiz bor: #{0}', clash.number));
         }
       }
+      // the seating rule on what the trip would offer (trips published before it included)
+      const seating = seatingError(
+        input.seats ?? trip.seats_total,
+        input.frontSeat ?? trip.front_seat,
+      );
+      if (seating) throw new BadRequestException(seating);
       if (input.seats !== undefined && car && input.seats > car.seats) {
         throw new BadRequestException(msg('Avtomobilda {0} ta yo‘lovchi o‘rni bor', car.seats));
       }
@@ -987,8 +1243,13 @@ export class IntercityService {
 
   async adminBooking(bookingId: string) {
     const b = await this.findBooking(bookingId);
+    const [points, payment] = await Promise.all([
+      this.allPoints(),
+      b.deposit_amount > 0 ? this.intents.forBooking(b.id) : null,
+    ]);
     return {
-      ...this.bookingBase(b),
+      ...this.bookingBase(b, points),
+      payment,
       riderId: b.rider_id,
       riderPhone: b.rider_phone,
       riderName: b.rider_name,
@@ -996,8 +1257,9 @@ export class IntercityService {
   }
 
   private async fullTrip(trip: Trip) {
+    const points = await this.allPoints();
     const [base, bookings, driver] = await Promise.all([
-      this.publicTrip(trip),
+      this.publicTrip(trip, points),
       this.db.kysely
         .selectFrom('intercity_bookings')
         .selectAll()
@@ -1027,7 +1289,7 @@ export class IntercityService {
       arrivedAt: trip.arrived_at,
       cancelledAt: trip.cancelled_at,
       bookings: bookings.map((b) => ({
-        ...this.bookingBase(b),
+        ...this.bookingBase(b, points),
         riderId: b.rider_id,
         riderName: b.rider_name,
         riderPhone: b.rider_phone,
@@ -1109,12 +1371,12 @@ export class IntercityService {
     trx: Tx,
     b: Booking,
     to: BookingStatus,
-    by: 'rider' | 'driver' | 'operator',
+    by: 'rider' | 'driver' | 'operator' | 'system',
     set: Partial<{
       boarded_at: Date;
       completed_at: Date;
       cancelled_at: Date;
-      cancelled_by: 'rider' | 'driver' | 'operator';
+      cancelled_by: 'rider' | 'driver' | 'operator' | 'system';
       cancel_reason: string | null;
       cancellation_fee: number;
     }>,
@@ -1132,15 +1394,57 @@ export class IntercityService {
     });
   }
 
-  private liveBookings(trx: Tx, tripId: string) {
+  private liveBookings(trx: Tx, tripId: string, statuses: BookingStatus[] = LIVE_BOOKING) {
     return trx
       .selectFrom('intercity_bookings')
       .selectAll()
       .where('trip_id', '=', tripId)
-      .where('status', 'in', LIVE_BOOKING)
+      .where('status', 'in', statuses)
       .orderBy('created_at')
       .forUpdate()
       .execute();
+  }
+
+  /**
+   * Locks the deposit payment intents of a booking or of every booking of a trip, before the
+   * trip and its bookings: the payment callbacks lock an intent, then its booking, so this
+   * keeps one lock order.
+   */
+  private async lockDeposits(trx: Tx, of: { bookingId: string } | { tripId: string }) {
+    await trx
+      .selectFrom('payment_intents')
+      .select('id')
+      .$if('bookingId' in of, (q) =>
+        q.where('booking_id', '=', (of as { bookingId: string }).bookingId),
+      )
+      .$if('tripId' in of, (q) =>
+        q.where(
+          'booking_id',
+          'in',
+          trx
+            .selectFrom('intercity_bookings')
+            .select('id')
+            .where('trip_id', '=', (of as { tripId: string }).tripId),
+        ),
+      )
+      .orderBy('id')
+      .forUpdate()
+      .execute();
+  }
+
+  /**
+   * A deposit the platform held becomes the driver's (the trip was made, the rider did not
+   * come or cancelled late): credited to the balance once per booking (unique ledger index).
+   */
+  private async creditDeposit(trx: Tx, trip: Trip, b: Booking, why: string) {
+    if (b.deposit_amount <= 0) return;
+    await this.ledger.post(trx, {
+      driverId: trip.driver_id,
+      kind: 'deposit',
+      amount: b.deposit_amount,
+      bookingId: b.id,
+      note: `Oldindan to‘lov — shaharlararo bron #${b.number} (${why})`,
+    });
   }
 
   private async lockTrip(trx: Tx, tripId: string): Promise<Trip> {
@@ -1183,14 +1487,20 @@ export class IntercityService {
     return trip;
   }
 
-  private async findBooking(bookingId: string): Promise<Booking> {
-    const b = await this.db.kysely
+  private async findBooking(bookingId: string, db: Db = this.db.kysely): Promise<Booking> {
+    const b = await db
       .selectFrom('intercity_bookings')
       .selectAll()
       .where('id', '=', bookingId)
       .executeTakeFirst();
     if (!b) throw new NotFoundException('Bron topilmadi');
     return b;
+  }
+
+  /** Every town by id (a dozen rows), for views naming several. */
+  private async allPoints(): Promise<Map<string, Point>> {
+    const rows = await this.db.kysely.selectFrom('intercity_points').selectAll().execute();
+    return new Map(rows.map((p) => [p.id, p]));
   }
 
   private pointById(id: string) {
@@ -1206,6 +1516,15 @@ export class IntercityService {
   }
 }
 
+/** Whether a rider cancelling now is past the free window (`free_cancel_minutes` before). */
+export function isLate(
+  departureAt: Date,
+  rules: Pick<IntercityRules, 'free_cancel_minutes'>,
+  now: Date,
+): boolean {
+  return departureAt.getTime() - now.getTime() < rules.free_cancel_minutes * 60_000;
+}
+
 /** A rider's cancellation fee now: free until `free_cancel_minutes` before departure. */
 export function lateCancelFee(
   price: number,
@@ -1213,8 +1532,9 @@ export function lateCancelFee(
   rules: Pick<IntercityRules, 'free_cancel_minutes' | 'late_cancel_fee_percent'>,
   now: Date,
 ): number {
-  const late = departureAt.getTime() - now.getTime() < rules.free_cancel_minutes * 60_000;
-  return late ? Math.round((price * rules.late_cancel_fee_percent) / 100 / 100) * 100 : 0;
+  return isLate(departureAt, rules, now)
+    ? Math.round((price * rules.late_cancel_fee_percent) / 100 / 100) * 100
+    : 0;
 }
 
 export function pointView(p: Point) {

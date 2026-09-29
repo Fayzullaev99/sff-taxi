@@ -7,7 +7,7 @@ import { ConsoleSmsProvider } from '../src/core/sms/console.provider.js';
 import { SMS_PROVIDER } from '../src/core/sms/sms.provider.js';
 import { IntercityNotificationsHandler } from '../src/modules/notifications/intercity-notifications.handler.js';
 import { Notifier } from '../src/modules/notifications/notifier.js';
-import { DEFAULT_INTERCITY } from '../src/modules/settings/settings.module.js';
+import { DEFAULT_BOOKING, DEFAULT_INTERCITY } from '../src/modules/settings/settings.module.js';
 import {
   api,
   createDriver,
@@ -20,6 +20,9 @@ import {
 } from './helpers.js';
 
 const inMinutes = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
+/** The Tashkent date of a moment, as the board’s search takes it. */
+const tashkentDay = (iso: string) =>
+  new Date(new Date(iso).getTime() + 5 * 3_600_000).toISOString().slice(0, 10);
 
 describe('intercity trip board', () => {
   let app: INestApplication;
@@ -30,9 +33,15 @@ describe('intercity trip board', () => {
     app = await createTestApp();
     admin = api(app, (await signInAdmin(app)).accessToken);
     db = app.get(Database).kysely;
+    // bookings without a deposit here (test/intercity-deposits.test.ts has them)
+    await admin
+      .put('/v1/admin/settings/booking')
+      .send({ ...DEFAULT_BOOKING, deposit_percent: 0 })
+      .expect(200);
   });
   afterAll(async () => {
     await admin.put('/v1/admin/settings/intercity').send(DEFAULT_INTERCITY).expect(200);
+    await admin.put('/v1/admin/settings/booking').send(DEFAULT_BOOKING).expect(200);
     await app.close();
   });
 
@@ -40,10 +49,10 @@ describe('intercity trip board', () => {
   async function publish(
     driver: DriverFixture,
     over: Record<string, unknown> = {},
-  ): Promise<{ id: string; price: { rear: number; front: number } }> {
+  ): Promise<{ id: string; departureAt: string; price: { rear: number; front: number } }> {
     const res = await driver.http
       .post('/v1/driver/intercity/trips')
-      .send({ from: 'guliston', to: 'toshkent', departureAt: inMinutes(180), seats: 4, ...over })
+      .send({ from: 'guliston', to: 'toshkent', departureAt: inMinutes(180), seats: 3, ...over })
       .expect(201);
     return res.body;
   }
@@ -95,7 +104,11 @@ describe('intercity trip board', () => {
           seats: 3,
           ...over,
         });
-      expect((await post({ seats: 4 }).expect(400)).body.message).toMatch(/3 ta/);
+      // the seating rule: 1 front + 2 rear at most, whatever the car
+      expect((await post({ seats: 4 }).expect(400)).body.message).toMatch(/ko‘pi bilan 3/);
+      expect((await post({ frontSeat: false }).expect(400)).body.message).toBe(
+        'Orqa o‘rindiqqa 2 tadan ortiq yo‘lovchi olinmaydi',
+      );
       await post({ departureAt: inMinutes(5) }).expect(400);
       await post({ departureAt: inMinutes(8 * 1440) }).expect(400);
       const band = await post({ priceRear: 90_000 }).expect(422);
@@ -132,10 +145,17 @@ describe('intercity trip board', () => {
       const trip = await publish(d);
       const rider = await signIn(app);
       const found = await api(app, rider.accessToken)
-        .get(`/v1/intercity/trips?from=guliston&to=toshkent&seats=2`)
+        // the departure’s Tashkent date: late in the evening it is tomorrow
+        .get(
+          `/v1/intercity/trips?from=guliston&to=toshkent&seats=2&date=${tashkentDay(trip.departureAt)}`,
+        )
         .expect(200);
       const listed = found.body.find((t: { id: string }) => t.id === trip.id);
-      expect(listed).toMatchObject({ seats: { free: 4 }, price: { rear: 70_000, front: 80_000 } });
+      expect(listed).toMatchObject({
+        seats: { free: 3 },
+        price: { rear: 70_000, front: 80_000 },
+        alongTheWay: false,
+      });
       // browsing: the first name, the car, no phone and no plate
       expect(listed.driver.name).toBe('Aziz');
       expect(JSON.stringify(listed)).not.toMatch(/\+998|phone|plate/);
@@ -168,8 +188,8 @@ describe('intercity trip board', () => {
       await book(rider, trip.id).expect(409);
       const other = await signIn(app);
       expect((await book(other, trip.id, { front: true }).expect(409)).body.message).toMatch(/Old/);
-      await book(other, trip.id, { seats: 3 }).expect(409);
-      await book(other, trip.id, { seats: 2 }).expect(201);
+      await book(other, trip.id, { seats: 2 }).expect(409);
+      await book(other, trip.id, { seats: 1 }).expect(201);
       // full
       expect((await book(await signIn(app), trip.id).expect(409)).body.message).toMatch(/Bo‘sh/);
       // the driver cannot book their own trip
@@ -195,13 +215,13 @@ describe('intercity trip board', () => {
       const riders = await Promise.all(Array.from({ length: 7 }, () => signIn(app)));
       const results = await Promise.all(riders.map((r) => book(r, trip.id)));
       const statuses = results.map((r) => r.status).sort();
-      expect(statuses).toEqual([201, 201, 201, 201, 409, 409, 409]);
+      expect(statuses).toEqual([201, 201, 201, 409, 409, 409, 409]);
       const row = await db
         .selectFrom('intercity_trips')
         .select(['seats_booked'])
         .where('id', '=', trip.id)
         .executeTakeFirstOrThrow();
-      expect(row.seats_booked).toBe(4);
+      expect(row.seats_booked).toBe(3);
 
       const d2 = await createDriver(app, { online: false });
       const trip2 = await publish(d2);
@@ -225,7 +245,7 @@ describe('intercity trip board', () => {
         contact: null,
         canCancel: false,
       });
-      expect((await d.http.get(`/v1/driver/intercity/trips/${early.id}`)).body.seats.free).toBe(4);
+      expect((await d.http.get(`/v1/driver/intercity/trips/${early.id}`)).body.seats.free).toBe(3);
       // the seats can be booked again, by the same rider too
       await book(rider, early.id).expect(201);
 

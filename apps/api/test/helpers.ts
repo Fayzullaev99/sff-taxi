@@ -245,3 +245,14 @@ export async function quiesce(app: INestApplication): Promise<void> {
     .execute();
   await db.updateTable('drivers').set({ is_online: false }).execute();
 }
+
+/** The start code of a ride (night, shared, women-only and intercity rides have one). */
+export async function startPin(app: INestApplication, rideId: string): Promise<string | null> {
+  const row = await app
+    .get(Database)
+    .kysely.selectFrom('rides')
+    .select('start_pin')
+    .where('id', '=', rideId)
+    .executeTakeFirstOrThrow();
+  return row.start_pin;
+}

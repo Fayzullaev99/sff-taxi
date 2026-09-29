@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  alongTheWayShare,
   bookingPrice,
   driverSeatPrices,
+  partSeatPrice,
+  partSeatPrices,
   priceBand,
   referenceSeatPrices,
+  seatingError,
   wholeCarFare,
 } from './intercity.js';
 import { DEFAULT_TARIFF } from './tariff.js';
@@ -47,5 +51,53 @@ describe('intercity seat prices', () => {
     expect(bookingPrice(1, false, p)).toBe(70_000);
     expect(bookingPrice(1, true, p)).toBe(80_000);
     expect(bookingPrice(3, true, p)).toBe(220_000);
+  });
+});
+
+describe('the seating rule on the trip board', () => {
+  it('offers at most 1 front and 2 rear seats', () => {
+    expect(seatingError(3, true)).toBeNull();
+    expect(seatingError(2, false)).toBeNull();
+    expect(seatingError(1, false)).toBeNull();
+    expect(seatingError(3, false)).toMatch(/Orqa o‘rindiqqa 2 tadan ortiq/);
+    expect(seatingError(4, true)).toMatch(/ko‘pi bilan 3/);
+  });
+});
+
+describe('seats along the way', () => {
+  // the towns' centres (migrations/0002_geo.sql, 0009_intercity.sql)
+  const guliston = { lat: 40.4959816, lng: 68.7758675 };
+  const sirdaryo = { lat: 40.8309135, lng: 68.6661865 };
+  const baxt = { lat: 40.7204398, lng: 68.6926186 };
+  const shirin = { lat: 40.2302986, lng: 69.1263086 };
+  const toshkent = { lat: 41.2995, lng: 69.2401 };
+
+  it('finds riders whose towns the trip passes, in its direction', () => {
+    // Guliston -> Toshkent goes through Sirdaryo: ~12 km more by straight lines
+    const fromSirdaryo = alongTheWayShare(guliston, toshkent, sirdaryo, toshkent, 15);
+    expect(fromSirdaryo).toBeCloseTo(0.727, 2);
+    expect(alongTheWayShare(guliston, toshkent, guliston, sirdaryo, 15)).toBeCloseTo(0.394, 2);
+    // the other way round, too far aside, too short a part, a narrower corridor
+    expect(alongTheWayShare(guliston, toshkent, toshkent, sirdaryo, 15)).toBeNull();
+    expect(alongTheWayShare(guliston, toshkent, shirin, toshkent, 15)).toBeNull();
+    expect(alongTheWayShare(guliston, toshkent, guliston, baxt, 15)).toBeNull();
+    expect(alongTheWayShare(guliston, toshkent, sirdaryo, toshkent, 4)).toBeNull();
+    expect(alongTheWayShare(guliston, toshkent, guliston, toshkent, 0)).toBe(1);
+  });
+
+  it('prices part of a trip in proportion, at least 30% of the seat', () => {
+    // 70 000 x 0.727 = 50 890 -> 51 000
+    expect(partSeatPrice(70_000, 0.727)).toBe(51_000);
+    expect(partSeatPrice(70_000, 0.3)).toBe(21_000);
+    expect(partSeatPrice(70_000, 0.1)).toBe(21_000);
+    expect(partSeatPrice(70_500, 0.9999)).toBe(70_500);
+    expect(partSeatPrices({ rear: 70_000, front: 80_000 }, 0.394)).toEqual({
+      rear: 28_000,
+      front: 32_000,
+    });
+    expect(partSeatPrices({ rear: 70_000, front: 80_000 }, 1)).toEqual({
+      rear: 70_000,
+      front: 80_000,
+    });
   });
 });

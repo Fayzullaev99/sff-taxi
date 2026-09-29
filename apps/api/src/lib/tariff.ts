@@ -134,6 +134,38 @@ export interface Fare {
   total: number;
   /** Intercity only: what one seat would cost (rear, front). */
   seat: { rear: number; front: number } | null;
+  /** A fixed route price (between towns) instead of the tariff's distance price. */
+  fixed?: FixedPrice | null;
+}
+
+export interface FixedPrice {
+  routeFareId: string;
+  /** car: the whole car; seat: per person in a shared car. */
+  mode: 'car' | 'seat';
+  /** The route's price of the whole car, or of one seat. */
+  price: number;
+  /** People paying a seat each (seat mode). */
+  passengers: number;
+}
+
+/**
+ * A fixed route's fare: the route's price (per seat × people, or the whole car) plus the
+ * options, never a night add-on (fixed means fixed). The distance parts stay for the record.
+ */
+export function fixedFare(fare: Fare, fixed: FixedPrice): Fare {
+  const base = fixed.mode === 'seat' ? fixed.price * fixed.passengers : fixed.price;
+  const options: Partial<Record<RideOption, number>> = { ...fare.options };
+  const optionsTotal = Object.values(options).reduce((s, v) => s + v, 0);
+  return {
+    ...fare,
+    base,
+    outside: 0,
+    night: 0,
+    options,
+    total: roundUp100(base + optionsTotal),
+    seat: null,
+    fixed,
+  };
 }
 
 function minuteOf(hhmm: string): number {

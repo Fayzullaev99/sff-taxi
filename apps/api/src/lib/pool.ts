@@ -129,6 +129,8 @@ export interface Insertion {
   maxDelayS: number;
   /** Road metres of the new rider's own trip in the plan (pickup to drop-off). */
   riderInCarM: number;
+  /** The new plan as indices into the matrix points (0 = the car). */
+  order: number[];
 }
 
 /** The points of an insertion's matrix, in the order InsertionInput.matrix expects. */
@@ -292,15 +294,65 @@ export function bestInsertion(input: InsertionInput): Insertion | null {
         best = {
           stops: order.map(stopOf),
           pickupEtaS: Math.round(pickupEtaS),
-          addedS: Math.round(addedS),
-          addedM: Math.round(w.totalM - base.totalM),
+          // straight roads give -0.4 s of float noise: never a negative detour
+          addedS: Math.max(0, Math.round(addedS)),
+          addedM: Math.max(0, Math.round(w.totalM - base.totalM)),
           maxDelayS: Math.round(maxDelayS),
           riderInCarM: Math.round(w.at[posD]!.m - w.at[posP]!.m),
+          order,
         };
       }
     }
   }
   return best;
+}
+
+/**
+ * The stops ahead of a car from its active rides: the stored plan's order where it still
+ * holds, missing stops appended (a pickup always before its drop-off). A rider already in
+ * the car has only a drop-off left.
+ */
+export function deriveStops(
+  rides: readonly {
+    id: string;
+    status: string;
+    passengers: number;
+    pickup: Point;
+    dropoff: Point;
+  }[],
+  plan: readonly PlanStop[],
+): PlanStop[] {
+  const byId = new Map(rides.map((r) => [r.id, r]));
+  const wanted = (id: string, type: PlanStop['type']) => {
+    const r = byId.get(id);
+    if (!r) return false;
+    if (type === 'dropoff') return true;
+    return type === 'pickup' && r.status !== 'in_progress';
+  };
+  const stop = (r: (typeof rides)[number], type: 'pickup' | 'dropoff'): PlanStop => ({
+    rideId: r.id,
+    type,
+    ...(type === 'pickup' ? r.pickup : r.dropoff),
+    passengers: r.passengers,
+  });
+  const out = plan.filter((s) => s.rideId && wanted(s.rideId, s.type)).map((s) => ({ ...s }));
+  for (const r of rides) {
+    for (const type of ['pickup', 'dropoff'] as const) {
+      if (wanted(r.id, type) && !out.some((s) => s.rideId === r.id && s.type === type)) {
+        out.push(stop(r, type));
+      }
+    }
+  }
+  // a drop-off listed before its pickup goes right after it
+  for (const r of rides) {
+    const p = out.findIndex((s) => s.rideId === r.id && s.type === 'pickup');
+    const d = out.findIndex((s) => s.rideId === r.id && s.type === 'dropoff');
+    if (p >= 0 && d >= 0 && d < p) {
+      const [drop] = out.splice(d, 1);
+      out.splice(p, 0, drop!);
+    }
+  }
+  return out;
 }
 
 /**

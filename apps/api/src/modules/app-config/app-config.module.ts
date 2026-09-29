@@ -2,6 +2,7 @@ import { Controller, Get, Inject, Injectable, Module } from '@nestjs/common';
 import { ENV, type Env } from '../../config/env.js';
 import { Public } from '../../core/auth/auth-context.js';
 import { RateLimit } from '../../core/http/rate-limit.js';
+import { MAX_REAR_SEATS, MAX_TRIP_SEATS } from '../../lib/intercity.js';
 import { DECLINE_REASONS, DRIVER_CANCEL_REASONS } from '../../lib/reasons.js';
 import { TRIP_SPACING_HOURS } from '../intercity/intercity.service.js';
 import { enabledProviders, TOPUP_MAX, TOPUP_MIN } from '../payments/payment-config.js';
@@ -26,7 +27,10 @@ export class AppConfigService {
   /** What every app reads on start: contacts, required versions, what is switched on. */
   async public() {
     const providers = enabledProviders(this.env);
-    const intercity = await this.settings.intercity();
+    const [intercity, booking] = await Promise.all([
+      this.settings.intercity(),
+      this.settings.booking(),
+    ]);
     return {
       support: this.support(),
       // null: no forced update (set MIN_*_APP_VERSION to require one)
@@ -61,6 +65,16 @@ export class AppConfigService {
       intercity: {
         freeCancelMinutes: intercity.free_cancel_minutes,
         lateCancelFeePercent: intercity.late_cancel_fee_percent,
+        // the seating rule: 1 front + 2 rear passengers at most
+        maxSeats: MAX_TRIP_SEATS,
+        maxRearSeats: MAX_REAR_SEATS,
+      },
+      // bookings in advance: this share of the price is paid by card first, the rest in cash
+      // (0 percent: no deposit); unpaid within paymentMinutes the booking is dropped
+      deposits: {
+        percent: booking.deposit_percent,
+        min: booking.deposit_min,
+        paymentMinutes: booking.payment_minutes,
       },
       shareBaseUrl: this.env.SHARE_BASE_URL,
     };
@@ -103,6 +117,11 @@ export class AppConfigService {
         priceBandPercent: intercity.price_band_percent,
         freeCancelMinutes: intercity.free_cancel_minutes,
         lateCancelFeePercent: intercity.late_cancel_fee_percent,
+        // the seating rule: at most 3 seats offered, never more than 2 in the back
+        maxSeats: MAX_TRIP_SEATS,
+        maxRearSeats: MAX_REAR_SEATS,
+        // riders between other towns the trip passes may book a seat for their part
+        alongRouteMaxKm: intercity.along_route_max_km,
       },
       declineReasons: DECLINE_REASONS,
       cancelReasons: DRIVER_CANCEL_REASONS,

@@ -13,7 +13,11 @@ import type { FiscalProvider, IssuedReceipt } from '../src/modules/fiscal/fiscal
 import { FiscalHandler } from '../src/modules/fiscal/fiscal.module.js';
 import { FiscalService } from '../src/modules/fiscal/fiscal.service.js';
 import type { ReceiptPayload } from '../src/modules/fiscal/receipt-payload.js';
-import { DEFAULT_FISCAL, SettingsService } from '../src/modules/settings/settings.module.js';
+import {
+  DEFAULT_BOOKING,
+  DEFAULT_FISCAL,
+  SettingsService,
+} from '../src/modules/settings/settings.module.js';
 import {
   ALL_DOCUMENTS,
   api,
@@ -26,6 +30,7 @@ import {
   orderRide,
   signIn,
   signInAdmin,
+  startPin,
 } from './helpers.js';
 
 /** An OFD that fails when told to, and remembers what it issued. */
@@ -53,9 +58,15 @@ describe('fiscal receipts and licence checks', () => {
     app = await createTestApp();
     admin = api(app, (await signInAdmin(app)).accessToken);
     db = app.get(Database).kysely;
+    // seats booked without a deposit here (test/intercity-deposits.test.ts has them)
+    await admin
+      .put('/v1/admin/settings/booking')
+      .send({ ...DEFAULT_BOOKING, deposit_percent: 0 })
+      .expect(200);
   });
   afterAll(async () => {
     await admin.put('/v1/admin/settings/fiscal').send(DEFAULT_FISCAL).expect(200);
+    await admin.put('/v1/admin/settings/booking').send(DEFAULT_BOOKING).expect(200);
     await app.close();
   });
 
@@ -65,7 +76,8 @@ describe('fiscal receipts and licence checks', () => {
     const { id } = await orderRide(app, rider, { pickup: GULISTON, dropoff: MID });
     await admin.post(`/v1/admin/rides/${id}/assign`).send({ driverId: driver.id }).expect(200);
     await driver.http.post(`/v1/driver/rides/${id}/arrive`).expect(200);
-    await driver.http.post(`/v1/driver/rides/${id}/start`).expect(200);
+    const pin = await startPin(app, id);
+    await driver.http.post(`/v1/driver/rides/${id}/start`).send({ pin }).expect(200);
     await driver.http.post(`/v1/driver/rides/${id}/complete`).expect(200);
     return { id, rider };
   }

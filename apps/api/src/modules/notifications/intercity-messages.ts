@@ -34,6 +34,14 @@ export const intercityPush = {
     l === 'ru'
       ? { title: 'Водитель ждёт на месте сбора', body: `${route(t)}. ${t.meetingPoint}` }
       : { title: 'Haydovchi yig‘ilish joyida', body: `${route(t)}. ${t.meetingPoint}` },
+  depositPaid: (l: Locale, t: TripText, cash: number): PushText =>
+    l === 'ru'
+      ? { title: 'Бронь подтверждена', body: `${route(t)}. Водителю наличными: ${soum(cash)}` }
+      : { title: 'Bron tasdiqlandi', body: `${route(t)}. Haydovchiga naqd: ${soum(cash)}` },
+  unpaidCancelled: (l: Locale, t: TripText): PushText =>
+    l === 'ru'
+      ? { title: 'Бронь снята', body: `${route(t)}: предоплата не поступила вовремя` }
+      : { title: 'Bron bekor qilindi', body: `${route(t)}: oldindan to‘lov vaqtida qilinmadi` },
   tripCancelled: (l: Locale, t: TripText, reason: string | null): PushText =>
     l === 'ru'
       ? { title: 'Поездка отменена', body: `${route(t)}${reason ? `: ${reason}` : ''}` }

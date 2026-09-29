@@ -38,7 +38,9 @@ export type OutboxTopic =
   /** An operator answered a driver's appeal. { appealId, driverId } */
   | 'driver.appeal_resolved'
   /** A driver's licence card was checked (by an operator or the registry). { driverId, result } */
-  | 'driver.licence_checked';
+  | 'driver.licence_checked'
+  /** A shared ride's price changed: another rider joined or left the car. { rideId, cause, discount, pays } */
+  | 'ride.pool_changed';
 
 /**
  * Records an event in the caller's transaction: it is delivered by the worker

@@ -22,6 +22,7 @@ import { RateLimit } from '../../core/http/rate-limit.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
 import { BillingModule } from '../billing/billing.module.js';
 import { GeoCoreModule } from '../geo/geo-core.module.js';
+import { PaymentsCoreModule } from '../payments/payments.module.js';
 import { IntercityService } from './intercity.service.js';
 
 const PointRef = z.string().trim().min(2).max(40);
@@ -39,6 +40,11 @@ const SearchQuery = z.object({
   to: PointRef,
   date: DateString.optional(),
   seats: z.coerce.number().int().min(1).max(4).default(1),
+  /** false: only trips between exactly these towns, not those passing them (along the way). */
+  along: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
 });
 const PublishBody = z.object({
   from: PointRef,
@@ -52,11 +58,18 @@ const PublishBody = z.object({
   meetingPoint: z.string().trim().min(3).max(200).nullable().default(null),
   comment: z.string().trim().min(1).max(500).nullable().default(null),
 });
+/** A seat along the way: the rider's own towns (as the search found it); the trip's ends when left out. */
+const PartOfTrip = {
+  from: PointRef.nullable().default(null),
+  to: PointRef.nullable().default(null),
+};
 const BookBody = z.object({
+  // the seating rule (at most 3) is checked by the service, with its message
   seats: z.number().int().min(1).max(4).default(1),
   front: z.boolean().default(false),
   pickupNote: z.string().trim().min(1).max(300).nullable().default(null),
   clientRequestId: z.uuid(),
+  ...PartOfTrip,
 });
 const PhoneBookBody = z.object({
   riderPhone: UzPhone,
@@ -66,6 +79,7 @@ const PhoneBookBody = z.object({
   pickupNote: z.string().trim().min(1).max(300).nullable().default(null),
   /** The panel's idempotency key: a repeated request returns the same booking (200). */
   clientRequestId: z.uuid().nullable().default(null),
+  ...PartOfTrip,
 });
 const DriverTripsQuery = Cursor.extend({
   /** upcoming: not arrived or cancelled, soonest first; all: latest departure first. */
@@ -117,7 +131,10 @@ export class IntercityController {
     return this.intercity.fare(q.from, q.to, q.class);
   }
 
-  /** Open departures of a route on a date with at least `seats` free seats. */
+  /**
+   * Open departures of a route on a date with at least `seats` free seats, then trips
+   * passing both towns (`alongTheWay: true`, priced for the rider's part).
+   */
   @Get('trips')
   @RateLimit({ name: 'intercity:search', by: 'user', max: 60, windowSeconds: 60 })
   search(@Query(new ZodPipe(SearchQuery)) q: z.output<typeof SearchQuery>) {
@@ -129,7 +146,10 @@ export class IntercityController {
     return this.intercity.trip(user, id);
   }
 
-  /** Books seats: 201 for a new booking, 200 when the clientRequestId was seen before. */
+  /**
+   * Books seats: 201 for a new booking, 200 when the clientRequestId was seen before. With
+   * deposits on, the booking is `awaiting_payment` until `payment.checkout` is paid.
+   */
   @Post('trips/:id/bookings')
   @RateLimit({ name: 'intercity:book', by: 'user', max: 10, windowSeconds: 60 })
   async book(
@@ -321,10 +341,17 @@ export class AdminIntercityController {
   }
 }
 
+/** The trip board's service, for the API and the worker (housekeeping). */
 @Module({
-  imports: [GeoCoreModule, BillingModule],
-  controllers: [IntercityController, DriverIntercityController, AdminIntercityController],
+  imports: [GeoCoreModule, BillingModule, PaymentsCoreModule],
   providers: [IntercityService],
   exports: [IntercityService],
+})
+export class IntercityCoreModule {}
+
+@Module({
+  imports: [IntercityCoreModule],
+  controllers: [IntercityController, DriverIntercityController, AdminIntercityController],
+  exports: [IntercityCoreModule],
 })
 export class IntercityModule {}
