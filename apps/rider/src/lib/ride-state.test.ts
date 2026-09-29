@@ -191,7 +191,7 @@ describe('eta', () => {
       'Eng yaqin mashina ~4 daq',
     );
     // the class card's short form (one line at font scale 1.3)
-    expect(availabilityShort({ etaS: 200, cars: 3 })?.replace(/ /g, ' ')).toBe(
+    expect(availabilityShort({ etaS: 200, cars: 3 })?.replace(/\u00a0/g, ' ')).toBe(
       'Mashina ~4 daq',
     );
     expect(availabilityShort({ etaS: null, cars: 0 })).toBe('Mashina yo‘q');
