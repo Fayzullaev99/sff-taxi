@@ -210,6 +210,8 @@ export interface LiveFilters {
   rideClass: RideClass | 'all';
   /** Only rides waiting for an operator. */
   attentionOnly: boolean;
+  /** Taxi cars (taxi rides, deliveries) or cargo cars (cargo rides). */
+  fleet?: 'all' | 'taxi' | 'cargo';
 }
 
 export const DEFAULT_LIVE_FILTERS: LiveFilters = {
@@ -217,6 +219,7 @@ export const DEFAULT_LIVE_FILTERS: LiveFilters = {
   rideStatuses: ['searching', 'driver_assigned', 'driver_arrived', 'in_progress'],
   rideClass: 'all',
   attentionOnly: false,
+  fleet: 'all',
 };
 
 /** Rides waiting for an operator first, then searching ones, oldest first within each. */
@@ -227,16 +230,25 @@ export function sortForDispatch(rides: readonly AdminRideItem[]): AdminRideItem[
   );
 }
 
+/** Cargo cars and cargo rides on one side, taxi cars with taxi rides and deliveries on the other. */
+function fleetMatches(fleet: LiveFilters['fleet'], cargo: boolean): boolean {
+  return !fleet || fleet === 'all' || (fleet === 'cargo') === cargo;
+}
+
 export function filterLive(board: LiveBoard, f: LiveFilters): LiveBoard {
   return {
     drivers: board.drivers.filter(
-      (d) => f.driverStates.includes(d.state) && (f.rideClass === 'all' || d.class === f.rideClass),
+      (d) =>
+        f.driverStates.includes(d.state) &&
+        (f.rideClass === 'all' || d.class === f.rideClass) &&
+        fleetMatches(f.fleet, Boolean(d.cargoClass)),
     ),
     rides: sortForDispatch(
       board.rides.filter(
         (r) =>
           f.rideStatuses.includes(r.status) &&
           (f.rideClass === 'all' || r.class === f.rideClass) &&
+          fleetMatches(f.fleet, r.service === 'cargo') &&
           (!f.attentionOnly || needsDriver(r)),
       ),
     ),
