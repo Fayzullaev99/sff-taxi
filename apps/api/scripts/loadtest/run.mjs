@@ -1,4 +1,4 @@
-/* global process, URL, performance, Buffer, setTimeout, console */
+/* global process, URL, performance, Buffer, setTimeout, console, fetch */
 /**
  * Load test against a running API + worker on a SEEDED THROWAWAY database (seed.ts):
  *
@@ -9,6 +9,13 @@
  * send a GPS fix every 4 s for the whole run; drivers hear their offers the way the app's
  * stream does (the realtime Redis channel the API relays) and accept through the API.
  * Prints p50/p95/p99 per endpoint as JSON lines and a summary table.
+ *
+ * LOAD_WAVE4=1 adds wave 4 (docs/shared-rides.md): LOAD_POOL_SHARE of the online drivers take
+ * shared rides (PUT driver/preferences, a third of them heading somewhere), LOAD_SHAREABLE of
+ * the orders agree to share, some verified women drivers and women riders (a few women-only
+ * orders). Drivers then follow their stop list (GET driver/rides/current, the next stop's
+ * ride; start codes from the rider's view) and keep taking offers on their way; a trip takes
+ * LOAD_TRIP_S. The worker's dispatch tick histogram (LOAD_WORKER/metrics) is reported too.
  */
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
@@ -23,6 +30,13 @@ const PHASE_S = Number(process.env.LOAD_PHASE_S ?? 20);
 const CYCLE_S = Number(process.env.LOAD_CYCLE_S ?? 60);
 const RIDER_FLOWS = Number(process.env.LOAD_RIDER_FLOWS ?? 20);
 const CENTER = { lat: 40.49598, lng: 68.77587 };
+const STATION = { lat: 40.5, lng: 68.825 };
+const WAVE4 = process.env.LOAD_WAVE4 === '1';
+const POOL_SHARE = Number(process.env.LOAD_POOL_SHARE ?? 0.2);
+const SHAREABLE = Number(process.env.LOAD_SHAREABLE ?? 0.3);
+const WOMEN_ONLY = Number(process.env.LOAD_WOMEN_ONLY ?? 0.05);
+const TRIP_MS = Number(process.env.LOAD_TRIP_S ?? 15) * 1000;
+const WORKER = process.env.LOAD_WORKER ?? 'http://localhost:3271';
 
 const agent = new http.Agent({ keepAlive: true, maxSockets: 256 });
 const url = new URL(API);
@@ -129,7 +143,68 @@ const driverById = new Map(drivers.map((d) => [d.id, d]));
 const someDriverIds = (
   await db.query(`SELECT user_id FROM drivers ORDER BY random() LIMIT 50`)
 ).rows.map((r) => r.user_id);
+if (WAVE4) {
+  // one driver in ten a verified woman (none of them women-riders-only), 45% women riders
+  await db.query(
+    `UPDATE drivers SET gender = 'female', gender_verified_at = coalesce(gender_verified_at, now())
+     WHERE abs(hashtext(user_id::text)) % 10 = 0`,
+  );
+  await db.query(
+    `UPDATE users SET gender = CASE WHEN abs(hashtext(id::text)) % 100 < 45 THEN 'female' ELSE 'male' END
+     WHERE id = ANY($1::uuid[])`,
+    [riders.map((r) => r.id)],
+  );
+  const women = new Set(
+    (
+      await db.query(`SELECT id FROM users WHERE id = ANY($1::uuid[]) AND gender = 'female'`, [
+        riders.map((r) => r.id),
+      ])
+    ).rows.map((r) => r.id),
+  );
+  for (const r of riders) r.female = women.has(r.id);
+}
 await db.end();
+
+/** The worker's dispatch tick histogram: cumulative buckets, sum and count. */
+async function tickHistogram() {
+  const res = await fetch(`${WORKER}/metrics`).catch(() => null);
+  if (!res?.ok) return null;
+  const text = await res.text();
+  const buckets = [];
+  let sum = 0;
+  let count = 0;
+  for (const line of text.split('\n')) {
+    const b = /^dispatch_tick_seconds_bucket\{le="([^"]+)".*\} (\S+)$/.exec(line);
+    if (b) buckets.push([b[1] === '+Inf' ? Infinity : Number(b[1]), Number(b[2])]);
+    const s = /^dispatch_tick_seconds_sum\{.*\} (\S+)$/.exec(line);
+    if (s) sum = Number(s[1]);
+    const c = /^dispatch_tick_seconds_count\{.*\} (\S+)$/.exec(line);
+    if (c) count = Number(c[1]);
+  }
+  return { buckets, sum, count };
+}
+/** p50/p95/p99 (ms, linear within a bucket) and the mean of the ticks between two scrapes. */
+function tickSummary(a, b) {
+  if (!a || !b || b.count <= a.count) return null;
+  const n = b.count - a.count;
+  const at = (p) => {
+    const want = (p / 100) * n;
+    let lower = 0;
+    let below = 0;
+    for (const [i, [le, cum]] of b.buckets.entries()) {
+      const c = cum - (a.buckets[i]?.[1] ?? 0);
+      if (c >= want) {
+        if (le === Infinity) return lower * 1000;
+        return (lower + ((want - below) / Math.max(1, c - below)) * (le - lower)) * 1000;
+      }
+      lower = le;
+      below = c;
+    }
+    return lower * 1000;
+  };
+  return { n, p50: at(50), p95: at(95), p99: at(99), mean: ((b.sum - a.sum) / n) * 1000 };
+}
+const ticksAtStart = await tickHistogram();
 
 await call(null, 'POST', '/auth/code', null, { phone: '+998900000001' });
 const adminLogin = await call(null, 'POST', '/auth/verify', null, {
@@ -149,6 +224,22 @@ await Promise.all(
   }),
 );
 console.log(`${drivers.length} drivers online, ${riders.length} rider tokens`);
+if (WAVE4) {
+  // shared rides on for POOL_SHARE of the drivers; a third of them heading somewhere
+  const poolDrivers = drivers.slice(0, Math.round(drivers.length * POOL_SHARE));
+  await Promise.all(
+    poolDrivers.map(async (d, i) => {
+      d.pool = true;
+      const dest = i % 3 === 0 ? around(STATION, 2000) : null;
+      const res = await call('driver/preferences', 'PUT', '/driver/preferences', d.token, {
+        poolEnabled: true,
+        ...(dest ? { destination: { ...dest, address: 'Guliston' } } : {}),
+      });
+      if (res.status !== 200) console.log('preferences', res.status, JSON.stringify(res.body));
+    }),
+  );
+  console.log(`${poolDrivers.length} drivers take shared rides`);
+}
 
 // Background: every online driver sends a fix every FIX_EVERY_MS ------------------------------
 let running = true;
@@ -172,22 +263,41 @@ const rideWaiters = new Map();
 /** rideId -> when its order was answered; the first offer.new of the ride is timed from it. */
 const offerWaiters = new Map();
 const offerMs = [];
+const offerMsShared = [];
+/** Orders that agreed to share (timed separately). */
+const sharedRides = new Set();
 await sub.subscribe('taxi:realtime');
 sub.on('message', (_c, raw) => {
   const m = JSON.parse(raw);
   const e = m.event;
   if (e.type === 'offer.new' && offerWaiters.has(e.rideId)) {
-    offerMs.push(performance.now() - offerWaiters.get(e.rideId));
+    const ms = performance.now() - offerWaiters.get(e.rideId);
+    (sharedRides.has(e.rideId) ? offerMsShared : offerMs).push(ms);
     offerWaiters.delete(e.rideId);
   }
   if (e.type === 'offer.new') {
     const d = driverById.get(e.driverId);
-    if (d && !d.busy) void acceptAndDrive(d, e.offerId);
+    if (WAVE4) {
+      // a car taking shared rides hears offers on its way while carrying riders
+      if (d && !d.reading && (!d.busy || d.pool)) void acceptOnTheWay(d, e.offerId);
+    } else if (d && !d.busy) void acceptAndDrive(d, e.offerId);
   }
   if (e.type === 'ride.updated' && e.status === 'driver_assigned') {
     rideWaiters.get(e.rideId)?.();
   }
 });
+
+/** rideId -> start code (from the rider's view) and the rider's token. */
+const pins = new Map();
+const riderOfRide = new Map();
+/** The start code the rider tells the driver (the rider's view shows it). */
+async function startPin(rideId) {
+  if (!pins.has(rideId) && riderOfRide.has(rideId)) {
+    const view = await call(null, 'GET', `/rides/${rideId}`, riderOfRide.get(rideId));
+    if (view.body?.startPin) pins.set(rideId, view.body.startPin);
+  }
+  return pins.get(rideId) ?? null;
+}
 
 async function acceptAndDrive(d, offerId) {
   d.busy = true;
@@ -205,13 +315,93 @@ async function acceptAndDrive(d, offerId) {
   const rideId = res.body.id;
   for (const stepName of ['arrive', 'start', 'complete']) {
     await sleep(1000);
+    // rides at night (and shared, women-only, intercity) start with the rider's code
+    const body =
+      stepName === 'start' && res.body.hasStartPin ? { pin: await startPin(rideId) } : undefined;
     await call(
       `driver/rides/:id/${stepName}`,
       'POST',
       `/driver/rides/${rideId}/${stepName}`,
       d.token,
+      body,
     );
   }
+  d.busy = false;
+}
+
+let joins = 0;
+let alongAccepts = 0;
+const recordAs = (name, res) => {
+  record(name, res.ms, res.status > 0 && (res.status < 400 || res.status === 409));
+  const s = stats.get(name);
+  s.codes[res.status] = (s.codes[res.status] ?? 0) + 1;
+};
+
+async function acceptOnTheWay(d, offerId) {
+  d.reading = true;
+  // the app fetches its offers when the stream says there is one
+  const list = await call('driver/offers', 'GET', '/driver/offers', d.token);
+  const offer = Array.isArray(list.body) ? list.body.find((o) => o.id === offerId) : null;
+  await sleep(1500 + Math.random() * 2000); // the driver reads the offer
+  const res = await call(null, 'POST', `/driver/offers/${offerId}/accept`, d.token);
+  d.reading = false;
+  const joined = res.status === 200 && res.body?.pool != null;
+  if (joined) joins++;
+  if (offer?.along) alongAccepts++;
+  recordAs(
+    joined
+      ? 'driver/offers/:id/accept (join)'
+      : offer?.along
+        ? 'driver/offers/:id/accept (along)'
+        : 'driver/offers/:id/accept',
+    res,
+  );
+  if (res.status === 200 && !d.driving) void drive(d);
+}
+
+/** Follows the car's stops: the current ride is always the next stop's. */
+async function drive(d) {
+  d.driving = true;
+  d.busy = true;
+  const startedAt = new Map();
+  let failures = 0;
+  while (failures < 5) {
+    const cur = await call('driver/rides/current', 'GET', '/driver/rides/current', d.token);
+    if (cur.body?.ride?.pool) recordAs('driver/rides/current (pool stops)', cur);
+    const r = cur.body?.ride;
+    if (cur.status !== 200 || !r?.id) break;
+    let step;
+    if (r.status === 'driver_assigned') {
+      await sleep(1000);
+      step = await call('driver/rides/:id/arrive', 'POST', `/driver/rides/${r.id}/arrive`, d.token);
+    } else if (r.status === 'driver_arrived') {
+      await sleep(1000);
+      const pin = r.hasStartPin ? await startPin(r.id) : null;
+      step = await call('driver/rides/:id/start', 'POST', `/driver/rides/${r.id}/start`, d.token, {
+        pin,
+      });
+      startedAt.set(r.id, Date.now());
+    } else if (r.status === 'in_progress') {
+      const since = startedAt.get(r.id) ?? Date.now();
+      startedAt.set(r.id, since);
+      const left = TRIP_MS - (Date.now() - since);
+      if (left > 0) {
+        await sleep(Math.min(2000, left)); // the app refreshes the stops on the way
+        continue;
+      }
+      step = await call(
+        'driver/rides/:id/complete',
+        'POST',
+        `/driver/rides/${r.id}/complete`,
+        d.token,
+      );
+    } else {
+      await sleep(1000);
+      continue;
+    }
+    failures = step.status === 200 ? 0 : failures + 1;
+  }
+  d.driving = false;
   d.busy = false;
 }
 
@@ -250,6 +440,8 @@ await phase('admin drivers', 3, Math.max(8, PHASE_S / 2), () =>
 
 // Phase 3: the order + dispatch cycle with operators watching ------------------------------------
 const cycleMs = [];
+const cycleMsShared = [];
+const ticksAtCycle = await tickHistogram();
 let missed = 0;
 const until = Date.now() + CYCLE_S * 1000;
 const watchers = [
@@ -277,16 +469,20 @@ await Promise.all([
     while (Date.now() < until) {
       const r = nextRider();
       const pickup = around(CENTER, 4000);
+      // riders who share mostly go the same way (towards the station, ~4 km east)
+      const shareable = WAVE4 && Math.random() < SHAREABLE;
       const q = await call('rides/quote (busy)', 'POST', '/rides/quote', r.token, {
         pickup,
-        dropoff: around(CENTER, 7000),
+        dropoff: shareable ? around(STATION, 2000) : around(CENTER, 7000),
       });
       if (q.status !== 200) continue;
       let done;
       const assignedAt = new Promise((resolve) => (done = resolve));
+      const womenOnly = WAVE4 && r.female && Math.random() < WOMEN_ONLY * 2;
       const o = await call('rides (order)', 'POST', '/rides', r.token, {
         quoteId: q.body.quoteId,
         class: 'economy',
+        ...(WAVE4 ? { shareable, womenOnly } : {}),
         pickup: { address: 'Guliston', landmark: null },
         dropoff: { address: 'Guliston', landmark: null },
         clientRequestId: randomUUID(),
@@ -295,18 +491,22 @@ await Promise.all([
       orders++;
       // measured from the order's answer to the rider hearing "driver assigned"
       const started = performance.now();
+      if (shareable) sharedRides.add(o.body.id);
+      riderOfRide.set(o.body.id, r.token);
       offerWaiters.set(o.body.id, started);
       rideWaiters.set(o.body.id, () => done(performance.now() - started));
       const ms = await Promise.race([assignedAt, sleep(45_000).then(() => null)]);
       rideWaiters.delete(o.body.id);
       if (ms === null) missed++;
-      else cycleMs.push(ms);
+      else (shareable ? cycleMsShared : cycleMs).push(ms);
       // the rider app shows the ride once
-      await call('rides/:id', 'GET', `/rides/${o.body.id}`, r.token);
+      const view = await call('rides/:id', 'GET', `/rides/${o.body.id}`, r.token);
+      if (view.body?.startPin) pins.set(o.body.id, view.body.startPin);
       await sleep(2000);
     }
   }),
 ]);
+const ticksAtEnd = await tickHistogram();
 running = false;
 await Promise.all(locationLoops);
 await sub.quit();
@@ -339,6 +539,41 @@ rows.push({
   errors: missed,
   codes: { orders },
 });
+if (WAVE4) {
+  rows.push({
+    endpoint: 'order → first offer (shareable)',
+    n: offerMsShared.length,
+    p50: Math.round(pct(offerMsShared, 50) ?? 0),
+    p95: Math.round(pct(offerMsShared, 95) ?? 0),
+    p99: Math.round(pct(offerMsShared, 99) ?? 0),
+    errors: 0,
+    codes: {},
+  });
+  rows.push({
+    endpoint: 'order → driver assigned (shareable)',
+    n: cycleMsShared.length,
+    p50: Math.round(pct(cycleMsShared, 50) ?? 0),
+    p95: Math.round(pct(cycleMsShared, 95) ?? 0),
+    p99: Math.round(pct(cycleMsShared, 99) ?? 0),
+    errors: 0,
+    codes: { joins, alongAccepts },
+  });
+}
+for (const [label, t] of [
+  ['dispatch tick (whole run)', tickSummary(ticksAtStart, ticksAtEnd)],
+  ['dispatch tick (order cycle)', tickSummary(ticksAtCycle, ticksAtEnd)],
+]) {
+  if (!t) continue;
+  rows.push({
+    endpoint: label,
+    n: t.n,
+    p50: Math.round(t.p50),
+    p95: Math.round(t.p95),
+    p99: Math.round(t.p99),
+    errors: 0,
+    codes: { meanMs: Math.round(t.mean) },
+  });
+}
 console.table(rows.map(({ codes, ...r }) => ({ ...r, codes: JSON.stringify(codes) })));
 console.log(JSON.stringify(rows));
 agent.destroy();

@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, type OnApplicationShutdown } from '@nestjs/common';
 import { createServer, type Server, type ServerResponse } from 'node:http';
 import { sql } from 'kysely';
-import type { Registry } from 'prom-client';
+import { Histogram, type Registry } from 'prom-client';
 import { ENV, type Env } from './config/env.js';
 import { Database } from './core/db/database.js';
 import { OutboxDispatcher, WORKER_METRICS } from './core/outbox/dispatcher.js';
@@ -28,6 +28,13 @@ export class WorkerRuntime implements OnApplicationShutdown {
 
   async start(): Promise<void> {
     this.dispatcher.start();
+    const ticks = new Histogram({
+      name: 'dispatch_tick_seconds',
+      help: 'Duration of one dispatcher tick (expire offers, move every waiting ride on)',
+      buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+      registers: [this.registry],
+    });
+    this.dispatch.onTick = (seconds) => ticks.observe(seconds);
     this.dispatch.start();
     this.housekeeping.start();
     this.positions.start();
