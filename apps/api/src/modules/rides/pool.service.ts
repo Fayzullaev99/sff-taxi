@@ -441,7 +441,10 @@ export class PoolService {
   /** What riders of a car see about it: people in it and free seats. */
   async occupancy(driverId: string, db: Db = this.db.kysely) {
     const car = await this.car(db, driverId);
-    if (!car) return null;
+    return car ? this.occupancyOf(car) : null;
+  }
+
+  occupancyOf(car: Car) {
     const riding = car.rides
       .filter((r) => r.status === 'in_progress')
       .reduce((s, r) => s + r.passengers, 0);

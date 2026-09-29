@@ -1676,7 +1676,6 @@ export class RidesService {
     const ride = await this.findRide(rideId);
     if (ride.rider_id !== user.userId) throw new NotFoundException('Buyurtma topilmadi');
     const base = this.baseView(ride);
-    const driver = ride.driver_id ? await this.driverCard(ride.driver_id) : null;
     const tariff = this.tariffOf(ride);
     const cancelFeeNow =
       ride.status === 'driver_arrived' &&
@@ -1684,28 +1683,39 @@ export class RidesService {
       freeWaitingOver(ride.arrived_at, new Date(), tariff)
         ? tariff.cancellation_fee
         : 0;
+    // the app polls this while the ride is open: every part read at once
+    const [driver, receipt, payment, rated, car, progress, events] = await Promise.all([
+      ride.driver_id ? this.driverCard(ride.driver_id) : null,
+      ride.status === 'completed' ? this.fiscal.forRide(ride.id) : null,
+      // card rides and deposits: the prepayment, with where to pay while it is pending
+      ride.payment_method === 'card' || ride.deposit_amount > 0
+        ? this.intents.forRide(ride.id)
+        : null,
+      this.rated(ride.id, 'rider'),
+      // the car: people in it now and free seats (riders sharing see who else rides)
+      ride.driver_id && isActive(ride.status) ? this.pool.occupancy(ride.driver_id) : null,
+      this.carProgress(ride),
+      this.events(ride.id, RIDER_EVENTS),
+    ]);
     return {
       ...base,
       driver,
-      receipt: ride.status === 'completed' ? await this.fiscal.forRide(ride.id) : null,
+      receipt,
       canCancel: RIDER_CANCELLABLE.includes(ride.status),
       cancelFeeNow,
-      // card rides: the prepayment, with where to pay while it is pending
-      payment: ride.payment_method === 'card' ? await this.intents.forRide(ride.id) : null,
+      payment,
       // this ride's own rules (the tariff it was ordered under), whatever changed since
       rules: {
         freeWaitingMinutes: tariff.waiting.free_minutes,
         waitingPerMinute: tariff.waiting.per_minute,
         cancellationFee: tariff.cancellation_fee,
       },
-      rated: await this.rated(ride.id, 'rider'),
+      rated,
       // the code the rider tells the driver before the trip starts
       startPin: isOpen(ride.status) ? ride.start_pin : null,
-      // the car: people in it now and free seats (riders sharing see who else rides)
-      car:
-        ride.driver_id && isActive(ride.status) ? await this.pool.occupancy(ride.driver_id) : null,
-      ...(await this.carProgress(ride)),
-      events: await this.events(ride.id, RIDER_EVENTS),
+      car,
+      ...progress,
+      events,
     };
   }
 
@@ -1796,7 +1806,7 @@ export class RidesService {
     const byId = new Map(rides.map((r) => [r.id, r]));
     return {
       riders: car.rides.length,
-      occupancy: await this.pool.occupancy(driverId),
+      occupancy: this.pool.occupancyOf(car),
       stops: car.stops.map((s) => {
         const r = byId.get(s.rideId!)!;
         return {
