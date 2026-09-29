@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -16,11 +16,12 @@ import { useGeoConfig } from '../api/queries';
 import type { GeoSuggestion } from '../api/types';
 import { useDebounced } from '../lib/hooks';
 import { parseSaveTarget, type Place, SAVED_LABELS, savedToPlace, saveTitle } from '../lib/places';
-import { describePoint, locateDevice } from '../location/geo';
+import { describePoint } from '../location/geo';
+import { LocationNotice, useLocator } from '../location/useLocator';
 import { NATIVE_MAP } from '../location/MapFallback';
 import { choosePickup, updateDraft, useDraft } from '../trip/draft';
 import { hideRecentPlace, savePicked, usePlaces } from '../trip/places-store';
-import { confirm, notify } from '../lib/dialogs';
+import { confirm } from '../lib/dialogs';
 import { Icon, type IconName, IconButton, T } from '../ui/primitives';
 import { colors, radius, space } from '../ui/theme';
 
@@ -39,9 +40,10 @@ export default function SearchScreen() {
   const draft = useDraft();
   const places = usePlaces();
   const [text, setText] = useState('');
-  const [locating, setLocating] = useState(false);
+  const [describing, setDescribing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const q = useDebounced(text.trim(), 400);
+  // one request per pause in typing; a newer query cancels the one in flight (its signal)
+  const q = useDebounced(text.trim(), 350);
   const near = draft.pickup
     ? { lat: +draft.pickup.lat.toFixed(2), lng: +draft.pickup.lng.toFixed(2) }
     : null;
@@ -51,6 +53,8 @@ export default function SearchScreen() {
     enabled: q.length >= 2,
     staleTime: 5 * 60_000,
     retry: false,
+    // the previous suggestions stay while the next ones load: no blank flash per letter
+    placeholderData: keepPreviousData,
   });
 
   const pick = async (place: Place) => {
@@ -76,22 +80,21 @@ export default function SearchScreen() {
   const pickSuggestion = (s: GeoSuggestion) =>
     void pick({ lat: s.lat, lng: s.lng, title: s.title, subtitle: s.subtitle });
 
-  const hereAsPickup = async () => {
-    setLocating(true);
-    const r = await locateDevice(true);
-    if (!r.ok) {
-      setLocating(false);
-      notify('Joylashuv aniqlanmadi', 'GPS yoqilganini va ruxsat berilganini tekshiring.');
-      return;
-    }
-    const info = await describePoint(r.lat, r.lng);
-    setLocating(false);
+  const pickHere = async ({ fix }: { fix: { lat: number; lng: number } }) => {
+    setDescribing(true);
+    const info = await describePoint(fix.lat, fix.lng);
+    setDescribing(false);
     void pick({
-      lat: r.lat,
-      lng: r.lng,
+      lat: fix.lat,
+      lng: fix.lng,
       title: info.address ?? 'Mening joylashuvim',
       subtitle: null,
     });
+  };
+  const locator = useLocator((found) => void pickHere(found));
+  const locating = locator.locating || describing;
+  const hereAsPickup = () => {
+    if (!locating) void locator.locateAndReport('precise');
   };
 
   const onMap = () =>
@@ -129,7 +132,7 @@ export default function SearchScreen() {
           <IconButton
             name="close-circle"
             label="Tozalash"
-            size={34}
+            size={44}
             color={colors.textFaint}
             background="transparent"
             onPress={() => setText('')}
@@ -150,9 +153,19 @@ export default function SearchScreen() {
                   <Row
                     icon="navigate"
                     title="Mening joylashuvim"
-                    subtitle={locating ? 'Aniqlanmoqda…' : 'GPS bo‘yicha'}
-                    onPress={() => void hereAsPickup()}
+                    subtitle={locating ? 'Aniqlanmoqda…' : 'GPS bo‘yicha, aniq joy'}
+                    onPress={hereAsPickup}
                   />
+                ) : null}
+                {field === 'pickup' && !save && locator.problem ? (
+                  <View style={styles.notice}>
+                    <LocationNotice
+                      problem={locator.problem}
+                      withMap={NATIVE_MAP}
+                      onSolve={() => void locator.solve()}
+                      onDismiss={locator.dismiss}
+                    />
+                  </View>
                 ) : null}
                 {!save
                   ? (['home', 'work'] as const).map((kind) =>
@@ -219,7 +232,7 @@ export default function SearchScreen() {
                   : null}
               </>
             ) : null}
-            {searching && search.isSuccess && results.length === 0 ? (
+            {searching && search.isSuccess && !search.isPlaceholderData && results.length === 0 ? (
               <T variant="body" color={colors.textMuted} style={styles.note}>
                 Hech narsa topilmadi. Boshqacha yozib ko‘ring yoki joyni xaritada belgilang.
               </T>
@@ -349,4 +362,5 @@ const styles = StyleSheet.create({
   },
   section: { marginHorizontal: space(4), marginTop: space(4), marginBottom: space(1) },
   note: { marginHorizontal: space(4), marginVertical: space(3) },
+  notice: { marginHorizontal: space(4), marginBottom: space(2) },
 });
