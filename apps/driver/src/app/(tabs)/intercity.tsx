@@ -53,8 +53,9 @@ export default function Intercity() {
       onRefresh={refresh}
     >
       <Muted>
-        Qatnov e’lon qiling: yo‘lovchilar ilova yoki operator orqali joy band qiladi. Joy narxi naqd
-        to‘lanadi, yetib kelganda har bir yo‘lovchidan komissiya va soliq yechiladi.
+        Qatnov e’lon qiling: yo‘lovchilar ilova yoki operator orqali joy band qiladi. Ilovadagi bron
+        uchun narxning bir qismi kartadan oldindan to‘lanadi, qolganini naqd olasiz; yetib kelganda
+        har bir yo‘lovchidan komissiya va soliq yechiladi.
       </Muted>
       {!canWork ? (
         <Banner
@@ -78,7 +79,7 @@ export default function Intercity() {
         <EmptyState
           icon="bus-outline"
           title="Hali qatnovlar yo‘q"
-          text="Masalan: Guliston → Toshkent, ertaga 07:00, 4 o‘rin."
+          text="Masalan: Guliston → Toshkent, ertaga 07:00, 3 o‘rin (oldinda 1, orqada 2)."
         />
       ) : null}
 
