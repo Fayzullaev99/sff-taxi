@@ -18,6 +18,7 @@ import {
   signIn,
   signInAdmin,
   uniquePhone,
+  startPin,
 } from './helpers.js';
 
 const near = (metres: number) => ({ lat: GULISTON.lat + metres / 110_574, lng: GULISTON.lng });
@@ -102,7 +103,8 @@ describe('rider app and operator panel gaps', () => {
       await admin.put('/v1/admin/settings/tariff').send(DEFAULT_TARIFF).expect(200);
 
       await driver.http.post(`/v1/driver/rides/${id}/arrive`).expect(200);
-      await driver.http.post(`/v1/driver/rides/${id}/start`).expect(200);
+      const pin = await startPin(app, id);
+      await driver.http.post(`/v1/driver/rides/${id}/start`).send({ pin }).expect(200);
       await driver.http.post(`/v1/driver/rides/${id}/complete`).expect(200);
       const done = await api(app, rider.accessToken).get(`/v1/rides/${id}`).expect(200);
       expect(done.body).toMatchObject({ driverEta: null, trail: [], rated: false });
@@ -296,7 +298,8 @@ describe('rider app and operator panel gaps', () => {
       const driver = await createDriver(app, { at: GULISTON });
       const { id, rider } = await assigned(driver);
       await driver.http.post(`/v1/driver/rides/${id}/arrive`).expect(200);
-      await driver.http.post(`/v1/driver/rides/${id}/start`).expect(200);
+      const pin = await startPin(app, id);
+      await driver.http.post(`/v1/driver/rides/${id}/start`).send({ pin }).expect(200);
       await driver.http.post(`/v1/driver/rides/${id}/complete`).expect(200);
       const r = api(app, rider.accessToken);
       const opened = await r

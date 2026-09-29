@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { type Selectable, sql } from 'kysely';
+import type { Selectable } from 'kysely';
 import { z } from 'zod';
 import { Database, type Tx } from '../../core/db/database.js';
 import type { CitiesTable } from '../../core/db/schema.js';
@@ -87,19 +87,27 @@ export function publicCity(c: City) {
 /** Cities (service areas): which one a point is in, and its tariff. */
 @Injectable()
 export class GeoService {
+  /** Every quote and GPS fix reads the cities: kept for a few seconds (dropped on update). */
+  private citiesCache: { cities: City[]; until: number } | null = null;
+
   constructor(
     private readonly db: Database,
     private readonly settings: SettingsService,
   ) {}
 
-  async cities(db: Db = this.db.kysely): Promise<City[]> {
-    const rows = await db
+  async cities(db?: Db): Promise<City[]> {
+    if (!db && this.citiesCache && this.citiesCache.until > Date.now()) {
+      return this.citiesCache.cities;
+    }
+    const rows = await (db ?? this.db.kysely)
       .selectFrom('cities')
       .selectAll()
       .orderBy('sort')
       .orderBy('slug')
       .execute();
-    return rows.map(toCity);
+    const cities = rows.map(toCity);
+    if (!db) this.citiesCache = { cities, until: Date.now() + 10_000 };
+    return cities;
   }
 
   async city(id: string, db: Db = this.db.kysely): Promise<City> {
@@ -180,6 +188,7 @@ export class GeoService {
   }
 
   async update(id: string, input: z.output<typeof UpdateCityBody>): Promise<City> {
+    this.citiesCache = null;
     const bbox = input.boundary ? bboxOf(input.boundary) : null;
     const res = await this.db.kysely
       .updateTable('cities')
@@ -205,21 +214,13 @@ export class GeoService {
       })
       .where('id', '=', id)
       .executeTakeFirst();
+    this.citiesCache = null;
     if (!res.numUpdatedRows) throw new NotFoundException('Shahar topilmadi');
     return this.city(id);
   }
 
-  /** Boxes of every city, for the driver location filter. */
+  /** Boxes of every city, for the driver location filter (every GPS fix: from the cache). */
   async areas(): Promise<BBox[]> {
-    const rows = await this.db.kysely
-      .selectFrom('cities')
-      .select([
-        sql<number>`min_lat`.as('minLat'),
-        sql<number>`max_lat`.as('maxLat'),
-        sql<number>`min_lng`.as('minLng'),
-        sql<number>`max_lng`.as('maxLng'),
-      ])
-      .execute();
-    return rows;
+    return (await this.cities()).map((c) => c.bbox);
   }
 }

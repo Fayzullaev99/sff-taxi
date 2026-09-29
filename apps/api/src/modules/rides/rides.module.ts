@@ -27,6 +27,7 @@ import { GeoService } from '../geo/geo.service.js';
 import { PaymentsCoreModule } from '../payments/payments.module.js';
 import { PaymentsService } from '../payments/payments.service.js';
 import { AvailabilityService } from './availability.service.js';
+import { PoolService } from './pool.service.js';
 import { DRIVER_CANCEL_REASONS, type DriverCancelReason, RidesService } from './rides.service.js';
 
 const Lat = z.number().min(-90).max(90);
@@ -59,6 +60,14 @@ const OrderBody = z.object({
   dropoff: PlaceText,
   comment: Comment,
   clientRequestId: z.uuid(),
+  /** People riding: one in front, at most two in the back. */
+  passengers: z.number().int().min(1).max(3).default(1),
+  /** "Hamroh bilan": riders going the same way may share the car (cash, a discount). */
+  shareable: z.boolean().default(false),
+  /** A woman driver only (riders who declared themselves women). */
+  womenOnly: z.boolean().default(false),
+  /** car: the whole car; seat: the fixed route's per-person price in a shared car. */
+  fareMode: z.enum(['car', 'seat']).default('car'),
 });
 // coordinates may be left out when the operator's quote gives them
 const PhonePlace = z.object({
@@ -79,6 +88,7 @@ const PhoneOrderBody = z.object({
   quoteId: z.uuid().nullable().default(null),
   /** The panel's idempotency key: a repeated request returns the same ride (200). */
   clientRequestId: z.uuid().nullable().default(null),
+  passengers: z.number().int().min(1).max(3).default(1),
 });
 const LookupBody = z.object({ phone: UzPhone });
 const DayString = z.iso.date('Sana YYYY-MM-DD ko‘rinishida');
@@ -92,6 +102,15 @@ const DriverCancelBody = z.object({
   ),
   note: z.string().trim().min(1).max(200).nullable().default(null),
 });
+const StartBody = z
+  .object({
+    pin: z
+      .string()
+      .regex(/^\d{4}$/, '4 xonali kod')
+      .nullable()
+      .default(null),
+  })
+  .default({ pin: null });
 const OperatorCancelBody = z.object({ reason: z.string().trim().min(3).max(300) });
 const AssignBody = z.object({ driverId: z.uuid() });
 const WaiveBody = z.object({ note: z.string().trim().min(3).max(300) });
@@ -234,8 +253,12 @@ export class DriverRidesController {
 
   @Post(':id/start')
   @HttpCode(HttpStatus.OK)
-  start(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.rides.start(user, id);
+  start(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(StartBody)) body: z.output<typeof StartBody>,
+  ) {
+    return this.rides.start(user, id, body.pin);
   }
 
   @Post(':id/complete')
@@ -378,7 +401,7 @@ export class AdminDriverRidesController {
     AdminDriverRidesController,
     AdminReasonsController,
   ],
-  providers: [RidesService, AvailabilityService],
-  exports: [RidesService],
+  providers: [RidesService, AvailabilityService, PoolService],
+  exports: [RidesService, PoolService],
 })
 export class RidesModule {}

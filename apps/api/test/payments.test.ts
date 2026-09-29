@@ -14,6 +14,7 @@ import {
   type Session,
   signIn,
   signInAdmin,
+  startPin,
 } from './helpers.js';
 import { click, payme, payWithClick, payWithPayme } from './payments-helpers.js';
 
@@ -146,7 +147,8 @@ describe('card payments', () => {
     // the trip: the fare the rider prepaid becomes the driver's money on the balance
     await admin.post(`/v1/admin/rides/${ride.id}/assign`).send({ driverId: driver.id }).expect(200);
     await driver.http.post(`/v1/driver/rides/${ride.id}/arrive`).expect(200);
-    await driver.http.post(`/v1/driver/rides/${ride.id}/start`).expect(200);
+    const pin = await startPin(app, ride.id);
+    await driver.http.post(`/v1/driver/rides/${ride.id}/start`).send({ pin }).expect(200);
     const done = await driver.http.post(`/v1/driver/rides/${ride.id}/complete`).expect(200);
     expect(done.body).toMatchObject({ paymentStatus: 'paid', fare: { total: FARE } });
     const balance = await driver.http.get('/v1/driver/balance').expect(200);

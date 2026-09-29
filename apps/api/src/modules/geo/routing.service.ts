@@ -2,7 +2,8 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { ENV, type Env } from '../../config/env.js';
 import { REDIS } from '../../core/redis/redis.token.js';
-import { estimateRoute, type Point, type Route } from '../../lib/geo.js';
+import { estimatedDurationS, estimateRoute, type Point, type Route } from '../../lib/geo.js';
+import type { Leg, LegMatrix } from '../../lib/pool.js';
 
 /** A road router: distances and driving times from several origins to one destination. */
 export interface RoutingProvider {
@@ -74,6 +75,17 @@ export class RoutingService {
     return (await this.routes([from], to))[0]!;
   }
 
+  /**
+   * Road legs between every pair of a few points (a car's stops ahead, a new rider's ends):
+   * row = from, column = to. One table request per column, each cached per pair.
+   */
+  async matrix(points: Point[]): Promise<LegMatrix> {
+    const columns = await Promise.all(points.map((to) => this.routes(points, to)));
+    return points.map((_, i) =>
+      points.map((_, j) => (i === j ? { distanceM: 0, durationS: 0 } : legOf(columns[j]![i]!))),
+    );
+  }
+
   /** Routes from each origin (drivers) to one destination (the pickup). */
   async routes(origins: Point[], destination: Point): Promise<Route[]> {
     const result: Route[] = origins.map((o) => this.estimate(o, destination));
@@ -119,4 +131,13 @@ export class RoutingService {
     }
     return result;
   }
+}
+
+/** A route as a leg with a driving time (estimated routes get one by distance). */
+export function legOf(route: Route): Leg {
+  return {
+    distanceM: route.distanceM,
+    durationS:
+      route.durationS !== null ? Math.round(route.durationS) : estimatedDurationS(route.distanceM),
+  };
 }

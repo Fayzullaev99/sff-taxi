@@ -35,7 +35,8 @@ export class NotificationsHandler implements OutboxHandler {
       topic === 'ride.refund_changed' ||
       topic === 'complaint.changed' ||
       topic === 'driver.topup_paid' ||
-      topic === 'driver.appeal_resolved'
+      topic === 'driver.appeal_resolved' ||
+      topic === 'ride.pool_changed'
     );
   }
 
@@ -66,6 +67,25 @@ export class NotificationsHandler implements OutboxHandler {
         app: 'driver',
         text: (l) => push.topupPaid(l, amount),
         data: { intentId: String(p.intentId) },
+      });
+      return;
+    }
+    if (event.topic === 'ride.pool_changed') {
+      const ride = await this.db.kysely
+        .selectFrom('rides')
+        .select(['id', 'rider_id', 'status'])
+        .where('id', '=', String(p.rideId))
+        .executeTakeFirst();
+      if (!ride || ride.status === 'completed' || ride.status === 'cancelled') return;
+      const pays = Number(p.pays);
+      await this.notifier.push({
+        key,
+        kind: p.cause === 'pool_joined' ? 'pool_joined' : 'pool_left',
+        rideId: ride.id,
+        userId: ride.rider_id,
+        app: 'rider',
+        text: (l) =>
+          p.cause === 'pool_joined' ? push.poolJoined(l, pays) : push.poolLeft(l, pays),
       });
       return;
     }

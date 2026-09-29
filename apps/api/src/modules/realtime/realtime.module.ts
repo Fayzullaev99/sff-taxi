@@ -26,7 +26,8 @@ import { REDIS } from '../../core/redis/redis.token.js';
 import { REALTIME_CHANNEL, type RealtimeMessage } from './realtime.publisher.js';
 
 const TICKET_TTL_SECONDS = 60;
-const HEARTBEAT_MS = 25_000;
+/** Every 10 s: the apps treat ~25 s of silence as a dead link and reconnect. */
+const HEARTBEAT_MS = 10_000;
 /** A data event (not an SSE comment) so clients can tell a live stream from a dead one. */
 const PING = `data: ${JSON.stringify({ type: 'ping' })}\n\n`;
 /** Open streams per account: a few devices and tabs, not a flood. */

@@ -64,6 +64,8 @@ const ApplicationBody = z.object({
     .transform((v) => v.replace(/\s/g, '').toUpperCase())
     .refine((v) => /^[A-Z0-9-]{5,30}$/.test(v), 'Litsenziya kartochkasi raqami noto‘g‘ri'),
   licenceCardExpiresOn: DateString,
+  /** As in the passport; verified by an operator. */
+  gender: z.enum(['female', 'male']).optional(),
   vehicle: VehicleBody,
 });
 const DocumentBody = z
@@ -84,6 +86,21 @@ const DocumentBody = z
 const PhotoBody = z.object({ uploadId: z.uuid() });
 const DocumentKind = z.enum(DOCUMENT_KINDS);
 const ShiftBody = z.object({ online: z.boolean() });
+const PreferencesBody = z
+  .object({
+    poolEnabled: z.boolean(),
+    extraPassengers: z.number().int().min(0).max(3),
+    destination: z
+      .object({
+        lat: z.number().min(-90).max(90),
+        lng: z.number().min(-180).max(180),
+        address: z.string().trim().max(300).nullable().default(null),
+      })
+      .nullable(),
+    womenRidersOnly: z.boolean(),
+  })
+  .partial();
+const GenderBody = z.object({ gender: z.enum(['female', 'male']) });
 const LocationBody = z.object({
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
@@ -184,6 +201,18 @@ export class DriverController {
     return this.drivers.setOnline(user, body.online);
   }
 
+  /**
+   * Shared rides and filters: "Boshqa yo‘lovchi olaman", people in the car without the app,
+   * where the driver is heading (offers only on the way), women riders only.
+   */
+  @Put('preferences')
+  preferences(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodPipe(PreferencesBody)) body: z.output<typeof PreferencesBody>,
+  ) {
+    return this.drivers.setPreferences(user, body);
+  }
+
   @Post('location')
   @HttpCode(HttpStatus.NO_CONTENT)
   async location(
@@ -247,6 +276,17 @@ export class AdminDriversController {
     @Body(new ZodPipe(LicenceCheckBody)) body: z.output<typeof LicenceCheckBody>,
   ) {
     return this.drivers.recordLicenceCheck(user, id, body);
+  }
+
+  /** The gender as checked in the passport (women riders may ask for a woman driver). */
+  @Post(':id/gender')
+  @HttpCode(HttpStatus.OK)
+  verifyGender(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(GenderBody)) body: z.output<typeof GenderBody>,
+  ) {
+    return this.drivers.verifyGender(user, id, body.gender);
   }
 
   /** approve | reject | block | unblock, with a reason (required except for approval). */

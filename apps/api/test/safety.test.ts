@@ -11,6 +11,7 @@ import {
   type Session,
   signIn,
   signInAdmin,
+  startPin,
 } from './helpers.js';
 
 describe('safety', () => {
@@ -34,7 +35,8 @@ describe('safety', () => {
   async function completed() {
     const r = await assigned();
     await r.driver.http.post(`/v1/driver/rides/${r.id}/arrive`).expect(200);
-    await r.driver.http.post(`/v1/driver/rides/${r.id}/start`).expect(200);
+    const pin = await startPin(app, r.id);
+    await r.driver.http.post(`/v1/driver/rides/${r.id}/start`).send({ pin }).expect(200);
     await r.driver.http.post(`/v1/driver/rides/${r.id}/complete`).expect(200);
     return r;
   }

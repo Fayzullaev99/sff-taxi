@@ -13,6 +13,7 @@ import {
   orderRide,
   signIn,
   signInAdmin,
+  startPin,
 } from './helpers.js';
 
 const YANGIYER = { lat: 40.2701, lng: 68.8166 };
@@ -41,7 +42,8 @@ describe('billing', () => {
     const { id } = await orderRide(app, rider, { pickup: GULISTON, dropoff });
     await admin.post(`/v1/admin/rides/${id}/assign`).send({ driverId: driver.id }).expect(200);
     await driver.http.post(`/v1/driver/rides/${id}/arrive`).expect(200);
-    await driver.http.post(`/v1/driver/rides/${id}/start`).expect(200);
+    const pin = await startPin(app, id);
+    await driver.http.post(`/v1/driver/rides/${id}/start`).send({ pin }).expect(200);
     const done = await driver.http.post(`/v1/driver/rides/${id}/complete`).expect(200);
     return done.body as {
       id: string;
