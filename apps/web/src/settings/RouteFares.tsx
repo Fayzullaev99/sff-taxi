@@ -9,11 +9,15 @@ import { routeFareBody, type RouteFareDraft, routeFareProblems } from '../lib/po
 import { Badge, Button, Field, MoneyInput, PageHeader, Segmented, Toggle } from '../ui/controls';
 import { Empty, ErrorBox, Loading, useConfirm, useToast } from '../ui/feedback';
 
+/** A new route starts as Yangiyer → Guliston (the founder's example) when both exist. */
 function emptyDraft(points: IntercityPoint[]): RouteFareDraft {
   const slug = (s: string) => points.find((p) => p.slug === s)?.slug;
+  const from = slug('yangiyer') ?? points[0]?.slug ?? '';
+  const guliston = slug('guliston');
   return {
-    from: slug('yangiyer') ?? points[0]?.slug ?? '',
-    to: slug('guliston') ?? points[1]?.slug ?? '',
+    from,
+    to:
+      guliston && guliston !== from ? guliston : (points.find((p) => p.slug !== from)?.slug ?? ''),
     class: 'economy',
     seatPrice: null,
     carPrice: null,
