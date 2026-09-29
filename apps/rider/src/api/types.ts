@@ -99,6 +99,12 @@ export type GeoResolve =
 // Tariffs and quotes -------------------------------------------------------------------
 
 export type RideClass = 'economy' | 'comfort';
+/** Cargo cars by payload: small (Damas/Labo, up to 700 kg) and medium (Gazel/Porter). */
+export type CargoClass = 'cargo_s' | 'cargo_m';
+/** Any ride's class: a taxi class (taxi, delivery) or a cargo class. */
+export type AnyRideClass = RideClass | CargoClass;
+/** Taxi, cargo ("Yuk tashish") or a parcel carried by a taxi car ("Yetkazib berish"). */
+export type RideService = 'taxi' | 'cargo' | 'delivery';
 export type RideOption = 'child_seat' | 'luggage' | 'pets' | 'ac';
 export type RideKind = 'city' | 'intercity';
 export type PaymentMethod = 'cash' | 'card';
@@ -239,7 +245,88 @@ export interface Quote {
    * A ride booked for later is secured by a card deposit (another branch; shape tolerant):
    * the amount, or a percent of the fare.
    */
-  deposit?: { amount?: number | null; percent?: number | null } | number | null;
+  deposit?: QuoteDeposit | null;
+  /** Taxi (older APIs: absent) or delivery. */
+  service?: 'taxi' | 'delivery';
+  /** A delivery quote: the parcel's rules; the order needs the recipient. */
+  delivery?: DeliveryRules | null;
+}
+
+/** A ride for later is booked once part of its price is paid by card (null: deposits off). */
+export interface QuoteDeposit {
+  percent: number;
+  min: number;
+  /** The economy fare's deposit; `amounts` per class. */
+  amount: number;
+  amounts?: Partial<Record<RideClass, number>>;
+  /** Cancelled at least this long before the time, the deposit comes back. */
+  freeCancelMinutes: number;
+  cardProviders?: CardProvider[];
+}
+
+export interface DeliveryRules {
+  percent: number;
+  maxWeightKg: number;
+  parcel?: { description: string | null; weightKg: number | null };
+  recipientRequired: boolean;
+}
+
+export interface CargoFare extends Omit<Fare, 'rideClass'> {
+  rideClass: CargoClass;
+  cargo: {
+    basePrice: number;
+    includedKm: number;
+    includedMinutes: number;
+    extraKm: number;
+    perKm: number;
+    distance: number;
+    perMinute: number;
+    loaders: number;
+    loaderPrice: number;
+    loadersTotal: number;
+    maxPayloadKg: number;
+  };
+}
+
+export interface CargoClassRules {
+  maxPayloadKg: number;
+  includedKm: number;
+  includedMinutes: number;
+  perKm: number;
+  intercityPerKm: number;
+  perMinute: number;
+  /** The load's weight given in the quote fits the class. */
+  fits: boolean;
+}
+
+/** POST rides/quote with service 'cargo'. */
+export interface CargoQuote {
+  quoteId: string;
+  service: 'cargo';
+  expiresAt: string;
+  scheduledFor: string | null;
+  city: GeoCity;
+  kind: RideKind;
+  distanceM: number;
+  durationS: number | null;
+  fares: Record<CargoClass, CargoFare>;
+  paymentMethods: PaymentMethod[];
+  cardProviders?: CardProvider[];
+  owedFee?: OwedFeeLine | null;
+  waiting: WaitingRule;
+  cancellationFee: number;
+  availability: Record<CargoClass, ClassAvailability> | null;
+  deposit?: QuoteDeposit | null;
+  cargo: {
+    loaders: number;
+    riderRides: boolean;
+    description: string | null;
+    weightKg: number | null;
+    maxLoaders: number;
+    loaderPrice: number;
+    maxRiders: number;
+    classes: Record<CargoClass, CargoClassRules>;
+  };
 }
 
 export interface OwedFeeLine {
@@ -289,6 +376,9 @@ export interface RideVehicle {
   plate: string;
   plateFormatted: string;
   class: RideClass;
+  /** Cargo cars: the body (van, pickup, truck) and the class by payload. */
+  body?: string | null;
+  cargoClass?: CargoClass | null;
 }
 
 export interface RideDriver {
@@ -361,7 +451,7 @@ export interface RideSummary {
   status: RideStatus;
   channel: 'app' | 'phone';
   kind: RideKind;
-  class: RideClass;
+  class: AnyRideClass;
   cityId: string;
   pickup: RidePlace;
   dropoff: RidePlace;
@@ -386,6 +476,21 @@ export interface RideSummary {
     pays?: number;
     breakdown: Fare;
   };
+  /** taxi, cargo or delivery (older APIs: absent = taxi). */
+  service?: RideService;
+  /** A cargo ride's load. */
+  cargo?: {
+    loaders: number;
+    riderRides: boolean;
+    description: string | null;
+    weightKg: number | null;
+  } | null;
+  /** A delivery: the parcel and who receives it. */
+  delivery?: {
+    parcel: { description: string | null; weightKg: number | null } | null;
+    recipientName: string | null;
+    recipientPhone: string | null;
+  } | null;
   passengers?: number;
   shareable?: boolean;
   womenOnly?: boolean;
@@ -434,7 +539,7 @@ export interface RideHistoryPage {
 
 export interface OrderInput {
   quoteId: string;
-  class: RideClass;
+  class: AnyRideClass;
   paymentMethod: PaymentMethod;
   pickup: { address: string | null; landmark: string | null };
   dropoff: { address: string | null; landmark: string | null };
@@ -448,6 +553,12 @@ export interface OrderInput {
   womenOnly?: boolean;
   /** 'seat': a fixed route's per-person price in a shared car. */
   fareMode?: FareMode;
+  /** Cargo: the load described more precisely than in the quote (the price stays). */
+  cargo?: { description?: string | null; weightKg?: number | null };
+  /** Delivery: the parcel. */
+  parcel?: { description?: string | null; weightKg?: number | null };
+  /** Delivery: who receives it (the driver calls them). */
+  recipient?: { name: string; phone: string } | null;
 }
 
 export interface ShareLink {
@@ -611,7 +722,8 @@ export interface IntercityPoint {
 }
 
 export type TripStatus = 'scheduled' | 'boarding' | 'departed' | 'arrived' | 'cancelled';
-export type BookingStatus = 'booked' | 'boarded' | 'completed' | 'cancelled' | 'no_show';
+export type BookingStatus =
+  'awaiting_payment' | 'booked' | 'boarded' | 'completed' | 'cancelled' | 'no_show';
 
 export interface IntercityTrip {
   id: string;
@@ -638,6 +750,17 @@ export interface IntercityTrip {
   myBookingId?: string | null;
   /** GET /intercity/trips/:id only: what cancelling a booking costs, free until freeUntil. */
   cancelRules?: IntercityCancelRules & { freeUntil: string };
+  /** GET /intercity/trips/:id only: a booking in the app pays this share by card first. */
+  depositRules?: { percent: number; min: number; paymentMinutes: number } | null;
+  /**
+   * Search results: a trip between other towns passing the rider's (the seat priced for the
+   * rider's part, `share` of the trip; `fullPrice` the whole trip's).
+   */
+  alongTheWay?: boolean;
+  pickup?: IntercityPoint;
+  dropoff?: IntercityPoint;
+  share?: number;
+  fullPrice?: { rear: number; front: number };
 }
 
 export interface IntercityBooking {
@@ -649,6 +772,15 @@ export interface IntercityBooking {
   seats: number;
   front: boolean;
   price: number;
+  /** Paid by card in advance (0: none); the rest, payCash, in cash to the driver. */
+  depositAmount?: number;
+  payCash?: number;
+  /** The deposit's card payment: checkout links while it waits, the refund later. */
+  payment?: RidePayment | null;
+  /** A seat along the way: the rider's own towns. */
+  alongTheWay?: boolean;
+  pickup?: { slug: string; nameUz: string } | null;
+  dropoff?: { slug: string; nameUz: string } | null;
   pickupNote: string | null;
   cancelledBy: 'rider' | 'driver' | 'operator' | 'system' | null;
   cancelReason: string | null;
@@ -683,6 +815,9 @@ export interface BookInput {
   front: boolean;
   pickupNote: string | null;
   clientRequestId: string;
+  /** A seat along the way: the rider's towns (slugs), as the search found them. */
+  from?: string | null;
+  to?: string | null;
 }
 
 // Uploads (complaint photos) -------------------------------------------------------------

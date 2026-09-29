@@ -19,6 +19,8 @@ import {
 } from '../../../lib/intercity';
 import { useNow } from '../../../lib/hooks';
 import { callPhone } from '../../../lib/links';
+import { bookingDepositRules } from '../../../lib/deposit';
+import { CheckoutPanel } from '../../../ride/PaymentPanel';
 import { Banner, Button, Card, IconButton, KeyValue, T } from '../../../ui/primitives';
 import { ErrorView, LoadingView } from '../../../ui/states';
 import { colors, radius, space } from '../../../ui/theme';
@@ -27,6 +29,9 @@ import { colors, radius, space } from '../../../ui/theme';
  * A booking: the departure, the meeting point, and once booked the driver's name, phone
  * and plate; cancelling says its price first (free until 60 minutes before departure).
  */
+/** How long an unpaid booking holds its seats (the API's default payment_minutes). */
+const PAYMENT_MINUTES = 15;
+
 export default function BookingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   useLiveRides();
@@ -50,9 +55,13 @@ export default function BookingScreen() {
   const t = b.trip;
   // the booking's own rules and times (the API's), /config for an older API, else defaults
   const rules = cancelRulesFrom(b.cancelRules, configRules);
+  const deposit = b.depositAmount ?? 0;
+  const unpaid = b.status === 'awaiting_payment';
   const terms = bookingCancelTerms(t.departureAt, b.price, now, rules, {
     freeUntil: b.cancelFreeUntil,
     feeNow: b.cancelFeeNow,
+    deposit: unpaid ? 0 : deposit,
+    unpaid,
   });
   const ended = bookingCancelledText(b);
 
@@ -99,6 +108,23 @@ export default function BookingScreen() {
         </T>
       </View>
 
+      {unpaid ? (
+        <CheckoutPanel
+          payment={b.payment ?? null}
+          amount={b.payment?.amount ?? deposit}
+          label="Oldindan to‘lov (depozit)"
+          cashLeft={b.payCash ?? b.price - deposit}
+          info={bookingDepositRules(
+            { deposit, cash: b.payCash ?? b.price - deposit },
+            PAYMENT_MINUTES,
+            rules.freeCancelMinutes,
+          )}
+          expiredText="To‘lov tekshirilmoqda. To‘lamagan bo‘lsangiz, bron bir necha daqiqada bekor qilinadi va kartadan pul yechilmaydi."
+          waitingText="To‘lov hali kelmadi. To‘lov sahifasida to‘lovni yakunlang — tasdiq kelishi bilan joy band bo‘ladi."
+          onCheck={() => query.refetch()}
+        />
+      ) : null}
+
       {ended ? <Banner tone={b.status === 'no_show' ? 'warning' : 'info'} message={ended} /> : null}
 
       {b.contact ? (
@@ -139,9 +165,26 @@ export default function BookingScreen() {
       ) : null}
 
       <Card style={styles.card}>
+        {b.alongTheWay && b.pickup && b.dropoff ? (
+          <KeyValue label="Yo‘l-yo‘lakay" value={`${b.pickup.nameUz} → ${b.dropoff.nameUz}`} />
+        ) : null}
         <KeyValue label="Uchrashuv joyi" value={t.meetingPoint} />
         <KeyValue label="Joylar" value={`${b.seats}${b.front ? ' (biri oldinda)' : ''}`} />
-        <KeyValue label="Narx (naqd)" value={formatMoney(b.price)} strong />
+        {deposit > 0 ? (
+          <>
+            <KeyValue label="Narx" value={formatMoney(b.price)} strong />
+            <KeyValue
+              label={unpaid ? 'Depozit (kartadan)' : 'Depozit to‘langan'}
+              value={formatMoney(deposit)}
+            />
+            <KeyValue
+              label="Haydovchiga naqd"
+              value={formatMoney(b.payCash ?? b.price - deposit)}
+            />
+          </>
+        ) : (
+          <KeyValue label="Narx (naqd)" value={formatMoney(b.price)} strong />
+        )}
         {b.pickupNote ? <KeyValue label="Izohingiz" value={b.pickupNote} /> : null}
         {b.cancellationFee > 0 ? (
           <KeyValue

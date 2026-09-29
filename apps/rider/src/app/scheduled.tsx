@@ -1,4 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
+import { cancelTerms } from '../lib/fare';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
@@ -7,7 +8,7 @@ import { endpoints } from '../api/endpoints';
 import { keys, useScheduledRides } from '../api/queries';
 import type { RideSummary } from '../api/types';
 import { confirm, notify } from '../lib/dialogs';
-import { CLASS_LABELS } from '../lib/fare';
+import { classLabel } from '../lib/services';
 import { formatDateTime, formatMoney, formatTime, placeLine } from '../lib/format';
 import { SCHEDULED_PER_RIDER, searchStartsAt } from '../lib/schedule';
 import { Button, Card, Icon, PressableRow, T } from '../ui/primitives';
@@ -27,7 +28,7 @@ export default function ScheduledScreen() {
   const cancel = async (ride: RideSummary) => {
     const ok = await confirm({
       title: 'Oldindan buyurtmani bekor qilasizmi?',
-      message: `${ride.scheduledFor ? formatDateTime(ride.scheduledFor) : ''} · ${placeLine(ride.dropoff)}. Bekor qilish bepul.`,
+      message: `${ride.scheduledFor ? formatDateTime(ride.scheduledFor) : ''} · ${placeLine(ride.dropoff)}. ${cancelTerms({ ...ride, cancelFeeNow: 0 }, null, new Date()).message}`,
       confirmText: 'Bekor qilish',
       cancelText: 'Qoldirish',
       destructive: true,
@@ -92,11 +93,18 @@ export default function ScheduledScreen() {
                 {placeLine(item.dropoff)}
               </T>
               <T variant="small" color={colors.textMuted} numberOfLines={1}>
-                {placeLine(item.pickup)} dan · {CLASS_LABELS[item.class]}
+                {placeLine(item.pickup)} dan · {classLabel(item.class)}
               </T>
-              {item.scheduledFor ? (
+              {item.status === 'awaiting_payment' ? (
+                <T variant="smallStrong" color={colors.warning}>
+                  Depozit to‘lanmagan — to‘lash uchun bosing
+                </T>
+              ) : item.scheduledFor ? (
                 <T variant="small" color={colors.textMuted}>
                   Qidiruv {formatTime(searchStartsAt(item.scheduledFor))} da boshlanadi
+                  {(item.fare.deposit ?? 0) > 0
+                    ? ` · depozit ${formatMoney(item.fare.deposit!)} to‘langan`
+                    : ''}
                 </T>
               ) : null}
             </View>

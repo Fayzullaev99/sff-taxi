@@ -11,7 +11,6 @@ import {
   poolCarsFor,
   poolCarsHeadline,
   poolCarText,
-  quoteDeposit,
   ridePrice,
   routeChipLabel,
   routeChips,
@@ -203,17 +202,6 @@ describe('on the ride', () => {
     expect(ridePrice({ quoted: 20_000 })).toMatchObject({ pays: 20_000, discount: 0 });
     expect(ridePrice({ quoted: 30_000, deposit: 6_000 })).toMatchObject({ cashLeft: 24_000 });
   });
-
-  it('reads the deposit a ride for later needs, whatever its shape', () => {
-    expect(quoteDeposit(undefined, 30_000)).toBeNull();
-    expect(quoteDeposit(6_000, 30_000)).toBe(6_000);
-    expect(quoteDeposit({ amount: 7_000 }, 30_000)).toBe(7_000);
-    expect(quoteDeposit({ percent: 20 }, 30_000)).toBe(6_000);
-    // at least 5 000, never more than the fare
-    expect(quoteDeposit({ percent: 20 }, 12_000)).toBe(5_000);
-    expect(quoteDeposit({ percent: 20 }, 4_000)).toBe(4_000);
-    expect(quoteDeposit({ amount: null, percent: null }, 30_000)).toBeNull();
-  });
 });
 
 describe('route chips on the map', () => {
@@ -279,28 +267,20 @@ describe('the declared gender', () => {
 });
 
 describe('a deposit for a ride booked for later', () => {
-  const ride = (over = {}) => ({
-    status: 'awaiting_payment',
-    paymentMethod: 'cash' as const,
-    scheduledFor: '2026-09-30T05:00:00Z',
-    payment: { amount: 6_000 },
-    fare: { quoted: 30_000, deposit: 0 },
-    ...over,
-  });
-
   it('is the amount asked now and the cash left for the driver', () => {
-    expect(depositPayment(ride())).toEqual({ amount: 6_000, cashLeft: 24_000 });
     expect(
-      depositPayment(ride({ payment: null, fare: { quoted: 30_000, deposit: 6_000 } })),
+      depositPayment({ payment: { amount: 6_000 }, fare: { quoted: 30_000, deposit: 6_000 } }),
     ).toEqual({ amount: 6_000, cashLeft: 24_000 });
+    expect(depositPayment({ payment: null, fare: { quoted: 30_000, deposit: 6_000 } })).toEqual({
+      amount: 6_000,
+      cashLeft: 24_000,
+    });
   });
 
   it('is not an ordinary card ride paying its whole fare', () => {
+    expect(depositPayment({ payment: { amount: 30_000 }, fare: { quoted: 30_000 } })).toBeNull();
     expect(
-      depositPayment(
-        ride({ paymentMethod: 'card', scheduledFor: null, payment: { amount: 30_000 } }),
-      ),
+      depositPayment({ payment: { amount: 30_000 }, fare: { quoted: 30_000, deposit: 0 } }),
     ).toBeNull();
-    expect(depositPayment(ride({ payment: null }))).toBeNull();
   });
 });

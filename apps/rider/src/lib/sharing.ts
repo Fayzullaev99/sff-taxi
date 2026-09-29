@@ -190,22 +190,6 @@ export function discountLine(discount: number): string {
   return `${POOL_DISCOUNT_LABEL} −${formatMoney(discount)}`;
 }
 
-/**
- * The deposit a ride for later needs, from a tolerant quote field: an amount, or a
- * percent of the fare (at least 5 000 so‘m, as the API's default rule). Null: none.
- */
-export function quoteDeposit(deposit: Quote['deposit'], fareTotal: number): number | null {
-  if (deposit === null || deposit === undefined) return null;
-  if (typeof deposit === 'number') return deposit > 0 ? Math.min(deposit, fareTotal) : null;
-  if (typeof deposit.amount === 'number' && deposit.amount > 0) {
-    return Math.min(deposit.amount, fareTotal);
-  }
-  if (typeof deposit.percent === 'number' && deposit.percent > 0) {
-    return Math.min(fareTotal, Math.max(5_000, roundUp100((fareTotal * deposit.percent) / 100)));
-  }
-  return null;
-}
-
 /** Town-to-town chips on the map: routes from the town the rider is in (~12 km). */
 const ROUTE_FROM_M = 12_000;
 
@@ -281,20 +265,15 @@ export function genderLock(
 }
 
 /**
- * A payment asked before a ride booked for later is secured: a deposit, not the whole
- * fare (a cash ride waiting for a card payment, or one with a deposit / time set). The
+ * A ride for later waiting for its deposit (not the whole fare, as a card ride): the
  * amount to pay now and the cash left for the driver; null for an ordinary card ride.
  */
 export function depositPayment(ride: {
-  status: string;
-  paymentMethod: PaymentMethod;
-  scheduledFor: string | null;
   payment: { amount: number } | null;
   fare: { quoted: number; poolDiscount?: number; pays?: number; deposit?: number };
 }): { amount: number; cashLeft: number } | null {
   const deposit = ride.fare.deposit ?? 0;
-  const isDeposit = ride.paymentMethod === 'cash' || deposit > 0 || ride.scheduledFor !== null;
-  if (!isDeposit || (!ride.payment && deposit <= 0)) return null;
+  if (deposit <= 0) return null;
   const amount = ride.payment?.amount ?? deposit;
   const pays = ride.fare.pays ?? ride.fare.quoted - (ride.fare.poolDiscount ?? 0);
   return { amount, cashLeft: Math.max(0, pays - amount) };

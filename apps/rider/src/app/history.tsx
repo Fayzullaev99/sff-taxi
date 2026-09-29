@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useHistory } from '../api/queries';
 import type { RideSummary } from '../api/types';
-import { CLASS_LABELS } from '../lib/fare';
+import { classLabel, SERVICE_NAMES } from '../lib/services';
 import { formatDateTime, formatMoney, placeLine } from '../lib/format';
 import { rideScreen } from '../lib/ride-state';
 import { discountLine } from '../lib/sharing';
@@ -113,14 +113,26 @@ const RideRow = memo(function RideRow({ ride }: { ride: RideSummary }) {
     >
       <View style={styles.icon}>
         <Icon
-          name={ride.status === 'completed' ? 'checkmark' : screen.final ? 'close' : 'car-sport'}
+          name={
+            ride.status === 'completed'
+              ? 'checkmark'
+              : screen.final
+                ? 'close'
+                : ride.service === 'cargo'
+                  ? 'cube'
+                  : ride.service === 'delivery'
+                    ? 'mail'
+                    : 'car-sport'
+          }
           size={18}
           color={colors.ink}
         />
       </View>
       <View style={styles.flex}>
         <T variant="small" color={colors.textMuted}>
-          {formatDateTime(ride.requestedAt)} · {CLASS_LABELS[ride.class]}
+          {formatDateTime(ride.requestedAt)} ·{' '}
+          {ride.service && ride.service !== 'taxi' ? `${SERVICE_NAMES[ride.service]} · ` : ''}
+          {classLabel(ride.class)}
         </T>
         <T variant="bodyStrong" numberOfLines={1}>
           {placeLine(ride.dropoff)}

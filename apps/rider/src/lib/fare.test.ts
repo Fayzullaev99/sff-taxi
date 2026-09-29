@@ -132,6 +132,28 @@ describe('cancel terms', () => {
       'Oldindan buyurtmani bekor qilish bepul.',
     );
     expect(cancelTerms({ ...base, status: 'awaiting_payment' }, null, now).fee).toBe(0);
+    // a ride for later's paid deposit: back in time, kept within the last 60 minutes
+    const booked = {
+      ...base,
+      status: 'scheduled' as const,
+      paymentStatus: 'paid',
+      paymentMethod: 'cash',
+      fare: { deposit: 6_000 },
+    };
+    const early = cancelTerms(
+      { ...booked, scheduledFor: new Date(now.getTime() + 3 * 3600_000).toISOString() },
+      null,
+      now,
+    );
+    expect(early.fee).toBe(0);
+    expect(early.message).toContain('qaytariladi');
+    const late = cancelTerms(
+      { ...booked, scheduledFor: new Date(now.getTime() + 30 * 60_000).toISOString() },
+      null,
+      now,
+    );
+    expect(late.fee).toBe(6_000);
+    expect(late.message).toContain('haydovchiga qoladi');
     expect(
       cancelTerms({ ...base, status: 'searching', paymentStatus: 'paid' }, null, now).message,
     ).toMatch(/to‘liq qaytariladi/);

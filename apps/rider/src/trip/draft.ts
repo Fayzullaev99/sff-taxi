@@ -1,5 +1,13 @@
 import { useSyncExternalStore } from 'react';
-import type { FareMode, LatLng, PaymentMethod, RideClass, RideOption } from '../api/types';
+import type {
+  CargoClass,
+  FareMode,
+  LatLng,
+  PaymentMethod,
+  RideClass,
+  RideOption,
+  RideService,
+} from '../api/types';
 
 /** A trip end as the rider chose it: a map pin with the address line we found for it. */
 export interface TripPoint extends LatLng {
@@ -29,6 +37,20 @@ export interface TripDraft {
   womenOnly: boolean;
   /** A fixed route between towns: a seat (per person, shared) or the whole car. */
   fareMode: FareMode;
+  /** Taxi, cargo or delivery (the map's switcher). */
+  service: RideService;
+  /** Cargo: the class, loaders (0–2), the customer rides in the cab, the load. */
+  cargoClass: CargoClass;
+  loaders: number;
+  riderRides: boolean;
+  loadDescription: string;
+  /** As typed (kg), checked against the class's payload. */
+  loadWeight: string;
+  /** Delivery: the parcel and who receives it. */
+  parcelDescription: string;
+  parcelWeight: string;
+  recipientName: string;
+  recipientPhone: string;
   /** Asks the home map to move (a pickup chosen by search); the key repeats a move. */
   moveMap: { lat: number; lng: number; key: number } | null;
 }
@@ -46,6 +68,16 @@ const INITIAL: TripDraft = {
   shareable: false,
   womenOnly: false,
   fareMode: 'car',
+  service: 'taxi',
+  cargoClass: 'cargo_s',
+  loaders: 0,
+  riderRides: false,
+  loadDescription: '',
+  loadWeight: '',
+  parcelDescription: '',
+  parcelWeight: '',
+  recipientName: '',
+  recipientPhone: '',
   moveMap: null,
 };
 
@@ -83,8 +115,21 @@ export function resetAfterOrder(): void {
     scheduledFor: null,
     passengers: 1,
     fareMode: 'car',
+    loaders: 0,
+    riderRides: false,
+    loadDescription: '',
+    loadWeight: '',
+    parcelDescription: '',
+    parcelWeight: '',
+    recipientName: '',
+    recipientPhone: '',
     moveMap: null,
   });
+}
+
+/** Where the price screen of the chosen service is. */
+export function orderPath(service: RideService): '/order' | '/cargo' {
+  return service === 'cargo' ? '/cargo' : '/order';
 }
 
 export function resetDraft(): void {

@@ -51,8 +51,14 @@ export function orderKey(input: {
   shareable?: boolean;
   womenOnly?: boolean;
   fareMode?: string;
+  cargo?: unknown;
+  parcel?: unknown;
+  recipient?: unknown;
 }): string {
   return JSON.stringify([
+    input.cargo ?? null,
+    input.parcel ?? null,
+    input.recipient ?? null,
     input.passengers ?? 1,
     input.shareable ?? false,
     input.womenOnly ?? false,

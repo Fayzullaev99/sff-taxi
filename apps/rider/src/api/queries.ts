@@ -48,9 +48,16 @@ export const keys = {
   tariff: (p: LatLng) => ['tariff', coarse(p.lat), coarse(p.lng)] as const,
   resolve: (p: LatLng) => ['geo-resolve', coarse(p.lat), coarse(p.lng)] as const,
   reverse: (p: LatLng) => ['geo-reverse', round(p.lat), round(p.lng)] as const,
-  quote: (pickup: LatLng, dropoff: LatLng, options: RideOption[], scheduledFor: string | null) =>
+  quote: (
+    pickup: LatLng,
+    dropoff: LatLng,
+    options: RideOption[],
+    scheduledFor: string | null,
+    service: string = 'taxi',
+  ) =>
     [
       'quote',
+      service,
       round(pickup.lat),
       round(pickup.lng),
       round(dropoff.lat),
@@ -147,17 +154,51 @@ export function useQuote(
   dropoff: LatLng | null,
   options: RideOption[],
   scheduledFor: string | null = null,
+  service: 'taxi' | 'delivery' = 'taxi',
+  enabled = true,
 ) {
   const signedIn = useIsSignedIn();
   const every = scheduledFor ? QUOTE_REFRESH_MS : AVAILABILITY_REFRESH_MS;
+  const opts = service === 'delivery' ? [] : options;
   return useQuery({
     queryKey: keys.quote(
       pickup ?? { lat: 0, lng: 0 },
       dropoff ?? { lat: 0, lng: 0 },
-      options,
+      opts,
       scheduledFor,
+      service,
     ),
-    queryFn: () => endpoints.quote(pickup!, dropoff!, options, scheduledFor),
+    queryFn: () => endpoints.quote(pickup!, dropoff!, opts, scheduledFor, service),
+    enabled: enabled && signedIn && pickup !== null && dropoff !== null,
+    staleTime: every,
+    refetchInterval: every,
+    gcTime: QUOTE_REFRESH_MS,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** A cargo quote: both classes with the loaders asked for (and the rider in the cab). */
+export function useCargoQuote(
+  pickup: LatLng | null,
+  dropoff: LatLng | null,
+  cargo: { loaders: number; riderRides: boolean },
+  scheduledFor: string | null = null,
+) {
+  const signedIn = useIsSignedIn();
+  const every = scheduledFor ? QUOTE_REFRESH_MS : AVAILABILITY_REFRESH_MS;
+  return useQuery({
+    queryKey: [
+      ...keys.quote(
+        pickup ?? { lat: 0, lng: 0 },
+        dropoff ?? { lat: 0, lng: 0 },
+        [],
+        scheduledFor,
+        'cargo',
+      ),
+      cargo.loaders,
+      cargo.riderRides,
+    ],
+    queryFn: () => endpoints.cargoQuote(pickup!, dropoff!, cargo, scheduledFor),
     enabled: signedIn && pickup !== null && dropoff !== null,
     staleTime: every,
     refetchInterval: every,
@@ -318,7 +359,11 @@ export function useBooking(id: string | undefined) {
     queryFn: () => endpoints.booking(id!),
     enabled: signedIn && Boolean(id),
     staleTime: 10_000,
-    refetchInterval: 60_000,
+    // a deposit is confirmed server to server by Payme/Click: poll fast while it waits
+    refetchInterval: (q) =>
+      (q.state.data as { status?: string } | undefined)?.status === 'awaiting_payment'
+        ? 4_000
+        : 60_000,
   });
 }
 

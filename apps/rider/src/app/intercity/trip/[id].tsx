@@ -19,6 +19,8 @@ import {
   TRIP_STATUS_LABELS,
 } from '../../../lib/intercity';
 import { OrderAttempts } from '../../../lib/order-attempt';
+import { alongParams } from '../../../lib/intercity';
+import { bookingDeposit, bookingDepositRules } from '../../../lib/deposit';
 import { Banner, Button, Card, KeyValue, Stepper, T, TextField } from '../../../ui/primitives';
 import { formatRating } from '../../../ui/Rating';
 import { ErrorView, LoadingView } from '../../../ui/states';
@@ -31,7 +33,19 @@ import { KeyboardAvoider } from '../../../ui/KeyboardAvoider';
  * One clientRequestId per attempt: a retry after a timeout never books twice.
  */
 export default function TripScreen() {
-  const params = useLocalSearchParams<{ id: string; seats?: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    seats?: string;
+    /** A result along the way: the rider's towns and the price of their part. */
+    along?: string;
+    from?: string;
+    to?: string;
+    fromName?: string;
+    toName?: string;
+    rear?: string;
+    front?: string;
+  }>();
+  const along = alongParams(params);
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const query = useIntercityTrip(params.id);
@@ -62,11 +76,20 @@ export default function TripScreen() {
 
   const open = trip.status === 'scheduled' || trip.status === 'boarding';
   const departed = new Date(trip.departureAt).getTime() <= Date.now();
-  const price = bookingPrice(seats, front, trip.price);
-  const surcharge = frontSurcharge(trip.price);
+  // along the way the seats cost the rider's part of the trip (as the search priced it)
+  const prices = along?.prices ?? trip.price;
+  const price = bookingPrice(seats, front, prices);
+  const surcharge = frontSurcharge(prices);
+  const deposit = bookingDeposit(price, trip.depositRules);
+  const cancelRules = cancelRulesFrom(trip.cancelRules, configRules);
 
   const book = async () => {
-    const input = { seats, front, pickupNote: note.trim() || null };
+    const input = {
+      seats,
+      front,
+      pickupNote: note.trim() || null,
+      ...(along ? { from: along.from, to: along.to } : {}),
+    };
     const clientRequestId = attempts.idFor(JSON.stringify([trip.id, input]));
     setBusy(true);
     setError(null);
@@ -106,6 +129,11 @@ export default function TripScreen() {
             {trip.from.nameUz} → {trip.to.nameUz}
           </T>
           <T variant="h3">{formatDateTime(trip.departureAt)}</T>
+          {along ? (
+            <T variant="smallStrong" color={colors.brandText}>
+              Yo‘l-yo‘lakay: {along.fromName} → {along.toName} · narx sizning qismingiz uchun
+            </T>
+          ) : null}
           {!open ? (
             <T variant="smallStrong" color={colors.warning}>
               {TRIP_STATUS_LABELS[trip.status]}
@@ -161,7 +189,7 @@ export default function TripScreen() {
                 <View style={styles.flex}>
                   <T variant="bodyStrong">Joylar soni</T>
                   <T variant="small" color={colors.textMuted}>
-                    {free} ta bo‘sh · orqada {formatMoney(trip.price.rear)}
+                    {free} ta bo‘sh · orqada {formatMoney(prices.rear)}
                   </T>
                 </View>
                 <Stepper
@@ -175,7 +203,7 @@ export default function TripScreen() {
                 <Pressable
                   accessibilityRole="switch"
                   accessibilityState={{ checked: front, disabled: !frontFree }}
-                  accessibilityLabel={`Old o‘rindiq, ${formatMoney(trip.price.front)}${frontFree ? '' : ', band'}`}
+                  accessibilityLabel={`Old o‘rindiq, ${formatMoney(prices.front)}${frontFree ? '' : ', band'}`}
                   disabled={!frontFree}
                   onPress={() => setFront(!front)}
                   style={[styles.row, !frontFree ? styles.dim : null]}
@@ -184,7 +212,7 @@ export default function TripScreen() {
                     <T variant="bodyStrong">Old o‘rindiq</T>
                     <T variant="small" color={colors.textMuted}>
                       {frontFree
-                        ? `${formatMoney(trip.price.front)}${surcharge ? ` (+${formatMoney(surcharge)})` : ''} — bitta joy oldinda`
+                        ? `${formatMoney(prices.front)}${surcharge ? ` (+${formatMoney(surcharge)})` : ''} — bitta joy oldinda`
                         : 'Band qilingan'}
                     </T>
                   </View>
@@ -209,13 +237,28 @@ export default function TripScreen() {
               multiline
             />
 
-            <Banner
-              tone="info"
-              icon="information-circle-outline"
-              message={cancelRuleText(cancelRulesFrom(trip.cancelRules, configRules))}
-            />
+            {deposit ? (
+              <Banner
+                tone="info"
+                icon="card-outline"
+                title="Oldindan to‘lov (depozit)"
+                message={bookingDepositRules(
+                  deposit,
+                  trip.depositRules?.paymentMinutes ?? 15,
+                  cancelRules.freeCancelMinutes,
+                )}
+              />
+            ) : (
+              <Banner
+                tone="info"
+                icon="information-circle-outline"
+                message={cancelRuleText(cancelRules)}
+              />
+            )}
             <T variant="small" color={colors.textMuted}>
-              To‘lov naqd, haydovchiga. Narx qatnovda belgilangan va o‘zgarmaydi.
+              {deposit
+                ? 'Narx qatnovda belgilangan va o‘zgarmaydi.'
+                : 'To‘lov naqd, haydovchiga. Narx qatnovda belgilangan va o‘zgarmaydi.'}
             </T>
           </>
         ) : (
@@ -227,9 +270,15 @@ export default function TripScreen() {
         <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, space(3)) }]}>
           {error ? <Banner tone="danger" message={error} /> : null}
           <Button
-            title={seats > 1 ? `${seats} ta joyni band qilish` : 'Joy band qilish'}
+            title={
+              deposit
+                ? `Band qilish · depozit ${formatMoney(deposit.deposit)}`
+                : seats > 1
+                  ? `${seats} ta joyni band qilish`
+                  : 'Joy band qilish'
+            }
             size="lg"
-            trailing={formatMoney(price)}
+            trailing={deposit ? undefined : formatMoney(price)}
             loading={busy}
             disabled={free < 1}
             onPress={() => void book()}

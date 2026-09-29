@@ -25,11 +25,14 @@ import {
   formatDateTime,
   formatMinutes,
   formatMoney,
+  formatPhone,
   formatTime,
   placeLine,
 } from '../../lib/format';
 import { type EtaDisplay, fixIsStale, steadyEta } from '../../lib/car-motion';
 import { useNow } from '../../lib/hooks';
+import { freeCancelUntil } from '../../lib/deposit';
+import { loadLine, serviceTitle } from '../../lib/services';
 import { discountLine, occupancyText, pinDigits, ridePrice } from '../../lib/sharing';
 import { SeatIcons } from '../../order/RideChoices';
 import { shareText } from '../../lib/links';
@@ -311,6 +314,8 @@ function LiveRide({
 
           {screen.phase === 'searching' ? <SearchingInfo ride={ride} /> : null}
 
+          <LoadInfo ride={ride} />
+
           {ride.pickup.landmark || ride.comment ? (
             <T variant="small" color={colors.textMuted} numberOfLines={3}>
               {[ride.pickup.landmark ? `Mo‘ljal: ${ride.pickup.landmark}` : null, ride.comment]
@@ -428,7 +433,7 @@ function PhaseHeader({
   return (
     <View style={styles.header}>
       <T variant="h2" accessibilityRole="header" accessibilityLiveRegion="polite">
-        {screen.title}
+        {serviceTitle(ride.service, screen.phase, screen.title)}
       </T>
       {line ? (
         <T
@@ -553,7 +558,7 @@ function WaitingClock({ ride, rules }: { ride: Ride; rules: RideRules | null }) 
       <View style={[styles.clock, { backgroundColor: colors.successSoft }]}>
         <Icon name="time-outline" size={20} color={colors.success} />
         <T variant="bodyStrong" style={styles.flex}>
-          Bepul kutish: {formatClock(w.freeLeftS)}
+          {ride.service === 'cargo' ? 'Bepul yuklash' : 'Bepul kutish'}: {formatClock(w.freeLeftS)}
         </T>
       </View>
     );
@@ -562,7 +567,8 @@ function WaitingClock({ ride, rules }: { ride: Ride; rules: RideRules | null }) 
     <View style={[styles.clock, { backgroundColor: colors.warningSoft }]}>
       <Icon name="hourglass-outline" size={20} color={colors.warning} />
       <T variant="bodyStrong" style={styles.flex}>
-        Pullik kutish: {w.paidMinutes} daq · {formatMoney(w.fee)}
+        {ride.service === 'cargo' ? 'Pullik yuklash' : 'Pullik kutish'}: {w.paidMinutes} daq ·{' '}
+        {formatMoney(w.fee)}
       </T>
       <T variant="small" color={colors.textMuted}>
         {formatMoney(rules.waiting.per_minute)}/daq
@@ -620,9 +626,38 @@ function ScheduledInfo({ ride, rules }: { ride: Ride; rules: RideRules | null })
       ) : null}
       {rules ? (
         <T variant="small" color={colors.textMuted}>
-          {waitingRuleText(rules)} Oldindan buyurtmani bekor qilish bepul.
+          {waitingRuleText(rules)}{' '}
+          {(ride.fare.deposit ?? 0) > 0 && ride.scheduledFor
+            ? `Depozit ${formatMoney(ride.fare.deposit!)} to‘langan. ${formatTime(freeCancelUntil(ride.scheduledFor).toISOString())} gacha bekor qilsangiz, u qaytariladi; keyin haydovchiga qoladi.`
+            : 'Oldindan buyurtmani bekor qilish bepul.'}
         </T>
       ) : null}
+    </View>
+  );
+}
+
+/** A cargo ride's load or a delivery's parcel and its recipient (whom the driver calls). */
+function LoadInfo({ ride }: { ride: Ride }) {
+  const line = loadLine(ride);
+  if (!line) return null;
+  const phone = ride.service === 'delivery' ? ride.delivery?.recipientPhone : null;
+  return (
+    <View style={styles.load} accessible>
+      <Icon
+        name={ride.service === 'cargo' ? 'cube-outline' : 'mail-outline'}
+        size={20}
+        color={colors.ink}
+      />
+      <View style={styles.flex}>
+        <T variant="smallStrong" numberOfLines={3}>
+          {line}
+        </T>
+        {phone ? (
+          <T variant="small" color={colors.textMuted}>
+            Qabul qiluvchi: {formatPhone(phone)}
+          </T>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -681,6 +716,14 @@ const styles = StyleSheet.create({
   sos: { minWidth: 96 },
   searchInfo: { gap: space(2) },
   owed: { gap: 2 },
+  load: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space(3),
+    padding: space(3),
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
   priceRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space(1.5) },
   struck: { textDecorationLine: 'line-through' },
   pin: {

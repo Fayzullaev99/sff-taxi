@@ -19,7 +19,7 @@ import { parseSaveTarget, type Place, SAVED_LABELS, savedToPlace, saveTitle } fr
 import { describePoint } from '../location/geo';
 import { LocationNotice, useLocator } from '../location/useLocator';
 import { NATIVE_MAP } from '../location/MapFallback';
-import { choosePickup, updateDraft, useDraft } from '../trip/draft';
+import { choosePickup, updateDraft, useDraft, getDraft, orderPath } from '../trip/draft';
 import { hideRecentPlace, savePicked, usePlaces } from '../trip/places-store';
 import { confirm } from '../lib/dialogs';
 import { Icon, type IconName, IconButton, T } from '../ui/primitives';
@@ -74,7 +74,7 @@ export default function SearchScreen() {
       return;
     }
     updateDraft({ dropoff: point });
-    router.replace('/order');
+    router.replace(orderPath(getDraft().service));
   };
 
   const pickSuggestion = (s: GeoSuggestion) =>

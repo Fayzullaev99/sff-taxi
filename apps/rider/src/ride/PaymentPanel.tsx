@@ -1,7 +1,8 @@
 import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import type { CardProvider, Ride } from '../api/types';
+import type { CardProvider, Ride, RidePayment } from '../api/types';
+import { rideDepositRules } from '../lib/deposit';
 import { formatClock, formatMoney } from '../lib/format';
 import { useNow } from '../lib/hooks';
 import { openLink } from '../lib/links';
@@ -27,6 +28,61 @@ export function PaymentPanel({
   /** Re-reads the ride; resolves when the answer is in. */
   onCheck: () => Promise<unknown>;
 }) {
+  // a ride booked for later: only its deposit is paid by card now, the rest in cash
+  const deposit = depositPayment(ride);
+  const amount = ride.payment?.amount ?? deposit?.amount ?? ride.fare.quoted;
+  return (
+    <CheckoutPanel
+      payment={ride.payment}
+      amount={amount}
+      label={deposit ? 'Oldindan to‘lov (depozit)' : 'To‘lanadigan summa'}
+      cashLeft={deposit?.cashLeft ?? 0}
+      info={
+        deposit
+          ? rideDepositRules(deposit.amount, deposit.amount + deposit.cashLeft, ride.scheduledFor)
+          : 'Narx o‘zgarmaydi. To‘lov tasdiqlangach haydovchi qidiruvi avtomatik boshlanadi. Bekor qilsangiz, pul to‘liq qaytariladi.'
+      }
+      expiredText={
+        deposit
+          ? 'To‘lov tekshirilmoqda. To‘lamagan bo‘lsangiz, buyurtma bir necha daqiqada bekor qilinadi va kartadan pul yechilmaydi.'
+          : undefined
+      }
+      waitingText={
+        deposit
+          ? 'To‘lov hali kelmadi. To‘lov sahifasida to‘lovni yakunlang — tasdiq kelishi bilan buyurtma tasdiqlanadi.'
+          : undefined
+      }
+      onCheck={onCheck}
+    />
+  );
+}
+
+/**
+ * Paying by card on the providers' pages: the amount, the time left, Payme / Click and
+ * "I paid — check". Used by card rides, deposits of rides for later and of seats on the
+ * trip board.
+ */
+export function CheckoutPanel({
+  payment,
+  amount,
+  label,
+  cashLeft = 0,
+  info,
+  expiredText = 'To‘lov tekshirilmoqda. To‘lamagan bo‘lsangiz, buyurtma bir necha daqiqada bekor qilinadi va kartadan pul yechilmaydi.',
+  waitingText = 'To‘lov hali kelmadi. To‘lov sahifasida to‘lovni yakunlang — tasdiq kelishi bilan haydovchi qidiruvi o‘zi boshlanadi.',
+  onCheck,
+}: {
+  payment: RidePayment | null;
+  amount: number;
+  label: string;
+  /** Paid to the driver in cash afterwards (a deposit's rest). */
+  cashLeft?: number;
+  /** What happens after paying, and the rules agreed to. */
+  info: string;
+  expiredText?: string;
+  waitingText?: string;
+  onCheck: () => Promise<unknown>;
+}) {
   const now = useNow(1000);
   const [opening, setOpening] = useState<CardProvider | null>(null);
   // "I paid — check": a spinner, then a word when the payment has not arrived yet (the
@@ -41,11 +97,8 @@ export function PaymentPanel({
     setChecking(false);
     setNotYet(true);
   };
-  const left = paymentSecondsLeft(ride.payment, now);
-  const links = checkoutLinks(ride.payment);
-  // a ride booked for later: only its deposit is paid by card now, the rest in cash
-  const deposit = depositPayment(ride);
-  const amount = ride.payment?.amount ?? deposit?.amount ?? ride.fare.quoted;
+  const left = paymentSecondsLeft(payment, now);
+  const links = checkoutLinks(payment);
   const expired = left === 0;
 
   const pay = async (provider: CardProvider, url: string) => {
@@ -74,12 +127,12 @@ export function PaymentPanel({
         <Icon name="card" size={22} color={colors.ink} />
         <View style={styles.flex}>
           <T variant="small" color={colors.textMuted}>
-            {deposit ? 'Oldindan to‘lov (depozit)' : 'To‘lanadigan summa'}
+            {label}
           </T>
           <T variant="price">{formatMoney(amount)}</T>
-          {deposit && deposit.cashLeft > 0 ? (
+          {cashLeft > 0 ? (
             <T variant="small" color={colors.textMuted}>
-              Qolgan {formatMoney(deposit.cashLeft)} naqd haydovchiga
+              Qolgan {formatMoney(cashLeft)} naqd haydovchiga
             </T>
           ) : null}
         </View>
@@ -95,15 +148,10 @@ export function PaymentPanel({
       </View>
 
       {expired ? (
-        <Banner
-          tone="warning"
-          title="To‘lov vaqti tugadi"
-          message="To‘lov tekshirilmoqda. To‘lamagan bo‘lsangiz, buyurtma bir necha daqiqada bekor qilinadi va kartadan pul yechilmaydi."
-        />
+        <Banner tone="warning" title="To‘lov vaqti tugadi" message={expiredText} />
       ) : (
         <T variant="body" color={colors.textMuted}>
-          Narx o‘zgarmaydi. To‘lov tasdiqlangach haydovchi qidiruvi avtomatik boshlanadi. Bekor
-          qilsangiz, pul to‘liq qaytariladi.
+          {info}
         </T>
       )}
 
@@ -134,8 +182,7 @@ export function PaymentPanel({
       />
       {notYet && !checking && !expired ? (
         <T variant="small" color={colors.textMuted} accessibilityLiveRegion="polite">
-          To‘lov hali kelmadi. To‘lov sahifasida to‘lovni yakunlang — tasdiq kelishi bilan haydovchi
-          qidiruvi o‘zi boshlanadi.
+          {waitingText}
         </T>
       ) : null}
     </View>

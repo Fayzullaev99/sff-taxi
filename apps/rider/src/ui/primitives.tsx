@@ -330,18 +330,21 @@ export function Stepper({
   min = 0,
   max = 99,
   compact = false,
+  trashAtZero = true,
 }: {
   value: number;
   onChange: (next: number) => void;
   min?: number;
   max?: number;
   compact?: boolean;
+  /** Going down to 0 removes the item (a cart): a bin icon. Off for counts like loaders. */
+  trashAtZero?: boolean;
 }) {
   const size = compact ? 30 : 38;
   return (
     <View style={[styles.stepper, { height: size }]}>
       <IconButton
-        name={value - 1 <= 0 && min === 0 ? 'trash-outline' : 'remove'}
+        name={trashAtZero && value - 1 <= 0 && min === 0 ? 'trash-outline' : 'remove'}
         label="Kamaytirish"
         size={size}
         background={colors.surface}
