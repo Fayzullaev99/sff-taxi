@@ -8,7 +8,7 @@ import { useFeature } from '../api/support';
 import type { CargoClass, CargoQuote } from '../api/types';
 import { formatDateTime, formatMoney } from '../lib/format';
 import { cardLabel } from '../lib/payment';
-import { availabilityText } from '../lib/ride-state';
+import { availabilityShort, availabilityText } from '../lib/ride-state';
 import { schedulable, SCHEDULE_DISPATCH_BEFORE_MIN } from '../lib/schedule';
 import {
   CARGO_CLASS_LABELS,
@@ -328,7 +328,7 @@ const CargoClassCard = memo(function CargoClassCard({
   const fare = quote.fares[cargoClass];
   const rules = quote.cargo.classes[cargoClass];
   const fits = cargoFits(rules, weightKg);
-  const availability = availabilityText(quote.availability?.[cargoClass]);
+  const availability = availabilityShort(quote.availability?.[cargoClass]);
   const noCar = quote.availability?.[cargoClass]?.etaS === null;
   return (
     <Pressable

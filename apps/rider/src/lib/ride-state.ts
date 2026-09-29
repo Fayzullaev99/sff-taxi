@@ -223,9 +223,19 @@ export function pickupEta(
   return estimate === null ? null : { minutes: estimate, source: 'estimate' };
 }
 
-/** "~4 daq" on a class card: the nearest free car of the class, by road. */
+/** The footer's line: the nearest free car of the class, by road ("Eng yaqin mashina ~4 daq"). */
 export function availabilityText(a: ClassAvailability | null | undefined): string | null {
   if (!a) return null;
   if (a.etaS === null || a.cars === 0) return 'Yaqinda bo‘sh mashina yo‘q';
   return `Eng yaqin mashina ~${formatMinutes(Math.max(1, Math.ceil(a.etaS / 60)))}`;
+}
+
+/**
+ * The same on a class card, short enough for one line at a large font (1.3): "Mashina ~4 daq",
+ * "Mashina yo‘q"; the footer keeps the full sentence.
+ */
+export function availabilityShort(a: ClassAvailability | null | undefined): string | null {
+  if (!a) return null;
+  if (a.etaS === null || a.cars === 0) return 'Mashina yo‘q';
+  return 'Mashina ~' + formatMinutes(Math.max(1, Math.ceil(a.etaS / 60)));
 }

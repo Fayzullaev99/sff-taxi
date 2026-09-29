@@ -15,7 +15,7 @@ import {
 } from '../lib/fare';
 import { formatDateTime, formatDistance, formatMoney } from '../lib/format';
 import { cardLabel } from '../lib/payment';
-import { availabilityText } from '../lib/ride-state';
+import { availabilityShort, availabilityText } from '../lib/ride-state';
 import { schedulable, SCHEDULE_DISPATCH_BEFORE_MIN } from '../lib/schedule';
 import { OrderOptions } from '../order/OrderOptions';
 import { PassengersRow, RouteModeChoice, SharingRows } from '../order/RideChoices';
@@ -524,6 +524,7 @@ const ClassCard = memo(function ClassCard({
 }) {
   const fare = quote.fares[rideClass];
   const availability = availabilityText(quote.availability?.[rideClass]);
+  const short = availabilityShort(quote.availability?.[rideClass]);
   const noCar = quote.availability?.[rideClass]?.etaS === null;
   // a fixed route seat price (Yangiyer → Guliston 10 000) is the seat price to show
   const routeSeat = routePrices(quote, rideClass)?.seat ?? null;
@@ -543,13 +544,13 @@ const ClassCard = memo(function ClassCard({
         <T variant="small" color={colors.textMuted} numberOfLines={2}>
           {CLASS_NOTES[rideClass]}
         </T>
-        {availability ? (
+        {short ? (
           <T
             variant="smallStrong"
             color={noCar ? colors.warning : colors.success}
             numberOfLines={1}
           >
-            {availability}
+            {short}
           </T>
         ) : null}
       </View>
