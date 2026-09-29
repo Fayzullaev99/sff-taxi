@@ -125,10 +125,6 @@ export const CashCard = memo(function CashCard(props: {
         </Muted>
       ) : deposit ? (
         <Banner tone="info" icon="card" text={deposit} />
-      ) : ride.fare.poolDiscount ? (
-        <Muted>
-          Narx {som(ride.fare.quoted)}, hamroh chegirmasi −{som(ride.fare.poolDiscount)}
-        </Muted>
       ) : parts ? (
         <Muted>{parts}</Muted>
       ) : (

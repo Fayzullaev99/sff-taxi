@@ -96,7 +96,13 @@ describe('cash to collect', () => {
       fare: { ...fare, owedFee: 3_000 },
       collectCash: 24_000,
     });
-    expect(cash).toEqual({ total: 24_000, fare: 20_000, waiting: 1_000, owedFee: 3_000 });
+    expect(cash).toEqual({
+      total: 24_000,
+      fare: 20_000,
+      waiting: 1_000,
+      owedFee: 3_000,
+      discount: 0,
+    });
     expect(cashPartsText(cash)).toBe(
       'Narx 20 000 so‘m + kutish 1 000 so‘m + oldingi safar 3 000 so‘m',
     );
@@ -116,9 +122,38 @@ describe('cash to collect', () => {
 
   it('a card ride: only the waiting in cash', () => {
     const cash = cashBreakdown({ paymentMethod: 'card', fare, collectCash: 1_000 });
-    expect(cash).toEqual({ total: 1_000, fare: 0, waiting: 1_000, owedFee: 0 });
+    expect(cash).toEqual({ total: 1_000, fare: 0, waiting: 1_000, owedFee: 0, discount: 0 });
     expect(cashPartsText(cash)).toBeNull();
     expect(owedFeeNote(0)).toBeNull();
+  });
+
+  it('spells out a shared ride: price, discount, waiting (QA wave 4)', () => {
+    // the screen said "Narx 15 600, hamroh chegirmasi −2 300" under 16 800: the waiting was missing
+    const cash = cashBreakdown({
+      paymentMethod: 'cash',
+      fare: { quoted: 15_600, waiting: 3_500, total: null, poolDiscount: 2_300 },
+      collectCash: 16_800,
+    });
+    expect(cash.total).toBe(16_800);
+    expect(cashPartsText(cash)).toBe(
+      'Narx 15 600 so‘m − hamroh chegirmasi 2 300 so‘m + kutish 3 500 so‘m',
+    );
+    expect(
+      cashPartsText(
+        cashBreakdown({
+          paymentMethod: 'cash',
+          fare: { quoted: 27_600, waiting: 0, total: null, poolDiscount: 3_100 },
+          collectCash: 24_500,
+        }),
+      ),
+    ).toBe('Narx 27 600 so‘m − hamroh chegirmasi 3 100 so‘m');
+    // a card ride's discount is not cash: only the waiting is
+    expect(
+      cashBreakdown({
+        paymentMethod: 'card',
+        fare: { quoted: 15_600, waiting: 500, total: null, poolDiscount: 2_300 },
+      }).discount,
+    ).toBe(0);
   });
 
   it('falls back to fare + waiting + owed fee without collectCash (older API)', () => {

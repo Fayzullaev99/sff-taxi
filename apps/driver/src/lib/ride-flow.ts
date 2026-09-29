@@ -129,7 +129,13 @@ export function cashToCollect(
 
 export interface CashRide {
   paymentMethod: string;
-  fare: { quoted: number; waiting: number; total: number | null; owedFee?: number | null };
+  fare: {
+    quoted: number;
+    waiting: number;
+    total: number | null;
+    owedFee?: number | null;
+    poolDiscount?: number | null;
+  };
   /** The API's figure: (cash ride ? fare : 0) + paid waiting + owed fees. */
   collectCash?: number | null;
 }
@@ -142,6 +148,8 @@ export interface CashBreakdown {
   waiting: number;
   /** Cancellation fees the rider owed from earlier cash rides, taken with this fare. */
   owedFee: number;
+  /** A shared ride's discount off the fare (cash rides). */
+  discount: number;
 }
 
 /**
@@ -153,16 +161,17 @@ export function cashBreakdown(ride: CashRide, liveWaiting?: number): CashBreakdo
   const owedFee = Math.max(0, ride.fare.owedFee ?? 0);
   const waiting = liveWaiting ?? ride.fare.waiting;
   const fare = ride.paymentMethod === 'card' ? 0 : ride.fare.quoted;
+  const discount = fare > 0 ? Math.max(0, ride.fare.poolDiscount ?? 0) : 0;
   if (typeof ride.collectCash === 'number' && Number.isFinite(ride.collectCash)) {
     const total = Math.max(0, ride.collectCash + (waiting - ride.fare.waiting));
-    return { total, fare, waiting, owedFee };
+    return { total, fare, waiting, owedFee, discount };
   }
   const base = cashToCollect(ride.paymentMethod, {
     ...ride.fare,
     waiting,
     total: liveWaiting === undefined ? ride.fare.total : null,
   });
-  return { total: base + owedFee, fare, waiting, owedFee };
+  return { total: base + owedFee, fare, waiting, owedFee, discount };
 }
 
 /** "shundan 3 000 so‘m — …" under the big number, or null when nothing is owed. */
@@ -172,13 +181,19 @@ export function owedFeeNote(owedFee: number): string | null {
     : null;
 }
 
-/** "Narx 20 000 so‘m + kutish 1 000 so‘m + oldingi safar 3 000 so‘m", or null for one part. */
+/**
+ * "Narx 20 000 so‘m − hamroh chegirmasi 2 300 so‘m + kutish 1 000 so‘m + oldingi safar
+ * 3 000 so‘m": every part of the big number, or null for one part.
+ */
 export function cashPartsText(cash: CashBreakdown): string | null {
   const parts: string[] = [];
   if (cash.fare > 0) parts.push(`Narx ${som(cash.fare)}`);
-  if (cash.waiting > 0) parts.push(`kutish ${som(cash.waiting)}`);
-  if (cash.owedFee > 0) parts.push(`oldingi safar ${som(cash.owedFee)}`);
-  return parts.length > 1 ? parts.join(' + ') : null;
+  if (cash.discount > 0) parts.push(`− hamroh chegirmasi ${som(cash.discount)}`);
+  if (cash.waiting > 0) parts.push(`+ kutish ${som(cash.waiting)}`);
+  if (cash.owedFee > 0) parts.push(`+ oldingi safar ${som(cash.owedFee)}`);
+  if (parts.length < 2) return null;
+  // a card ride starts with the waiting: no leading "+"
+  return parts.join(' ').replace(/^\+ /, '');
 }
 
 /** The offer's extra line for fees the rider owes (collected in cash with this fare). */
