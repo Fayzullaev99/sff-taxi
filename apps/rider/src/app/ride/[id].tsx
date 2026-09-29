@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { describeError } from '../../api/client';
@@ -28,6 +28,7 @@ import {
   formatTime,
   placeLine,
 } from '../../lib/format';
+import { type EtaDisplay, fixIsStale, steadyEta } from '../../lib/car-motion';
 import { useNow } from '../../lib/hooks';
 import { shareText } from '../../lib/links';
 import { newerEta, pickupEta, type RideScreen, rideScreen } from '../../lib/ride-state';
@@ -42,6 +43,7 @@ import { DriverCard } from '../../ui/DriverCard';
 import { Banner, Button, Icon, IconButton, T } from '../../ui/primitives';
 import { SearchPulse } from '../../ui/Pulse';
 import { RideMap } from '../../ui/RideMap';
+import { useOnline } from '../../ui/OfflineBanner';
 import { ErrorView, LoadingView } from '../../ui/states';
 import { colors, radius, shadow, space } from '../../ui/theme';
 
@@ -101,7 +103,14 @@ export default function RideScreenRoute() {
     );
   }
 
-  return <LiveRide ride={ride} screen={screen!} onCheck={() => query.refetch()} />;
+  return (
+    <LiveRide
+      ride={ride}
+      screen={screen!}
+      updatedAt={query.dataUpdatedAt}
+      onCheck={() => query.refetch()}
+    />
+  );
 }
 
 function TopBar({ ride, overMap = false }: { ride: Ride; overMap?: boolean }) {
@@ -133,19 +142,28 @@ function TopBar({ ride, overMap = false }: { ride: Ride; overMap?: boolean }) {
 function LiveRide({
   ride,
   screen,
+  updatedAt,
   onCheck,
 }: {
   ride: Ride;
   screen: RideScreen;
+  /** When the ride was last fetched (a cold start offline shows the one kept on the phone). */
+  updatedAt: number;
   onCheck: () => Promise<unknown>;
 }) {
+  const online = useOnline();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const queryClient = useQueryClient();
   const live = useCarTrack(ride.id);
   // the API's trail since the assignment, continued by the fixes streamed since
   const track = useMemo(() => mergeTrail(ride.trail, live), [ride.trail, live]);
-  const car = screen.showDriver ? carPosition(track, ride.driver?.location ?? null) : null;
+  const driverLocation = ride.driver?.location ?? null;
+  // the same object while nothing moved: the memoised map is not re-rendered for nothing
+  const car = useMemo(
+    () => (screen.showDriver ? carPosition(track, driverLocation) : null),
+    [screen.showDriver, track, driverLocation],
+  );
   const rules = rideRules(ride);
   const [panelHeight, setPanelHeight] = useState(height * 0.45);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -259,6 +277,13 @@ function LiveRide({
         >
           <PhaseHeader ride={ride} screen={screen} car={car} rules={rules} />
 
+          {!online && updatedAt ? (
+            <T variant="small" color={colors.textMuted}>
+              Internet yo‘q: {formatTime(new Date(updatedAt).toISOString())} holatidagi ma’lumot
+              ko‘rsatilmoqda.
+            </T>
+          ) : null}
+
           {screen.phase === 'awaiting_payment' ? (
             <PaymentPanel ride={ride} onCheck={onCheck} />
           ) : null}
@@ -359,21 +384,26 @@ function PhaseHeader({
   const now = useNow(15_000);
   const liveEta = useLiveEta(ride.id);
   const liveDestinationEta = useLiveDestinationEta(ride.id);
+  // the API's road ETA (fetched or streamed, whichever is newer); the estimate only without
+  const rawEta =
+    screen.phase === 'assigned'
+      ? (pickupEta(newerEta(ride.driverEta, liveEta), car, ride.pickup, now)?.minutes ?? null)
+      : screen.phase === 'on_trip'
+        ? (pickupEta(
+            newerEta(ride.destinationEta ?? null, liveDestinationEta),
+            car,
+            ride.dropoff,
+            now,
+          )?.minutes ?? null)
+        : null;
+  const eta = useSteadyEta(rawEta, screen.phase);
+  const carSilent =
+    (screen.phase === 'assigned' || screen.phase === 'on_trip') &&
+    fixIsStale(car?.at, now.getTime());
   let line: string | null = null;
   if (screen.phase === 'assigned') {
-    // the API's road ETA (fetched or streamed, whichever is newer); the estimate only without
-    const eta = pickupEta(newerEta(ride.driverEta, liveEta), car, ride.pickup, now);
-    line = eta
-      ? `Taxminan ${formatMinutes(eta.minutes)}da yetib keladi`
-      : 'Haydovchi yo‘lga chiqdi';
+    line = eta ? `Taxminan ${formatMinutes(eta)}da yetib keladi` : 'Haydovchi yo‘lga chiqdi';
   } else if (screen.phase === 'on_trip') {
-    // the API's road ETA to the destination; the straight-line estimate only without one
-    const eta = pickupEta(
-      newerEta(ride.destinationEta ?? null, liveDestinationEta),
-      car,
-      ride.dropoff,
-      now,
-    )?.minutes;
     line = `${placeLine(ride.dropoff)}${eta ? ` · ~${formatMinutes(eta)}` : ''}`;
   } else if (screen.phase === 'scheduled' && ride.scheduledFor) {
     line = `${formatDateTime(ride.scheduledFor)} ga`;
@@ -384,14 +414,39 @@ function PhaseHeader({
         {screen.title}
       </T>
       {line ? (
-        <T variant="body" color={colors.textMuted} numberOfLines={2}>
+        <T
+          variant={screen.phase === 'assigned' ? 'bodyStrong' : 'body'}
+          color={screen.phase === 'assigned' ? colors.text : colors.textMuted}
+          numberOfLines={2}
+        >
           {line}
+        </T>
+      ) : null}
+      {carSilent ? (
+        <T variant="small" color={colors.warning}>
+          Mashina joylashuvi yangilanmayapti — aloqa kutilmoqda…
         </T>
       ) : null}
       {screen.phase === 'arrived' ? <WaitingClock ride={ride} rules={rules} /> : null}
       {screen.phase === 'on_trip' || screen.phase === 'assigned' ? <FareLine ride={ride} /> : null}
     </View>
   );
+}
+
+/**
+ * The ETA in minutes without flicker: a drop shows at once, a one-minute rise only once it
+ * held for 30 s (see steadyEta). Starts over when the phase changes.
+ */
+function useSteadyEta(minutes: number | null, phase: string): number | null {
+  const state = useRef<{ phase: string; eta: EtaDisplay }>({
+    phase,
+    eta: { shown: null, higherSince: null },
+  });
+  if (state.current.phase !== phase) {
+    state.current = { phase, eta: { shown: null, higherSince: null } };
+  }
+  state.current.eta = steadyEta(state.current.eta, minutes, Date.now());
+  return state.current.eta.shown;
 }
 
 /**

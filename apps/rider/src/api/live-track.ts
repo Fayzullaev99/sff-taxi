@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react';
+import { acceptFix } from '../lib/car-motion';
 import type { EtaReading } from '../lib/ride-state';
 import { appendTrack, type TrackPoint } from './realtime-logic';
 
@@ -11,6 +12,8 @@ const tracks = new Map<string, TrackPoint[]>();
 const etas = new Map<string, EtaReading>();
 /** During the trip: the road ETA to the destination. */
 const destinationEtas = new Map<string, EtaReading>();
+/** Fixes dropped in a row per ride (a GPS glitch is dropped once, a real move is not). */
+const rejected = new Map<string, number>();
 const listeners = new Set<() => void>();
 const EMPTY: TrackPoint[] = [];
 
@@ -36,6 +39,14 @@ export function pushFix(
   let changed = setEta(etas, rideId, etaS, fix.at);
   if (setEta(destinationEtas, rideId, destinationEtaS, fix.at)) changed = true;
   const current = tracks.get(rideId) ?? EMPTY;
+  const last = current[current.length - 1] ?? null;
+  const misses = rejected.get(rideId) ?? 0;
+  if (!acceptFix(last, fix, misses)) {
+    rejected.set(rideId, misses + 1);
+    if (changed) emit();
+    return;
+  }
+  rejected.delete(rideId);
   const next = appendTrack(current, fix);
   if (next !== current) {
     tracks.set(rideId, next);
@@ -48,6 +59,7 @@ export function clearTrack(rideId: string): void {
   const a = tracks.delete(rideId);
   const b = etas.delete(rideId);
   const c = destinationEtas.delete(rideId);
+  rejected.delete(rideId);
   if (a || b || c) emit();
 }
 
