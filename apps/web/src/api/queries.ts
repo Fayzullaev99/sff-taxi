@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { api } from './client';
+import { mergeLiveDrivers } from '../lib/pool';
+import { api, ApiError } from './client';
 import { hideDropped, pollInterval, useStreamState } from './realtime';
 import type {
   AdminCity,
@@ -9,6 +10,7 @@ import type {
   AdminTrip,
   AppConfig,
   BillingRules,
+  BookingRules,
   Candidate,
   Complaint,
   ComplaintItem,
@@ -27,6 +29,7 @@ import type {
   LiveBoard,
   OutboxEvent,
   Paged,
+  PoolRules,
   PaymentIntent,
   PaymentProvider,
   Rating,
@@ -34,6 +37,7 @@ import type {
   Refund,
   RideClass,
   RideStatus,
+  RouteFare,
   RoutePrice,
   SosEvent,
   Tariff,
@@ -56,7 +60,8 @@ export function useLive(liveMs = 30_000, fallbackMs = 5000) {
   const stream = useStreamState();
   return useQuery({
     queryKey: ['live'],
-    queryFn: () => api<LiveBoard>('/v1/admin/dispatch/live'),
+    // a shared car comes once per ride it carries: one row per car
+    queryFn: async () => mergeLiveDrivers(await api<LiveBoard>('/v1/admin/dispatch/live')),
     // drivers a positions batch listed offline stay off the map after a refetch
     select: hideDropped,
     refetchInterval: pollInterval(stream, liveMs, fallbackMs),
@@ -246,6 +251,39 @@ export function useFiscalRules() {
   return useQuery({
     queryKey: ['settings', 'fiscal'],
     queryFn: () => api<FiscalRules>('/v1/admin/settings/fiscal'),
+  });
+}
+
+export function usePoolRules() {
+  return useQuery({
+    queryKey: ['settings', 'pool'],
+    queryFn: () => api<PoolRules>('/v1/admin/settings/pool'),
+  });
+}
+
+/**
+ * Deposits of rides booked in advance. An API without the endpoint (404) gives null: the
+ * panel hides the section instead of failing.
+ */
+export function useBookingRules() {
+  return useQuery({
+    queryKey: ['settings', 'booking'],
+    queryFn: async () => {
+      try {
+        return await api<BookingRules>('/v1/admin/settings/booking');
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return null;
+        throw e;
+      }
+    },
+  });
+}
+
+/** Fixed route prices of rides between towns (GET /admin/routes), active or not. */
+export function useRouteFares() {
+  return useQuery({
+    queryKey: ['routes'],
+    queryFn: () => api<RouteFare[]>('/v1/admin/routes'),
   });
 }
 

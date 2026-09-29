@@ -50,6 +50,7 @@ import {
   SCHEDULE_MIN_MINUTES,
   scheduleProblem,
 } from '../lib/rides';
+import { MAX_PASSENGERS, seatingText } from '../lib/pool';
 import type { MapLayers, MarkerSpec } from '../map/adapter';
 import { GeoMap, useGeoConfig } from '../map/GeoMap';
 import { AddressSearch, addressLine, cityLayers, useDebounced, useReverse } from '../map/places';
@@ -337,6 +338,8 @@ export default function PhoneOrder() {
   const [rideClass, setRideClass] = useState<RideClass>('economy');
   const [options, setOptions] = useState<RideOption[]>([]);
   const [comment, setComment] = useState('');
+  // the seating rule: one in front, at most two in the back
+  const [passengers, setPassengers] = useState(1);
   const [later, setLater] = useState(false);
   const [laterAt, setLaterAt] = useState('');
   const [view, setView] = useState<{ key: string; center: LatLng; zoom?: number }>();
@@ -470,6 +473,7 @@ export default function PhoneOrder() {
           class: rideClass,
           options,
           comment: comment.trim() || null,
+          passengers,
           // the price read out to the caller is the price of the ride
           // a quote priced for later (scheduledFor) makes this a ride for later
           quoteId: quote.data?.quoteId ?? null,
@@ -540,6 +544,7 @@ export default function PhoneOrder() {
     setRideClass('economy');
     setOptions([]);
     setComment('');
+    setPassengers(1);
     setLater(false);
     setLaterAt('');
     order.reset();
@@ -744,6 +749,19 @@ export default function PhoneOrder() {
                 },
               ]}
             />
+            <Segmented
+              label="Yo‘lovchilar soni"
+              value={String(passengers)}
+              onChange={(v) => setPassengers(Number(v))}
+              options={Array.from({ length: MAX_PASSENGERS }, (_, i) => ({
+                value: String(i + 1),
+                label: `${i + 1} kishi`,
+              }))}
+            />
+            <p className="muted small">
+              {seatingText(passengers)}. Bir mashinada ko‘pi bilan {MAX_PASSENGERS} yo‘lovchi: oldda
+              1, orqada 2; ko‘proq bo‘lsa — ikkinchi buyurtma.
+            </p>
             <div className="toggles" role="group" aria-label="Qo‘shimchalar">
               {RIDE_OPTIONS.map((o) => (
                 <label key={o} className="check">

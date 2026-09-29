@@ -49,6 +49,7 @@ import { Badge, Button, Field, PageHeader, PhoneLink, Segmented, Toggle } from '
 import { Empty, ErrorBox, Loading, useToast } from '../ui/feedback';
 import { Modal } from '../ui/Modal';
 import { DocumentPreview, DocumentTile } from './Documents';
+import { GenderPoolCard } from './GenderPool';
 import { LicencePanel } from './LicencePanel';
 
 const DECISIONS: Record<
@@ -394,6 +395,9 @@ export default function DriverPage() {
             <Badge tone={LICENCE_TONE[d.licenceCard.verification]}>
               {LICENCE_STATUS[d.licenceCard.verification]}
             </Badge>{' '}
+            {d.gender === 'female' && d.genderVerified && (
+              <Badge tone="brand">Ayol haydovchi</Badge>
+            )}{' '}
             {d.isOnline && (
               <Badge tone="green">Onlayn {onBoard ? `· ${DRIVER_STATE[onBoard.state]}` : ''}</Badge>
             )}{' '}
@@ -528,6 +532,8 @@ export default function DriverPage() {
               )}
             </dl>
           </section>
+
+          <GenderPoolCard driver={d} />
 
           <section className="card">
             <h2>Avtomobil</h2>

@@ -28,9 +28,11 @@ import type {
   LiveBoard,
   OutboxEvent,
   PaymentIntent,
+  PoolRules,
   Quote,
   Rating,
   Refund,
+  RouteFare,
   SosEvent,
   TaxReport,
   TripBooking,
@@ -44,6 +46,9 @@ const R2 = '01a0de48-0000-7000-8000-000000000002';
 const R3 = '01a0de48-0000-7000-8000-000000000003';
 const R4 = '01a0de48-0000-7000-8000-000000000004';
 const R5 = '01a0de48-0000-7000-8000-000000000005';
+const R6 = '01a0de48-0000-7000-8000-000000000006';
+const RF1 = '01a0de48-aaaa-7000-8000-000000000001';
+const RF2 = '01a0de48-aaaa-7000-8000-000000000002';
 const D1 = '01a0de48-1111-7000-8000-000000000001';
 const D2 = '01a0de48-1111-7000-8000-000000000002';
 const D3 = '01a0de48-1111-7000-8000-000000000003';
@@ -556,6 +561,16 @@ const activeDetail: AdminDriver = {
     },
   ],
   missingDocuments: [],
+  gender: 'female',
+  genderVerified: false,
+  womenRidersOnly: false,
+  pool: {
+    enabled: true,
+    extraPassengers: 1,
+    destination: { lat: 40.27, lng: 68.82, address: 'Yangiyer avtovokzali' },
+    destinationSetAt: iso(10),
+    seats: { occupied: 1, capacity: 3, front: 1, rear: 0, free: 2 },
+  },
   balance: 35_000,
   cardMoney: {
     credited: 80_000,
@@ -1059,6 +1074,103 @@ const fullPage = Array.from({ length: 200 }, (_, i) =>
   }),
 );
 
+// Wave 4: fixed route prices, shared-ride rules, deposits, a shared women-only ride -----------
+
+const routeFares: RouteFare[] = [
+  {
+    id: RF1,
+    class: 'economy',
+    seatPrice: 10_000,
+    carPrice: null,
+    isActive: true,
+    updatedAt: iso(600),
+    from: { slug: 'yangiyer', name: 'Yangiyer', lat: 40.27, lng: 68.82 },
+    to: { slug: 'guliston', name: 'Guliston', lat: 40.49, lng: 68.78 },
+  },
+  {
+    id: RF2,
+    class: 'comfort',
+    seatPrice: 70_000,
+    carPrice: 260_000,
+    isActive: false,
+    updatedAt: iso(900),
+    from: { slug: 'guliston', name: 'Guliston', lat: 40.49, lng: 68.78 },
+    to: { slug: 'toshkent', name: 'Toshkent', lat: 41.3, lng: 69.24 },
+  },
+];
+
+const poolRules: PoolRules = {
+  enabled: true,
+  discount_percent: 15,
+  full_discount_share_percent: 50,
+  max_detour_seconds_city: 360,
+  max_detour_seconds_intercity: 900,
+  max_detour_percent: 50,
+  max_pickup_eta_seconds: 900,
+  search_radius_m: 8000,
+  pool_preference_seconds: 90,
+  max_riders: 3,
+};
+
+const bookingRules = { deposit_percent: 20, deposit_min: 5000, payment_minutes: 15 };
+
+/** Two people sharing Aziz's car with another rider, a woman driver asked, a deposit paid. */
+const pooledDetail: AdminRide = {
+  ...rideDetail,
+  id: R6,
+  number: 1006,
+  status: 'in_progress',
+  dispatch: { ...rideDetail.dispatch, attentionAt: null },
+  passengers: 2,
+  shareable: true,
+  womenOnly: true,
+  fareMode: 'car',
+  pool: { id: 'pl1', sharedM: 20_000 },
+  hasStartPin: true,
+  fare: {
+    ...rideDetail.fare,
+    quoted: 100_000,
+    poolDiscount: 15_000,
+    pays: 85_000,
+    deposit: 20_000,
+  },
+  events: [
+    ...rideDetail.events,
+    {
+      id: 'e9',
+      type: 'pool_joined',
+      actor: 'system',
+      data: { otherRideId: R2, sharedM: 20_000, discount: 15_000, pays: 85_000 },
+      at: iso(1),
+    },
+    {
+      id: 'e10',
+      type: 'pool_left',
+      actor: 'system',
+      data: { sharedM: 0, discount: 0, pays: 100_000 },
+      at: iso(0.5),
+    },
+  ],
+};
+
+/** Aziz carries two riders sharing the car: the API lists him once per ride. */
+const pooledRide = rideItem({
+  id: R6,
+  number: 1006,
+  status: 'in_progress',
+  driverId: D1,
+  vehicle,
+  attentionAt: null,
+  dispatchStage: 'direct',
+  passengers: 2,
+  shareable: true,
+  pool: { id: 'pl1', sharedM: 20_000 },
+});
+const pooledLive: LiveBoard = {
+  drivers: [...live.drivers, { ...live.drivers[0]!, rideId: R6, rideStatus: 'in_progress' }],
+  rides: [{ ...assigned, shareable: true, pool: { id: 'pl1', sharedM: 0 } }, pooledRide, waiting],
+};
+
 type Init = RequestInit | undefined;
 type Mock = unknown | ((init: Init, path: string) => unknown);
 const method = (init: Init) => init?.method ?? 'GET';
@@ -1076,6 +1188,10 @@ const state = {
   quotedFor: null as string | null,
   /** POST admin/rides/:id/fee/waive was called: the ride reads waived. */
   feeWaived: false,
+  /** An API without admin/settings/booking (another branch lands it). */
+  bookingMissing: false,
+  /** The live board carries a shared car (listed once per ride, as the API does). */
+  pooledLive: false,
 };
 
 /** A mock answer with another status than 200/201. */
@@ -1157,7 +1273,7 @@ const routes: [RegExp, Mock][] = [
     ],
   ],
   [/^\/v1\/geo\/reverse$/, { address: null, city: null, serviceable: true }],
-  [/^\/v1\/admin\/dispatch\/live$/, live],
+  [/^\/v1\/admin\/dispatch\/live$/, () => (state.pooledLive ? pooledLive : live)],
   [/^\/v1\/admin\/dispatch\/rides\/[^/]+\/candidates$/, candidates],
   [
     /^\/v1\/admin\/rides\/quote$/,
@@ -1187,7 +1303,9 @@ const routes: [RegExp, Mock][] = [
           : owedDetail
         : path.includes(R5)
           ? collectingDetail
-          : (state.rideAfterAction ?? rideDetail),
+          : path.includes(R6)
+            ? pooledDetail
+            : (state.rideAfterAction ?? rideDetail),
   ],
   [
     /^\/v1\/admin\/rides$/,
@@ -1247,6 +1365,10 @@ const routes: [RegExp, Mock][] = [
     },
   ],
   [/^\/v1\/admin\/drivers\/payouts$/, payouts],
+  [
+    /^\/v1\/admin\/drivers\/[^/]+\/gender$/,
+    (init: Init) => ({ ...activeDetail, gender: body(init).gender, genderVerified: true }),
+  ],
   [/^\/v1\/admin\/drivers\/[^/]+\/rides$/, [done]],
   [/^\/v1\/admin\/drivers\/[^/]+\/vehicle$/, driverDetail],
   [
@@ -1367,6 +1489,23 @@ const routes: [RegExp, Mock][] = [
   ],
   [/^\/v1\/admin\/geo\/cities\/[^/]+$/, (init: Init) => ({ ...adminCities[1]!, ...body(init) })],
   [/^\/v1\/admin\/geo\/cities$/, adminCities],
+  [
+    /^\/v1\/admin\/settings\/pool$/,
+    (init: Init) => (method(init) === 'PUT' ? body(init) : poolRules),
+  ],
+  [
+    /^\/v1\/admin\/settings\/booking$/,
+    (init: Init) =>
+      state.bookingMissing
+        ? withStatus(404, { statusCode: 404, message: 'Cannot GET /v1/admin/settings/booking' })
+        : method(init) === 'PUT'
+          ? body(init)
+          : bookingRules,
+  ],
+  // DELETE answers 204 in the API; the mock sends an empty 200
+  [/^\/v1\/admin\/routes\/[^/]+$/, null],
+  // PUT answers the whole list
+  [/^\/v1\/admin\/routes$/, routeFares],
 ];
 
 const unmatched: string[] = [];
@@ -1432,6 +1571,8 @@ afterEach(() => {
   state.scheduledPhoneOrders = false;
   state.quotedFor = null;
   state.feeWaived = false;
+  state.bookingMissing = false;
+  state.pooledLive = false;
 });
 
 async function render(path: string): Promise<string> {
@@ -1703,6 +1844,61 @@ describe('panel smoke', () => {
     ['/fiscal?tab=settings', ['MXIK (IKPU) kodi', 'MXIK kodi hali nollardan iborat']],
     ['/outbox', ['Bajarilmagan amallar', 'Fiskal chek', 'OFD: 503 Service Unavailable', '10 / 10']],
     ['/settings?x=1', ['Shaharlararo qatnovlar', 'Haydovchi narx oralig‘i']],
+    [
+      '/routes',
+      [
+        'Yo‘nalish narxlari',
+        'Masalan Yangiyer → Guliston o‘rindiq 10 000 so‘m',
+        'Yangiyer → Guliston',
+        '10 000 so‘m',
+        '260 000 so‘m',
+        'To‘xtatilgan',
+        'Ikki tomonga',
+      ],
+    ],
+    [
+      '/settings?pool=1',
+      [
+        'Hamroh bilan (shared ride)',
+        'To‘liq chegirma uchun umumiy qism',
+        '85 000 so‘m',
+        '34 000 so‘m',
+        '119 000 so‘m',
+        'Oldindan bron depoziti',
+        '12 000 so‘m depozit',
+      ],
+    ],
+    [
+      `/rides/${R6}`,
+      [
+        'Hamroh',
+        'Ayol haydovchi',
+        '2 kishi (1 old, 1 orqa)',
+        'Hamroh chegirmasi',
+        '−15 000 so‘m',
+        'Yo‘lovchi to‘laydi85 000 so‘m',
+        'Depozit (kartadan oldindan)',
+        'naqd qoladi 65 000 so‘m',
+        'birga 20,0 km',
+        'Boshlash kodi',
+        'kodni faqat yo‘lovchi ko‘radi',
+        'Hamroh: mashinaga yo‘lovchi qo‘shildi',
+        'boshqa yo‘lovchi qo‘shildi, birga 20,0 km, chegirma 15 000 so‘m, to‘laydi 85 000 so‘m',
+        'Hamroh: yo‘lovchi chiqdi',
+        'shu safar umumiy mashinadan chiqdi',
+      ],
+    ],
+    [
+      `/drivers/${D1}?pool=1`,
+      [
+        'Jinsi va hamroh bilan',
+        'Ayol · arizada, tasdiqlanmagan',
+        'Jinsni tasdiqlash (pasport bo‘yicha)',
+        'Boshqa yo‘lovchi oladi',
+        'Yangiyer avtovokzali',
+        '1/3 band',
+      ],
+    ],
     ['/account', ['Hisob', 'Ismingiz']],
     ['/nowhere', ['Jonli xarita']],
   ];
@@ -1768,6 +1964,8 @@ describe('panel smoke', () => {
     const quoteCall = posted('/v1/admin/rides/quote').at(-1)!.body as Record<string, unknown>;
     expect(quoteCall.options).toEqual(['child_seat']);
 
+    await click(button('2 kishi'));
+    expect(document.body.textContent).toContain('2 kishi (1 old, 1 orqa)');
     await typeInto(document.querySelector<HTMLTextAreaElement>('textarea')!, 'Darvoza oldida');
     await click(button('Buyurtma berish ·'));
     await settle();
@@ -1778,6 +1976,7 @@ describe('panel smoke', () => {
       class: 'comfort',
       options: ['child_seat'],
       comment: 'Darvoza oldida',
+      passengers: 2,
       clientRequestId: '01a0de48-9999-4000-8000-000000000001',
       quoteId: 'q1',
       pickup: { lat: 40.4911, lng: 68.7812, address: 'Mustaqillik 5', landmark: 'Dorixona oldida' },
@@ -2407,6 +2606,128 @@ describe('panel smoke', () => {
     expect(calls.filter((c) => c.path === '/v1/admin/dispatch/live').length).toBeGreaterThan(
       before,
     );
+  });
+
+  it('saves a route price both ways after confirmation and deletes one', async () => {
+    calls.length = 0;
+    await render('/routes');
+    await click(button('Saqlash'));
+    await settle(4);
+    expect(document.body.textContent).toContain('1 000 dan 10 000 000 so‘mgacha');
+    const seat = document.querySelector<HTMLInputElement>(
+      '.fares-layout input[inputmode="numeric"]',
+    )!;
+    await typeInto(seat, '12000');
+    await click(button('Saqlash'));
+    await settle(4);
+    await click(button('Saqlash'));
+    await settle();
+    expect(posted('/v1/admin/routes', 'PUT').map((c) => c.body)).toEqual([
+      {
+        from: 'guliston',
+        to: 'toshkent',
+        class: 'economy',
+        seatPrice: 12000,
+        carPrice: null,
+        isActive: true,
+        bothWays: true,
+      },
+    ]);
+    await click(
+      document.querySelector<HTMLElement>('[aria-label="Yangiyer → Guliston: o‘chirish"]')!,
+    );
+    await settle(4);
+    await click(button('O‘chirish'));
+    await settle();
+    expect(posted(`/v1/admin/routes/${RF1}`, 'DELETE')).toHaveLength(1);
+  });
+
+  it('pauses a route price without changing it', async () => {
+    calls.length = 0;
+    await render('/routes');
+    await click(
+      document.querySelector<HTMLElement>('[aria-label="Yangiyer → Guliston: to‘xtatish"]')!,
+    );
+    await settle(4);
+    await click(button('To‘xtatish'));
+    await settle();
+    expect(posted('/v1/admin/routes', 'PUT').map((c) => c.body)).toEqual([
+      {
+        from: 'yangiyer',
+        to: 'guliston',
+        class: 'economy',
+        seatPrice: 10_000,
+        carPrice: null,
+        isActive: false,
+        bothWays: false,
+      },
+    ]);
+  });
+
+  it('saves shared-ride rules in seconds and keeps at most 3 riders', async () => {
+    calls.length = 0;
+    await render('/settings');
+    const form = [...document.querySelectorAll<HTMLElement>('.settings-form')].find((f) =>
+      f.textContent?.includes('Hamroh bilan (shared ride)'),
+    )!;
+    const input = (text: string) => {
+      const label = [...form.querySelectorAll('label')].find((l) => l.textContent === text)!;
+      return document.getElementById(label.htmlFor) as HTMLInputElement;
+    };
+    await typeInto(input('Bir mashinada buyurtmalar'), '4');
+    expect(form.textContent).toContain('2 dan 3 gacha');
+    await typeInto(input('Bir mashinada buyurtmalar'), '2');
+    await typeInto(input('Qo‘shimcha vaqt chegarasi, shahar'), '8');
+    await typeInto(input('Chegirma'), '20');
+    // the calculator follows the draft: A 80 000, B 32 000, the driver 112 000
+    expect(form.textContent).toContain('112 000 so‘m');
+    await click([...form.querySelectorAll('button')].find((b) => b.textContent === 'Saqlash')!);
+    await settle(4);
+    await click(button('Saqlash'));
+    await settle();
+    expect(posted('/v1/admin/settings/pool', 'PUT').at(-1)!.body).toEqual({
+      ...poolRules,
+      max_riders: 2,
+      max_detour_seconds_city: 480,
+      discount_percent: 20,
+    });
+  });
+
+  it('hides the deposit section while the API has none (404)', async () => {
+    state.bookingMissing = true;
+    const text = await render('/settings');
+    expect(text).toContain('Hamroh bilan (shared ride)');
+    expect(text).not.toContain('Oldindan bron depoziti');
+    expect(text).not.toContain('Cannot GET');
+  });
+
+  it('verifies a driver’s gender against the passport', async () => {
+    calls.length = 0;
+    await render(`/drivers/${D1}`);
+    await click(button('Jinsni tasdiqlash (pasport bo‘yicha)'));
+    await settle(4);
+    await click(button('Erkak'));
+    await click(button('Tasdiqlash'));
+    await settle();
+    expect(posted(`/v1/admin/drivers/${D1}/gender`).map((c) => c.body)).toEqual([
+      { gender: 'male' },
+    ]);
+    expect(document.body.textContent).toContain('Erkak · pasport bo‘yicha tasdiqlangan');
+  });
+
+  it('shows a shared car once, with the riders it carries', async () => {
+    state.pooledLive = true;
+    const text = await render('/dispatch');
+    expect(text).toContain('#1006');
+    expect(text).toContain('Hamroh');
+    // Aziz comes twice in the API's list: one car on the board
+    expect(text).toContain('Buyurtmada 1');
+    expect(document.querySelectorAll('.map-marker-driver-busy')).toHaveLength(1);
+    const marker = document.querySelector<HTMLElement>('.map-marker-driver-busy')!;
+    expect(marker.textContent).toBe('2');
+    await click(marker);
+    await settle(4);
+    expect(document.body.textContent).toContain('Mashinada 2 ta buyurtma, 3 kishi');
   });
 
   it('called only mocked endpoints', () => {

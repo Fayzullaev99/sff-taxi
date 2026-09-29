@@ -14,6 +14,7 @@ import {
   CLASSES,
   DECLINE_REASONS,
   digits,
+  distance,
   duration,
   OPTIONS,
   PROVIDERS,
@@ -168,6 +169,28 @@ export function eventDetail(
       ]
         .filter(Boolean)
         .join(', ');
+    case 'pool_joined':
+    case 'pool_left': {
+      const who =
+        typeof d.otherRideId === 'string'
+          ? e.type === 'pool_joined'
+            ? 'boshqa yo‘lovchi qo‘shildi'
+            : 'boshqa yo‘lovchi chiqdi'
+          : e.type === 'pool_joined'
+            ? 'shu safar yo‘ldagi mashinaga qo‘shildi'
+            : 'shu safar umumiy mashinadan chiqdi';
+      return [
+        who,
+        typeof d.sharedM === 'number' ? `birga ${distance(d.sharedM)}` : null,
+        typeof d.discount === 'number' ? `chegirma ${digits(d.discount)} so‘m` : null,
+        typeof d.pays === 'number' ? `to‘laydi ${digits(d.pays)} so‘m` : null,
+        typeof d.detourS === 'number' && d.detourS > 0
+          ? `qo‘shimcha yo‘l ${duration(d.detourS)}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(', ');
+    }
     case 'rated':
       return typeof d.stars === 'number' ? `${d.stars} yulduz (${ACTORS[e.actor]})` : '';
     default:

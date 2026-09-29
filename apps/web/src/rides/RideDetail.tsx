@@ -46,6 +46,7 @@ import {
   optionsText,
   placeLine,
 } from '../lib/rides';
+import { rideTags, seatingText } from '../lib/pool';
 import type { MapLayers, MarkerSpec } from '../map/adapter';
 import { GeoMap, useGeoConfig } from '../map/GeoMap';
 import { cityLayers } from '../map/places';
@@ -322,6 +323,11 @@ export function RideDetail({
           <Badge>{CLASSES[r.class]}</Badge>
           <Badge tone={r.channel === 'phone' ? 'brand' : 'neutral'}>{CHANNELS[r.channel]}</Badge>
           {r.kind === 'intercity' && <Badge tone="blue">Shaharlararo</Badge>}
+          {rideTags(r).map((t) => (
+            <Badge key={t.label} tone={t.tone}>
+              {t.label}
+            </Badge>
+          ))}
         </div>
         <span className="muted small">
           {dateTime(r.requestedAt)} · {ago(r.requestedAt)}
@@ -418,10 +424,56 @@ export function RideDetail({
             <dt>Yo‘lda</dt>
             <dd>{duration(r.durationS)}</dd>
           </div>
+          {r.passengers !== undefined && (
+            <div>
+              <dt>Yo‘lovchilar</dt>
+              <dd>{seatingText(r.passengers)}</dd>
+            </div>
+          )}
           <div>
-            <dt>Narx (qat’iy)</dt>
+            <dt>{r.fareMode === 'seat' ? 'Narx (o‘rindiq, yo‘nalish narxi)' : 'Narx (qat’iy)'}</dt>
             <dd>{som(r.fare.quoted)}</dd>
           </div>
+          {(r.fare.poolDiscount ?? 0) > 0 && (
+            <div>
+              <dt>Hamroh chegirmasi</dt>
+              <dd>−{som(r.fare.poolDiscount!)}</dd>
+            </div>
+          )}
+          {r.fare.pays !== undefined && r.fare.pays !== r.fare.quoted && (
+            <div>
+              <dt>Yo‘lovchi to‘laydi</dt>
+              <dd>
+                <strong>{som(r.fare.pays)}</strong>
+              </dd>
+            </div>
+          )}
+          {(r.fare.deposit ?? 0) > 0 && (
+            <div>
+              <dt>Depozit (kartadan oldindan)</dt>
+              <dd>
+                {som(r.fare.deposit!)}
+                <div className="muted small">
+                  naqd qoladi {som(Math.max(0, (r.fare.pays ?? r.fare.quoted) - r.fare.deposit!))}
+                </div>
+              </dd>
+            </div>
+          )}
+          {r.pool && (
+            <div>
+              <dt>Umumiy mashina</dt>
+              <dd>birga {distance(r.pool.sharedM)}</dd>
+            </div>
+          )}
+          {r.hasStartPin !== undefined && (
+            <div>
+              <dt>Boshlash kodi</dt>
+              <dd>
+                {r.hasStartPin ? 'Bor' : 'Yo‘q'}
+                {r.hasStartPin && <div className="muted small">kodni faqat yo‘lovchi ko‘radi</div>}
+              </dd>
+            </div>
+          )}
           {r.fare.waiting > 0 && (
             <div>
               <dt>Pullik kutish</dt>
