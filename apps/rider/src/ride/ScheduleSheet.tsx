@@ -35,7 +35,7 @@ export function ScheduleSheet({
         </T>
         <T variant="small" color={colors.textMuted}>
           Haydovchi qidiruvi {SCHEDULE_DISPATCH_BEFORE_MIN} daqiqa oldin boshlanadi. Narx shu vaqt
-          uchun hisoblanadi va o‘zgarmaydi. To‘lov naqd.
+          uchun hisoblanadi va o‘zgarmaydi.
         </T>
       </View>
       <FlatList

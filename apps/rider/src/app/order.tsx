@@ -213,7 +213,8 @@ export default function OrderScreen() {
                 <View style={styles.flex}>
                   <T variant="bodyStrong">{formatDateTime(later)}</T>
                   <T variant="small" color={colors.textMuted}>
-                    Qidiruv {SCHEDULE_DISPATCH_BEFORE_MIN} daqiqa oldin boshlanadi · naqd to‘lov
+                    Qidiruv {SCHEDULE_DISPATCH_BEFORE_MIN} daqiqa oldin boshlanadi ·{' '}
+                    {deposit ? 'oldindan to‘lov kartadan, qolgani naqd' : 'naqd to‘lov'}
                   </T>
                 </View>
                 <Icon name="create-outline" size={18} color={colors.textMuted} />
