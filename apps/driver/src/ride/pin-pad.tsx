@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { isPin, pinInput } from '../lib/pool';
 import { Button, Muted } from '../ui/components';
@@ -47,7 +47,8 @@ export function PinPad(props: {
   return (
     <Modal visible={props.visible} animationType="slide" onRequestClose={props.onClose}>
       <SafeAreaView style={styles.safe}>
-        <View style={styles.body}>
+        {/* scrolls where the keypad does not fit (landscape, a short phone, a large font) */}
+        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
           <Text style={styles.title}>Boshlash kodi</Text>
           <Muted center>
             {props.riderName ? `${props.riderName}dan` : 'Yo‘lovchidan'} 4 xonali kodni so‘rang: u
@@ -92,7 +93,7 @@ export function PinPad(props: {
             ))}
           </View>
           <Button title="Bekor qilish" variant="secondary" onPress={props.onClose} />
-        </View>
+        </ScrollView>
       </SafeAreaView>
     </Modal>
   );
@@ -100,7 +101,7 @@ export function PinPad(props: {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
-  body: { flex: 1, padding: space.lg, gap: space.md, justifyContent: 'center' },
+  body: { flexGrow: 1, padding: space.lg, gap: space.md, justifyContent: 'center' },
   title: { fontSize: 28, fontWeight: '900', color: colors.text, textAlign: 'center' },
   dots: { flexDirection: 'row', gap: space.md, justifyContent: 'center' },
   dot: {

@@ -96,7 +96,13 @@ export function Screen(props: {
   return (
     <SafeAreaView
       style={[styles.safe, keyboardHeight ? { paddingBottom: keyboardHeight } : null]}
-      edges={['top', 'left', 'right']}
+      // a pinned footer clears the navigation bar / home indicator (tab screens have no footer,
+      // and the keyboard padding replaces the inset while it is open)
+      edges={
+        props.footer && !keyboardHeight
+          ? ['top', 'left', 'right', 'bottom']
+          : ['top', 'left', 'right']
+      }
     >
       <OfflineBanner />
       {props.keyboard ? (

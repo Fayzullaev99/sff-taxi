@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { formatDateTime } from '../lib/format';
 import { SCHEDULE_DISPATCH_BEFORE_MIN, scheduleSlots } from '../lib/schedule';
 import { RadioMark, T } from '../ui/primitives';
@@ -27,6 +27,9 @@ export function ScheduleSheet({
     [visible],
   );
   const now = new Date();
+  // the list takes what the window leaves (the sheet itself caps at 92%), never a fixed 420
+  const { height: windowHeight } = useWindowDimensions();
+  const listMax = Math.max(160, Math.round(windowHeight * 0.5));
   return (
     <Sheet visible={visible} onClose={onClose}>
       <View style={styles.head}>
@@ -41,7 +44,7 @@ export function ScheduleSheet({
       <FlatList
         data={slots}
         keyExtractor={(s) => s}
-        style={styles.list}
+        style={[styles.list, { maxHeight: listMax }]}
         initialNumToRender={16}
         accessibilityRole="radiogroup"
         renderItem={({ item }) => {
@@ -69,7 +72,7 @@ export function ScheduleSheet({
 
 const styles = StyleSheet.create({
   head: { padding: space(4), paddingTop: space(6), gap: space(1.5) },
-  list: { maxHeight: 420 },
+  list: { flexGrow: 0, flexShrink: 1 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

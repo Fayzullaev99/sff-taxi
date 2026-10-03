@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Linking from 'expo-linking';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSupport } from '../data/queries';
 import { call } from './actions';
@@ -40,7 +40,8 @@ export function ForcedUpdate(props: { current: string; minimum: string; storeUrl
   const support = useSupport();
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.body}>
+      {/* scrolls on a short phone or with a large font instead of pushing the buttons off */}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.body}>
         <Ionicons name="cloud-download" size={88} color={colors.brand} />
         <Text style={styles.title}>Ilovani yangilang</Text>
         <Muted center>
@@ -50,7 +51,7 @@ export function ForcedUpdate(props: { current: string; minimum: string; storeUrl
         <Muted center>
           Sizda: {props.current} · kerak: {props.minimum} yoki yangiroq
         </Muted>
-      </View>
+      </ScrollView>
       <View style={styles.actions}>
         <Button
           title="Yangilash"
@@ -73,7 +74,8 @@ export function ForcedUpdate(props: { current: string; minimum: string; storeUrl
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background, padding: space.lg },
-  body: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.lg },
+  scroll: { flex: 1 },
+  body: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: space.lg },
   title: { fontSize: 28, fontWeight: '900', color: colors.text, textAlign: 'center' },
   actions: { gap: space.md },
 });

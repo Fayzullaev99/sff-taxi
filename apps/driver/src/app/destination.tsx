@@ -8,7 +8,7 @@ import { useDriverMe, useIntercityPoints } from '../data/queries';
 import { errorMessage } from '../lib/api-client';
 import { type Destination, preferencesError } from '../lib/pool';
 import { loadRecentDestinations, rememberDestination, usePreferences } from '../home/preferences';
-import { Banner, Field, Muted, SectionTitle } from '../ui/components';
+import { Banner, Button, Field, Muted, SectionTitle } from '../ui/components';
 import { Screen } from '../ui/screen';
 import { colors, radius, space } from '../ui/theme';
 
@@ -99,7 +99,19 @@ export default function DestinationScreen() {
         search.isPending ? (
           <ActivityIndicator color={colors.brand} />
         ) : search.isError ? (
-          <Banner tone="danger" icon="cloud-offline" text={errorMessage(search.error)} />
+          <Banner
+            tone="danger"
+            icon="cloud-offline"
+            text={errorMessage(search.error)}
+            action={
+              <Button
+                title="Qayta urinish"
+                icon="refresh"
+                variant="secondary"
+                onPress={() => void search.refetch()}
+              />
+            }
+          />
         ) : search.data?.length ? (
           search.data.map((a) => (
             <Row
@@ -139,7 +151,21 @@ export default function DestinationScreen() {
       {towns.isPending ? (
         <ActivityIndicator color={colors.brand} />
       ) : towns.isError ? (
-        <Banner tone="danger" icon="cloud-offline" text={errorMessage(towns.error)} />
+        <Banner
+          tone="danger"
+          icon="cloud-offline"
+          text={errorMessage(towns.error)}
+          action={
+            <Button
+              title="Qayta urinish"
+              icon="refresh"
+              variant="secondary"
+              onPress={() => void towns.refetch()}
+            />
+          }
+        />
+      ) : towns.data?.length === 0 ? (
+        <Muted>Shaharlar ro‘yxati hozircha bo‘sh. Manzilni qidiring.</Muted>
       ) : (
         <View style={styles.towns}>
           {(towns.data ?? []).map((t) => (

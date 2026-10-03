@@ -22,7 +22,7 @@ import { NATIVE_MAP } from '../location/MapFallback';
 import { choosePickup, updateDraft, useDraft, getDraft, orderPath } from '../trip/draft';
 import { hideRecentPlace, savePicked, usePlaces } from '../trip/places-store';
 import { confirm } from '../lib/dialogs';
-import { Icon, type IconName, IconButton, T } from '../ui/primitives';
+import { Button, Icon, type IconName, IconButton, T } from '../ui/primitives';
 import { colors, radius, space } from '../ui/theme';
 
 type Field = 'pickup' | 'dropoff';
@@ -242,9 +242,18 @@ export default function SearchScreen() {
               </T>
             ) : null}
             {searching && search.isError ? (
-              <T variant="body" color={colors.danger} style={styles.note}>
-                {describeError(search.error)}
-              </T>
+              <View style={styles.note}>
+                <T variant="body" color={colors.danger}>
+                  {describeError(search.error)}
+                </T>
+                <Button
+                  title="Qayta urinish"
+                  variant="secondary"
+                  size="sm"
+                  onPress={() => void search.refetch()}
+                  style={styles.retry}
+                />
+              </View>
             ) : null}
           </View>
         }
@@ -367,4 +376,5 @@ const styles = StyleSheet.create({
   section: { marginHorizontal: space(4), marginTop: space(4), marginBottom: space(1) },
   note: { marginHorizontal: space(4), marginVertical: space(3) },
   notice: { marginHorizontal: space(4), marginBottom: space(2) },
+  retry: { alignSelf: 'flex-start', marginTop: space(2) },
 });

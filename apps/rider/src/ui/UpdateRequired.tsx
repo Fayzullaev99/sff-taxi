@@ -1,4 +1,4 @@
-import { Modal, Platform, StyleSheet, View } from 'react-native';
+import { Modal, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { APP_VERSION, useSupport, useUpdateRequired } from '../api/support';
 import { callPhone, openLink } from '../lib/links';
@@ -17,8 +17,10 @@ export function UpdateRequired() {
   if (!required) return null;
   return (
     <Modal visible animationType="fade" onRequestClose={() => undefined} statusBarTranslucent>
-      <View
-        style={[
+      {/* scrolls on a short phone or with a large font instead of clipping the store button */}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
           styles.root,
           { paddingTop: insets.top + space(10), paddingBottom: insets.bottom + space(6) },
         ]}
@@ -58,14 +60,15 @@ export function UpdateRequired() {
             onPress={() => void callPhone(support.phone!)}
           />
         ) : null}
-      </View>
+      </ScrollView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  scroll: { flex: 1, backgroundColor: colors.bg },
   root: {
-    flex: 1,
+    flexGrow: 1,
     backgroundColor: colors.bg,
     paddingHorizontal: space(6),
     gap: space(3),
