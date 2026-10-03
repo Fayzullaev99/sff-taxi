@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useIntercityPoints, useIntercityTrips } from '../../api/queries';
 import type { IntercityPoint, IntercityTrip } from '../../api/types';
 import { CLASS_LABELS } from '../../lib/fare';
@@ -38,6 +38,9 @@ export default function IntercityScreen() {
   const [seats, setSeats] = useState(lastSearch.seats);
   const [picking, setPicking] = useState<'from' | 'to' | null>(null);
 
+  const { height: windowHeight } = useWindowDimensions();
+  // the town list scrolls inside the sheet: never taller than the screen leaves room for
+  const sheetListMax = Math.max(160, Math.round(windowHeight * 0.55));
   const list = points.data ?? [];
   // Guliston is the home town: the default departure
   const fromSlug = from ?? list.find((p) => p.slug === 'guliston')?.slug ?? list[0]?.slug ?? null;
@@ -155,7 +158,31 @@ export default function IntercityScreen() {
         <T variant="h2" accessibilityRole="header" style={styles.sheetTitle}>
           {picking === 'from' ? 'Qayerdan?' : 'Qayerga?'}
         </T>
-        <ScrollView style={styles.sheetList}>
+        {points.isPending ? (
+          <View style={styles.sheetState}>
+            <Skeleton height={58} />
+            <Skeleton height={58} />
+            <Skeleton height={58} />
+          </View>
+        ) : points.isError ? (
+          <View style={styles.sheetState}>
+            <ErrorView error={points.error} onRetry={() => void points.refetch()} />
+          </View>
+        ) : list.length === 0 ? (
+          <View style={styles.sheetState}>
+            <EmptyView
+              icon="location-outline"
+              title="Shaharlar topilmadi"
+              message="Shaharlar ro‘yxati hozircha bo‘sh. Keyinroq qayta urinib ko‘ring."
+              actionTitle="Qayta urinish"
+              onAction={() => void points.refetch()}
+            />
+          </View>
+        ) : null}
+        <ScrollView
+          style={[styles.sheetList, { maxHeight: sheetListMax }]}
+          showsVerticalScrollIndicator
+        >
           {list
             .filter((p) => (picking === 'from' ? p.slug !== to : p.slug !== fromSlug))
             .map((p) => {
@@ -306,7 +333,8 @@ const styles = StyleSheet.create({
   priceCol: { alignItems: 'flex-end' },
   pressed: { backgroundColor: colors.surface },
   sheetTitle: { padding: space(4), paddingTop: space(6) },
-  sheetList: { maxHeight: 440 },
+  sheetList: { flexGrow: 0, flexShrink: 1 },
+  sheetState: { paddingHorizontal: space(4), paddingBottom: space(4), gap: space(2) },
   townRow: {
     flexDirection: 'row',
     alignItems: 'center',
