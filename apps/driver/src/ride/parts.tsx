@@ -203,12 +203,14 @@ export const RiderCard = memo(function RiderCard(props: {
             {props.channel === 'phone' ? ' · telefon orqali buyurtma' : ''}
           </Muted>
         </View>
-        <Button
-          title="Qo‘ng‘iroq"
-          icon="call"
-          variant="secondary"
-          onPress={() => call(rider.phone)}
-        />
+        {rider.phone ? (
+          <Button
+            title="Qo‘ng‘iroq"
+            icon="call"
+            variant="secondary"
+            onPress={() => call(rider.phone)}
+          />
+        ) : null}
       </View>
       {rider.noShows > 0 ? (
         <Banner

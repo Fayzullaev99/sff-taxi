@@ -384,7 +384,8 @@ export interface RideVehicle {
 export interface RideDriver {
   id: string;
   name: string;
-  phone: string;
+  /** Null once the ride is over (with `location`): only the ride in progress shares them. */
+  phone: string | null;
   rating: number;
   ridesCompleted: number;
   /** Short-lived read URLs (private bucket); null until the driver uploaded them. */
@@ -803,7 +804,8 @@ export interface IntercityBooking {
   /** Once booked: whom to call and which car to look for. */
   contact: {
     driverName: string;
-    driverPhone: string;
+    /** Null after the trip (the name and plate stay). */
+    driverPhone: string | null;
     plate: string;
     plateFormatted: string;
   } | null;

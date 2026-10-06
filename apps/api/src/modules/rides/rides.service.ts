@@ -1868,6 +1868,30 @@ export class RidesService {
     );
   }
 
+  /**
+   * A driver was blocked: rides they had not started go back to dispatch (another car is
+   * looked for at once). Safe to repeat. Returns how many were released.
+   */
+  async releaseRidesOfBlockedDriver(driverId: string): Promise<number> {
+    const rides = await this.db.kysely
+      .selectFrom('rides')
+      .select('id')
+      .where('driver_id', '=', driverId)
+      .where('status', 'in', ['driver_assigned', 'driver_arrived'])
+      .execute();
+    let released = 0;
+    for (const { id } of rides) {
+      await this.db.transaction(async (trx) => {
+        const ride = await this.lockRide(trx, id);
+        if (ride.driver_id !== driverId) return;
+        if (ride.status !== 'driver_assigned' && ride.status !== 'driver_arrived') return;
+        await this.release(trx, ride, 'system', null, 'Haydovchi bloklandi');
+        released += 1;
+      });
+    }
+    return released;
+  }
+
   /** Takes the driver off a ride that has not started: it goes back to dispatch. */
   async release(
     trx: Tx,
@@ -1932,6 +1956,20 @@ export class RidesService {
       if (order.indexOf(ride.status) >= order.indexOf(to) && order.indexOf(to) > 0) return;
       if (ride.status !== from) {
         throw new ConflictException(msg('Buyurtma holati mos emas: {0}', ride.status));
+      }
+      if (to === 'driver_arrived' || to === 'in_progress') {
+        // a driver blocked on the way does not pick the rider up (the ride goes back to
+        // dispatch); a trip already under way is finished
+        const driver = await trx
+          .selectFrom('drivers')
+          .select('status')
+          .where('user_id', '=', user.userId)
+          .executeTakeFirst();
+        if (driver?.status !== 'active') {
+          throw new ForbiddenException(
+            'Hisobingiz faol emas: buyurtma boshqa haydovchiga beriladi',
+          );
+        }
       }
       const now = new Date();
       // one update: the row's checks (a completed ride has its total) see the whole change
@@ -2254,7 +2292,9 @@ export class RidesService {
         : 0;
     // the app polls this while the ride is open: every part read at once
     const [driver, receipt, payment, rated, car, progress, events] = await Promise.all([
-      ride.driver_id ? this.driverCard(ride.driver_id) : null,
+      // after the ride (or once it left this car) the driver's phone and live position
+      // are no longer the rider's to see
+      ride.driver_id ? this.driverCard(ride.driver_id, { live: isActive(ride.status) }) : null,
       ride.status === 'completed' ? this.fiscal.forRide(ride.id) : null,
       // card rides and deposits: the prepayment, with where to pay while it is pending
       ride.payment_method === 'card' || ride.deposit_amount > 0
@@ -2344,9 +2384,13 @@ export class RidesService {
   async driverView(user: AuthUser, rideId: string, car?: Car) {
     const ride = await this.findRide(rideId);
     if (ride.driver_id !== user.userId) throw new NotFoundException('Buyurtma topilmadi');
+    const base = this.baseView(ride);
+    // phones are for the ride in progress: a finished or cancelled ride keeps the names only
+    const live = isActive(ride.status);
     return {
-      ...this.baseView(ride),
-      rider: await this.riderCard(ride),
+      ...base,
+      delivery: base.delivery && !live ? { ...base.delivery, recipientPhone: null } : base.delivery,
+      rider: await this.riderCard(ride, live),
       earnings: this.earnings(ride),
       // what the driver takes from the rider in cash: the fare after the shared discount and
       // the deposit paid in advance (card rides: prepaid, only paid waiting) plus fees the
@@ -2557,7 +2601,8 @@ export class RidesService {
       : null;
   }
 
-  async driverCard(driverId: string) {
+  /** `live: false`: without the phone and the position (a ride that is over). */
+  async driverCard(driverId: string, { live = true }: { live?: boolean } = {}) {
     const d = await this.db.kysely
       .selectFrom('drivers as d')
       .innerJoin('users as u', 'u.id', 'd.user_id')
@@ -2589,23 +2634,27 @@ export class RidesService {
       ratingSum: d.rating_sum,
       ratingCount: d.rating_count,
     });
+    const [photoUrl, vehiclePhotoUrl] = await Promise.all([
+      this.uploads.readUrl(d.photo_upload_id),
+      this.uploads.readUrl(d.vehicle_photo_upload_id),
+    ]);
     return {
       id: d.user_id,
       name: d.full_name,
-      phone: d.phone,
+      phone: live ? d.phone : null,
       rating: p.stars,
       ridesCompleted: d.rides_completed,
       // short-lived read URLs (private bucket); null until the driver uploaded them
-      photoUrl: await this.uploads.readUrl(d.photo_upload_id),
-      vehiclePhotoUrl: await this.uploads.readUrl(d.vehicle_photo_upload_id),
+      photoUrl,
+      vehiclePhotoUrl,
       location:
-        d.lat !== null && d.lng !== null
+        live && d.lat !== null && d.lng !== null
           ? { lat: d.lat, lng: d.lng, heading: d.heading, at: d.located_at }
           : null,
     };
   }
 
-  private async riderCard(ride: Ride) {
+  private async riderCard(ride: Ride, live = true) {
     const u = await this.db.kysely
       .selectFrom('users')
       .select(['rider_rating_sum', 'rider_rating_count', 'no_show_count'])
@@ -2614,7 +2663,7 @@ export class RidesService {
     return {
       id: ride.rider_id,
       name: ride.rider_name,
-      phone: ride.rider_phone,
+      phone: live ? ride.rider_phone : null,
       rating: Math.round(((u.rider_rating_sum + 5 * 4.8) / (u.rider_rating_count + 5)) * 10) / 10,
       noShows: u.no_show_count,
     };

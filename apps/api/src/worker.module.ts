@@ -22,6 +22,7 @@ import { RidesModule } from './modules/rides/rides.module.js';
 import { FiscalCoreModule, FiscalHandler } from './modules/fiscal/fiscal.module.js';
 import { HousekeepingJob } from './modules/housekeeping/housekeeping.job.js';
 import { IntercityCoreModule } from './modules/intercity/intercity.module.js';
+import { BlockedDriverHandler } from './modules/drivers/blocked-driver.handler.js';
 import { LicenceHandler } from './modules/drivers/licence.handler.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
 import { UploadsModule } from './modules/uploads/uploads.module.js';
@@ -64,6 +65,7 @@ import { WorkerRuntime } from './worker-runtime.js';
         IntercityNotificationsHandler,
         FiscalHandler,
         LicenceHandler,
+        BlockedDriverHandler,
       ],
       useFactory: (...handlers: OutboxHandler[]) => handlers,
     },
@@ -73,6 +75,7 @@ import { WorkerRuntime } from './worker-runtime.js';
     PositionsJob,
     RealtimeBus,
     LicenceHandler,
+    BlockedDriverHandler,
     {
       provide: LICENCE_REGISTRY,
       inject: [ENV],

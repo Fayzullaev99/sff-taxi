@@ -392,7 +392,7 @@ export class IntercityService {
   async cancelByDriver(user: AuthUser, tripId: string, reason: string) {
     await this.db.transaction(async (trx) => {
       await this.lockDeposits(trx, { tripId });
-      const trip = await this.lockOwnTrip(trx, user, tripId);
+      const trip = await this.lockOwnTrip(trx, user, tripId, { evenIfInactive: true });
       await this.cancelTrip(trx, trip, 'driver', reason);
     });
     return this.driverTrip(user, tripId);
@@ -460,6 +460,10 @@ export class IntercityService {
         .where('departure_at', '>=', start)
         .where('departure_at', '<', end)
         .where(sql<boolean>`seats_total - seats_booked >= ${q.seats}`)
+        // a blocked driver's departures are not on the board
+        .where('driver_id', 'in', (eb) =>
+          eb.selectFrom('drivers').select('user_id').where('status', '=', 'active'),
+        )
         .orderBy('departure_at');
     const rows = await open()
       .where('from_point_id', '=', from.id)
@@ -470,9 +474,10 @@ export class IntercityService {
       [from.id, from],
       [to.id, to],
     ]);
-    const direct = await Promise.all(
-      rows.map(async (t) => ({ ...(await this.publicTrip(t, points)), alongTheWay: false })),
-    );
+    const direct = (await this.publicTrips(rows, points)).map((view) => ({
+      ...view,
+      alongTheWay: false,
+    }));
     if (q.along === false || from.id === to.id) return direct;
 
     const [rules, all] = await Promise.all([
@@ -484,8 +489,7 @@ export class IntercityService {
       .where((eb) => eb.or([eb('from_point_id', '!=', from.id), eb('to_point_id', '!=', to.id)]))
       .limit(300)
       .execute();
-    const along = [];
-    for (const t of others) {
+    const passing = others.flatMap((t) => {
       const share = alongTheWayShare(
         byId.get(t.from_point_id)!,
         byId.get(t.to_point_id)!,
@@ -493,9 +497,15 @@ export class IntercityService {
         to,
         rules.along_route_max_km,
       );
-      if (share === null) continue;
-      const view = await this.publicTrip(t, byId);
-      along.push({
+      return share === null ? [] : [{ t, share }];
+    });
+    const views = await this.publicTrips(
+      passing.map((x) => x.t),
+      byId,
+    );
+    const along = passing.map(({ t, share }, i) => {
+      const view = views[i]!;
+      return {
         ...view,
         alongTheWay: true,
         pickup: pointView(from),
@@ -505,8 +515,8 @@ export class IntercityService {
         share: Math.round(share * 100) / 100,
         price: partSeatPrices(view.price, share),
         fullPrice: view.price,
-      });
-    }
+      };
+    });
     return [...direct, ...along];
   }
 
@@ -677,6 +687,13 @@ export class IntercityService {
     if (trip.driver_id === b.riderId) {
       throw new ConflictException('O‘z qatnovingizga joy band qilolmaysiz');
     }
+    const driver = await trx
+      .selectFrom('drivers')
+      .select('status')
+      .where('user_id', '=', trip.driver_id)
+      .executeTakeFirst();
+    // the driver was blocked after publishing: the trip is being called off
+    if (driver?.status !== 'active') throw new ConflictException('Bu qatnovga bron yopilgan');
     const free = trip.seats_total - trip.seats_booked;
     if (b.seats > free) {
       throw new ConflictException(
@@ -899,14 +916,27 @@ export class IntercityService {
 
   /** A trip as riders browse it: no phone numbers until they have booked. */
   async publicTrip(trip: Trip, points?: Map<string, Point>) {
-    const [from, to] = await Promise.all([
-      points?.get(trip.from_point_id) ?? this.pointById(trip.from_point_id),
-      points?.get(trip.to_point_id) ?? this.pointById(trip.to_point_id),
-    ]);
-    const driver = await this.db.kysely
+    const [view] = await this.publicTrips([trip], points);
+    return view!;
+  }
+
+  /**
+   * Several trips as riders browse them, in their order: the towns, drivers and photos are
+   * read once for all of them (a board of 100 trips is 3 queries, not 300).
+   */
+  async publicTrips(trips: Trip[], points?: Map<string, Point>) {
+    if (!trips.length) return [];
+    const known = points ?? new Map<string, Point>();
+    const missing = trips
+      .flatMap((t) => [t.from_point_id, t.to_point_id])
+      .some((id) => !known.has(id));
+    const towns = missing ? await this.allPoints() : known;
+    const driverIds = [...new Set(trips.map((t) => t.driver_id))];
+    const drivers = await this.db.kysely
       .selectFrom('drivers as d')
       .leftJoin('vehicles as v', 'v.driver_id', 'd.user_id')
       .select([
+        'd.user_id',
         'd.full_name',
         'd.offers_received',
         'd.offers_accepted',
@@ -917,48 +947,58 @@ export class IntercityService {
         'd.photo_upload_id',
         'v.photo_upload_id as vehicle_photo',
       ])
-      .where('d.user_id', '=', trip.driver_id)
-      .executeTakeFirstOrThrow();
-    const stars = priority({
-      offersReceived: driver.offers_received,
-      offersAccepted: driver.offers_accepted,
-      ridesCancelled: driver.rides_cancelled,
-      ratingSum: driver.rating_sum,
-      ratingCount: driver.rating_count,
-    }).stars;
-    return {
-      id: trip.id,
-      number: trip.number,
-      status: trip.status,
-      from: pointView(from),
-      to: pointView(to),
-      departureAt: trip.departure_at,
-      meetingPoint: trip.meeting_point,
-      comment: trip.comment,
-      class: trip.class,
-      distanceM: trip.distance_m,
-      seats: {
-        total: trip.seats_total,
-        free: trip.seats_total - trip.seats_booked,
-        frontOffered: trip.front_seat,
-        frontFree: trip.front_seat && !trip.front_booked,
-      },
-      price: { rear: trip.price_rear, front: trip.price_front },
-      driver: {
-        // the first name only, until a seat is booked
-        name: driverGivenName(driver.full_name),
-        rating: stars,
-        ridesCompleted: driver.rides_completed,
-        photoUrl: await this.uploads.readUrl(driver.photo_upload_id),
-      },
-      vehicle: {
-        make: trip.vehicle.make,
-        model: trip.vehicle.model,
-        colour: trip.vehicle.colour,
-        class: trip.vehicle.class,
-        photoUrl: await this.uploads.readUrl(driver.vehicle_photo),
-      },
-    };
+      .where('d.user_id', 'in', driverIds)
+      .execute();
+    const byDriver = new Map(drivers.map((d) => [d.user_id, d]));
+    const urls = await this.uploads.readUrls(
+      drivers.flatMap((d) => [d.photo_upload_id, d.vehicle_photo]),
+    );
+    return trips.map((trip) => {
+      const from = towns.get(trip.from_point_id)!;
+      const to = towns.get(trip.to_point_id)!;
+      const driver = byDriver.get(trip.driver_id);
+      if (!driver) throw new NotFoundException('Haydovchi topilmadi');
+      const stars = priority({
+        offersReceived: driver.offers_received,
+        offersAccepted: driver.offers_accepted,
+        ridesCancelled: driver.rides_cancelled,
+        ratingSum: driver.rating_sum,
+        ratingCount: driver.rating_count,
+      }).stars;
+      return {
+        id: trip.id,
+        number: trip.number,
+        status: trip.status,
+        from: pointView(from),
+        to: pointView(to),
+        departureAt: trip.departure_at,
+        meetingPoint: trip.meeting_point,
+        comment: trip.comment,
+        class: trip.class,
+        distanceM: trip.distance_m,
+        seats: {
+          total: trip.seats_total,
+          free: trip.seats_total - trip.seats_booked,
+          frontOffered: trip.front_seat,
+          frontFree: trip.front_seat && !trip.front_booked,
+        },
+        price: { rear: trip.price_rear, front: trip.price_front },
+        driver: {
+          // the first name only, until a seat is booked
+          name: driverGivenName(driver.full_name),
+          rating: stars,
+          ridesCompleted: driver.rides_completed,
+          photoUrl: (driver.photo_upload_id && urls.get(driver.photo_upload_id)) || null,
+        },
+        vehicle: {
+          make: trip.vehicle.make,
+          model: trip.vehicle.model,
+          colour: trip.vehicle.colour,
+          class: trip.vehicle.class,
+          photoUrl: (driver.vehicle_photo && urls.get(driver.vehicle_photo)) || null,
+        },
+      };
+    });
   }
 
   /**
@@ -1078,7 +1118,8 @@ export class IntercityService {
       contact: active
         ? {
             driverName: contact.full_name,
-            driverPhone: contact.phone,
+            // after the trip the name and plate stay (lost items: a complaint), not the number
+            driverPhone: LIVE_BOOKING.includes(b.status) ? contact.phone : null,
             plate: trip.vehicle.plate,
             plateFormatted: formatPlate(trip.vehicle.plate),
           }
@@ -1106,7 +1147,7 @@ export class IntercityService {
   async driverTrip(user: AuthUser, tripId: string) {
     const trip = await this.findTrip(tripId);
     if (trip.driver_id !== user.userId) throw new NotFoundException('Qatnov topilmadi');
-    return this.fullTrip(trip);
+    return this.fullTrip(trip, 'driver');
   }
 
   /**
@@ -1125,7 +1166,7 @@ export class IntercityService {
         .orderBy('id')
         .limit(100)
         .execute();
-      return { items: await Promise.all(rows.map((t) => this.fullTrip(t))), nextCursor: null };
+      return { items: await this.fullTrips(rows, 'driver'), nextCursor: null };
     }
     const after = cursor
       ? await this.db.kysely
@@ -1147,7 +1188,7 @@ export class IntercityService {
       .limit(30)
       .execute();
     return {
-      items: await Promise.all(rows.map((t) => this.fullTrip(t))),
+      items: await this.fullTrips(rows, 'driver'),
       nextCursor: rows.length === 30 ? rows.at(-1)!.id : null,
     };
   }
@@ -1264,7 +1305,7 @@ export class IntercityService {
   }
 
   async adminTrip(tripId: string) {
-    return this.fullTrip(await this.findTrip(tripId));
+    return this.fullTrip(await this.findTrip(tripId), 'operator');
   }
 
   async adminTrips(q: { status?: TripStatus; date?: string; from?: string; to?: string }) {
@@ -1287,7 +1328,7 @@ export class IntercityService {
       .orderBy('departure_at', 'desc')
       .limit(200)
       .execute();
-    return Promise.all(rows.map((t) => this.fullTrip(t)));
+    return this.fullTrips(rows, 'operator');
   }
 
   async adminBooking(bookingId: string) {
@@ -1306,47 +1347,67 @@ export class IntercityService {
     };
   }
 
-  private async fullTrip(trip: Trip) {
+  private async fullTrip(trip: Trip, who: 'driver' | 'operator') {
+    const [view] = await this.fullTrips([trip], who);
+    return view!;
+  }
+
+  /**
+   * Trips with their bookings for the driver and operators, read together (a page of trips
+   * is a handful of queries). The driver sees a passenger's phone while the seat is held;
+   * operators always.
+   */
+  private async fullTrips(trips: Trip[], who: 'driver' | 'operator') {
+    if (!trips.length) return [];
+    const ids = trips.map((t) => t.id);
     const points = await this.allPoints();
-    const [base, bookings, driver] = await Promise.all([
-      this.publicTrip(trip, points),
+    const [bases, bookings, drivers] = await Promise.all([
+      this.publicTrips(trips, points),
       this.db.kysely
         .selectFrom('intercity_bookings')
         .selectAll()
-        .where('trip_id', '=', trip.id)
+        .where('trip_id', 'in', ids)
         .orderBy('created_at')
         .execute(),
       this.db.kysely
         .selectFrom('drivers as d')
         .innerJoin('users as u', 'u.id', 'd.user_id')
         .select(['d.user_id', 'd.full_name', 'u.phone'])
-        .where('d.user_id', '=', trip.driver_id)
-        .executeTakeFirstOrThrow(),
+        .where('d.user_id', 'in', [...new Set(trips.map((t) => t.driver_id))])
+        .execute(),
     ]);
-    return {
-      ...base,
-      driver: { ...base.driver, id: driver.user_id, name: driver.full_name, phone: driver.phone },
-      vehicle: {
-        ...base.vehicle,
-        plate: trip.vehicle.plate,
-        plateFormatted: formatPlate(trip.vehicle.plate),
-      },
-      referenceRear: trip.reference_rear,
-      cancelledBy: trip.cancelled_by,
-      cancelReason: trip.cancel_reason,
-      boardingAt: trip.boarding_at,
-      departedAt: trip.departed_at,
-      arrivedAt: trip.arrived_at,
-      cancelledAt: trip.cancelled_at,
-      bookings: bookings.map((b) => ({
-        ...this.bookingBase(b, points, trip),
-        riderId: b.rider_id,
-        riderName: b.rider_name,
-        riderPhone: b.rider_phone,
-        commission: b.commission,
-        tax: b.tax,
-      })),
-    };
+    const byDriver = new Map(drivers.map((d) => [d.user_id, d]));
+    const byTrip = new Map<string, Booking[]>();
+    for (const b of bookings) byTrip.set(b.trip_id, [...(byTrip.get(b.trip_id) ?? []), b]);
+    return trips.map((trip, i) => {
+      const base = bases[i]!;
+      const driver = byDriver.get(trip.driver_id)!;
+      return {
+        ...base,
+        driver: { ...base.driver, id: driver.user_id, name: driver.full_name, phone: driver.phone },
+        vehicle: {
+          ...base.vehicle,
+          plate: trip.vehicle.plate,
+          plateFormatted: formatPlate(trip.vehicle.plate),
+        },
+        referenceRear: trip.reference_rear,
+        cancelledBy: trip.cancelled_by,
+        cancelReason: trip.cancel_reason,
+        boardingAt: trip.boarding_at,
+        departedAt: trip.departed_at,
+        arrivedAt: trip.arrived_at,
+        cancelledAt: trip.cancelled_at,
+        bookings: (byTrip.get(trip.id) ?? []).map((b) => ({
+          ...this.bookingBase(b, points, trip),
+          riderId: b.rider_id,
+          riderName: b.rider_name,
+          // a cancelled, unpaid or finished seat: the driver keeps the name, not the number
+          riderPhone: who === 'operator' || LIVE_BOOKING.includes(b.status) ? b.rider_phone : null,
+          commission: b.commission,
+          tax: b.tax,
+        })),
+      };
+    });
   }
 
   // Operators: route prices -----------------------------------------------------------------
@@ -1508,10 +1569,51 @@ export class IntercityService {
     return trip;
   }
 
-  private async lockOwnTrip(trx: Tx, user: AuthUser, tripId: string): Promise<Trip> {
+  /**
+   * The driver's own trip, locked. Only an active driver runs or changes it (a blocked one
+   * cannot take passengers or collect deposits); calling it off stays possible.
+   */
+  private async lockOwnTrip(
+    trx: Tx,
+    user: AuthUser,
+    tripId: string,
+    { evenIfInactive = false } = {},
+  ): Promise<Trip> {
     const trip = await this.lockTrip(trx, tripId);
     if (trip.driver_id !== user.userId) throw new NotFoundException('Qatnov topilmadi');
+    if (!evenIfInactive) {
+      const driver = await trx
+        .selectFrom('drivers')
+        .select('status')
+        .where('user_id', '=', user.userId)
+        .executeTakeFirst();
+      if (driver?.status !== 'active') {
+        throw new ForbiddenException('Hisobingiz faol emas: qatnovni operator bilan hal qiling');
+      }
+    }
     return trip;
+  }
+
+  /** A blocked driver's departures still open: called off, riders told, deposits refunded. */
+  async cancelTripsOfBlockedDriver(driverId: string): Promise<number> {
+    const open = await this.db.kysely
+      .selectFrom('intercity_trips')
+      .select('id')
+      .where('driver_id', '=', driverId)
+      .where('status', 'in', OPEN_TRIP)
+      .execute();
+    let cancelled = 0;
+    for (const { id } of open) {
+      await this.db.transaction(async (trx) => {
+        await this.lockDeposits(trx, { tripId: id });
+        const trip = await this.lockTrip(trx, id);
+        // repeated delivery, or the trip moved on meanwhile: nothing to do
+        if (!OPEN_TRIP.includes(trip.status)) return;
+        await this.cancelTrip(trx, trip, 'operator', 'Haydovchi bloklandi');
+        cancelled += 1;
+      });
+    }
+    return cancelled;
   }
 
   /** Locks a booking; always after its trip where both are locked (one lock order). */

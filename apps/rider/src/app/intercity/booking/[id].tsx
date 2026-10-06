@@ -149,18 +149,22 @@ export default function BookingScreen() {
           <View style={styles.contact}>
             <View style={styles.flex}>
               <T variant="bodyStrong">{b.contact.driverName}</T>
-              <T variant="small" color={colors.textMuted}>
-                {formatPhone(b.contact.driverPhone)}
-              </T>
+              {b.contact.driverPhone ? (
+                <T variant="small" color={colors.textMuted}>
+                  {formatPhone(b.contact.driverPhone)}
+                </T>
+              ) : null}
             </View>
-            <IconButton
-              name="call"
-              label={`Haydovchiga qo‘ng‘iroq qilish: ${b.contact.driverName}`}
-              size={52}
-              color={colors.ink}
-              background={colors.brand}
-              onPress={() => void callPhone(b.contact!.driverPhone)}
-            />
+            {b.contact.driverPhone ? (
+              <IconButton
+                name="call"
+                label={`Haydovchiga qo‘ng‘iroq qilish: ${b.contact.driverName}`}
+                size={52}
+                color={colors.ink}
+                background={colors.brand}
+                onPress={() => void callPhone(b.contact!.driverPhone!)}
+              />
+            ) : null}
           </View>
         </Card>
       ) : null}

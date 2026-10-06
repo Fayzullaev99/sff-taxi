@@ -331,7 +331,14 @@ export interface DriverRide {
   cancelledAt: string | null;
   /** Ordered for later: when the rider wants the car. */
   scheduledFor?: string | null;
-  rider?: { id: string; name: string | null; phone: string; rating: number; noShows: number };
+  /** `phone`: null once the ride is over (finished or cancelled). */
+  rider?: {
+    id: string;
+    name: string | null;
+    phone: string | null;
+    rating: number;
+    noShows: number;
+  };
   earnings: RideEarnings | null;
   /** Cash to take: (cash ride ? fare : 0) + paid waiting + owed fees. */
   collectCash?: number;

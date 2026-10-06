@@ -56,14 +56,16 @@ export function DriverCard({
               </T>
             </View>
           </View>
-          <IconButton
-            name="call"
-            label={`Haydovchiga qo‘ng‘iroq qilish: ${driver.name}`}
-            size={52}
-            color={colors.ink}
-            background={colors.brand}
-            onPress={() => void callPhone(driver.phone)}
-          />
+          {driver.phone ? (
+            <IconButton
+              name="call"
+              label={`Haydovchiga qo‘ng‘iroq qilish: ${driver.name}`}
+              size={52}
+              color={colors.ink}
+              background={colors.brand}
+              onPress={() => void callPhone(driver.phone!)}
+            />
+          ) : null}
         </View>
       ) : null}
     </View>
