@@ -1,6 +1,13 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import {
+  FlatList,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useIntercityPoints, useIntercityTrips } from '../../api/queries';
 import type { IntercityPoint, IntercityTrip } from '../../api/types';
 import { CLASS_LABELS } from '../../lib/fare';

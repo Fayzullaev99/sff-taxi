@@ -537,7 +537,10 @@ describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
       // wave 3: no forced update unless set (null), store links, the seat board's rules
       expect(config.minAppVersion.rider ?? '0.0.0').toMatch(/^\d+\.\d+\.\d+$/);
       expect(config.storeUrls?.rider).toHaveProperty('android');
-      expect(cancelRulesFrom(config.intercity)).toEqual(config.intercity);
+      expect(cancelRulesFrom(config.intercity)).toEqual({
+        freeCancelMinutes: config.intercity?.freeCancelMinutes,
+        lateCancelFeePercent: config.intercity?.lateCancelFeePercent,
+      });
       expect(config.features.intercity).toBe(true);
       expect(config.features.scheduledRides).toBe(true);
 
@@ -583,7 +586,18 @@ describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
           clientRequestId: randomUUID(),
         },
       });
-      expect(rideScreen(scheduled).phase).toBe('scheduled');
+      if (later.deposit) {
+        // deposits on (a card provider configured): booked once the deposit is paid
+        expect(rideScreen(scheduled).phase).toBe('awaiting_payment');
+        await payWithPayme(scheduled.payment!.id, scheduled.payment!.amount);
+        const booked = await waitFor('deposit paid', async () => {
+          const r = await rider.request<Ride>('/v1/rides/' + scheduled.id);
+          return r.status === 'scheduled' ? r : null;
+        });
+        expect(rideScreen(booked).phase).toBe('scheduled');
+      } else {
+        expect(rideScreen(scheduled).phase).toBe('scheduled');
+      }
       const list = await rider.request<RideSummary[]>('/v1/rides/scheduled');
       expect(list.map((r) => r.id)).toContain(scheduled.id);
       const dropped = await rider.request<Ride>(`/v1/rides/${scheduled.id}/cancel`, {
@@ -674,12 +688,23 @@ describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
       );
       expect(repeat).toMatchObject({ status: 200, data: { id: booked.data.id } });
       expect(booked.data.price).toBe(bookingPrice(2, true, trip.price));
+      if (booked.data.status === 'awaiting_payment') {
+        // a deposit is asked (a card provider configured): no contact until it is paid
+        expect(booked.data.contact ?? null).toBeNull();
+        await payWithPayme(booked.data.payment!.id, booked.data.payment!.amount);
+        booked.data = await waitFor('deposit paid', async () => {
+          const b = await rider.request<IntercityBooking>(
+            '/v1/intercity/bookings/' + booked.data.id,
+          );
+          return b.status === 'booked' ? b : null;
+        });
+      }
       expect(booked.data.contact?.driverPhone).toBe(creds(process.env.SMOKE_DRIVER).phone);
       expect(booked.data.canCancel).toBe(true);
       const again = await rider.request<IntercityTrip>(`/v1/intercity/trips/${trip.id}`);
       expect(again.myBookingId).toBe(booked.data.id);
       // wave 3: the rules and times the booking is under, from the API
-      expect(cancelRulesFrom(again.cancelRules)).toEqual(config.intercity);
+      expect(cancelRulesFrom(again.cancelRules)).toEqual(cancelRulesFrom(config.intercity));
       expect(booked.data.cancelFeeNow).toBe(0);
       const terms = bookingCancelTerms(
         trip.departureAt,
