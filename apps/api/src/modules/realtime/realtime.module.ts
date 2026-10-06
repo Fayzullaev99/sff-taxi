@@ -32,6 +32,11 @@ const HEARTBEAT_MS = 10_000;
 const PING = `data: ${JSON.stringify({ type: 'ping' })}\n\n`;
 /** Open streams per account: a few devices and tabs, not a flood. */
 const MAX_STREAMS_PER_USER = 10;
+/**
+ * How often open streams are checked against the account: a user blocked, or an operator
+ * removed, stops hearing events within this (SOS, every ride, positions for operators).
+ */
+export const REAUTH_MS = 60_000;
 
 interface Client {
   userId: string;
@@ -49,8 +54,12 @@ export class RealtimeHub implements OnModuleInit, OnModuleDestroy {
   private readonly clients = new Set<Client>();
   private subscriber: Redis | null = null;
   private heartbeat: NodeJS.Timeout | null = null;
+  private reauth: NodeJS.Timeout | null = null;
 
-  constructor(@Inject(ENV) private readonly env: Env) {}
+  constructor(
+    @Inject(ENV) private readonly env: Env,
+    private readonly db: Database,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     this.subscriber = new Redis(this.env.REDIS_URL, { maxRetriesPerRequest: null });
@@ -59,10 +68,45 @@ export class RealtimeHub implements OnModuleInit, OnModuleDestroy {
     this.heartbeat = setInterval(() => {
       for (const c of this.clients) c.res.write(PING);
     }, HEARTBEAT_MS);
+    this.reauth = setInterval(() => {
+      this.reauthorize().catch((e: unknown) =>
+        this.logger.warn(`Stream re-check failed: ${String(e)}`),
+      );
+    }, REAUTH_MS);
+  }
+
+  /**
+   * Streams are authorised once, when opened: re-read every connected account (one query)
+   * and close the streams of blocked or deleted users; operator rights follow the admins
+   * table (a removed operator stops getting operator events).
+   */
+  async reauthorize(): Promise<number> {
+    const ids = [...new Set([...this.clients].map((c) => c.userId))];
+    if (!ids.length) return 0;
+    const rows = await this.db.kysely
+      .selectFrom('users as u')
+      .leftJoin('admins as a', 'a.user_id', 'u.id')
+      .select(['u.id', 'u.status', 'a.user_id as adminId'])
+      .where('u.id', 'in', ids)
+      .execute();
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    let closed = 0;
+    for (const c of [...this.clients]) {
+      const u = byId.get(c.userId);
+      if (!u || u.status !== 'active') {
+        this.clients.delete(c);
+        c.res.end();
+        closed++;
+        continue;
+      }
+      c.isAdmin = u.adminId !== null;
+    }
+    return closed;
   }
 
   async onModuleDestroy(): Promise<void> {
     if (this.heartbeat) clearInterval(this.heartbeat);
+    if (this.reauth) clearInterval(this.reauth);
     for (const c of this.clients) c.res.end();
     this.clients.clear();
     await this.subscriber?.quit();

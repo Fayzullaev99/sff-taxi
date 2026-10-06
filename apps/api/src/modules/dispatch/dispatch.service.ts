@@ -275,9 +275,9 @@ export class DispatchService {
     limit: number,
     lock = true,
   ): Promise<Candidate[]> {
-    // read once per ranking (both lists and every car on its way use them)
-    const billing = await this.settings.billing(trx);
-    const poolRules = await this.settings.pool(trx);
+    // read once per ranking (both lists and every car on its way use them); the cached
+    // rules (5 s), not two more queries inside the transaction
+    const [billing, poolRules] = await Promise.all([this.settings.billing(), this.settings.pool()]);
     const nearest = await this.eligible(
       trx,
       ride,
@@ -287,7 +287,10 @@ export class DispatchService {
       radiusM,
       exclude,
       Math.max(limit, rules.candidates),
-      lock,
+      // ranked without row locks: the road ETAs below are network calls (OSRM, up to the
+      // router timeout) and a locked drivers row blocks that driver's GPS fixes meanwhile;
+      // the chosen drivers are locked (and checked again) at the end
+      false,
       'free',
     );
     const pickup = { lat: ride.pickup_lat, lng: ride.pickup_lng };
@@ -316,7 +319,7 @@ export class DispatchService {
       poolRules.search_radius_m,
       exclude,
       6,
-      lock,
+      false,
       'along',
     );
     // the cars in one batch of queries; their routing matrices at once (at most 6)
@@ -352,7 +355,37 @@ export class DispatchService {
     const tied = ranked.filter((c) => c.rankS - best <= rules.tie_window_seconds);
     tied.sort((a, b) => b.score - a.score || a.rankS - b.rankS);
     const rest = ranked.filter((c) => !tied.includes(c));
-    return [...tied, ...rest].slice(0, limit).map(({ rankS: _rankS, ...c }) => c);
+    let ordered = [...tied, ...rest];
+    if (lock) {
+      // now lock the ranked drivers (SKIP LOCKED: another ride's dispatch holds them) with
+      // every eligibility check repeated on the locked rows; no network call after this
+      const free = ordered.filter((c) => !c.plan).map((c) => c.driverId);
+      const onWay = ordered.filter((c) => c.plan).map((c) => c.driverId);
+      const relock = (ids: string[], mode: Mode, radius: number) =>
+        ids.length
+          ? this.eligible(
+              trx,
+              ride,
+              rules,
+              billing,
+              poolRules.enabled,
+              radius,
+              exclude,
+              ids.length,
+              true,
+              mode,
+              ids,
+            )
+          : Promise.resolve([]);
+      const locked = new Set(
+        [
+          ...(await relock(free, 'free', radiusM)),
+          ...(await relock(onWay, 'along', poolRules.search_radius_m)),
+        ].map((d) => d.driverId),
+      );
+      ordered = ordered.filter((c) => locked.has(c.driverId));
+    }
+    return ordered.slice(0, limit).map(({ rankS: _rankS, ...c }) => c);
   }
 
   private async eligible(
@@ -366,6 +399,8 @@ export class DispatchService {
     limit: number,
     lock: boolean,
     mode: Mode,
+    /** Only these drivers (the ranked ones, locked after ranking). */
+    onlyIds?: string[],
   ): Promise<Omit<Candidate, 'etaS' | 'distanceM'>[]> {
     const poolOn = mode === 'along' && ride.shareable && poolEnabled;
     const features = [
@@ -382,6 +417,7 @@ export class DispatchService {
       .where('d.lat', 'is not', null)
       .where('d.located_at', '>=', freshSince)
       .where('d.user_id', '!=', ride.rider_id)
+      .$if(Boolean(onlyIds), (q) => q.where('d.user_id', 'in', onlyIds!))
       .where(straight, '<=', radiusM)
       .$if(ride.class === 'comfort', (q) => q.where('v.class', '=', 'comfort'))
       // cargo rides go to cargo cars whose class fits (a medium car takes small loads);
