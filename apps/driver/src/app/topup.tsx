@@ -26,7 +26,18 @@ import {
   topupPhase,
   topupRefetchMs,
 } from '../lib/topup';
-import { Banner, Button, Card, Choice, Field, Muted, Row, Title } from '../ui/components';
+import {
+  Banner,
+  Button,
+  Card,
+  Choice,
+  ErrorState,
+  Field,
+  Loading,
+  Muted,
+  Row,
+  Title,
+} from '../ui/components';
 import { haptics } from '../ui/haptics';
 import { Screen } from '../ui/screen';
 import { colors, space } from '../ui/theme';
@@ -163,6 +174,12 @@ export default function TopupScreen() {
           />
           <SupportCard text="Ofisga kelib naqd to‘ldiring yoki qo‘ng‘iroq qiling." />
         </>
+      ) : intentId && !current && intent.isError ? (
+        // opened from the "paid" push or after a restart: the payment is looked up, never
+        // replaced by the new top-up form (the driver could pay twice)
+        <ErrorState message={errorMessage(intent.error)} onRetry={() => void intent.refetch()} />
+      ) : intentId && !current ? (
+        <Loading />
       ) : current && phase ? (
         <PaymentState
           topup={current}

@@ -3,7 +3,15 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { memo, useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { driver } from '../api/driver';
 import type { DriverRide } from '../api/types';
 import { keys } from '../data/queries';
@@ -327,7 +335,7 @@ export function CancelPanel(props: {
 
 const EMERGENCY: { label: string; number: string }[] = [
   { label: 'Yagona xizmat', number: '112' },
-  { label: 'Militsiya', number: '102' },
+  { label: 'Politsiya', number: '102' },
   { label: 'Tez yordam', number: '103' },
 ];
 
@@ -359,18 +367,25 @@ export const SosButton = memo(function SosButton(props: { rideId: string }) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="SOS: favqulodda holat"
+      accessibilityLabel={send.isPending ? 'SOS yuborilmoqda' : 'SOS: favqulodda holat'}
+      accessibilityState={{ busy: send.isPending, disabled: send.isPending }}
+      // while it is being sent (up to 3 tries) a second tap would raise a second alarm
+      disabled={send.isPending}
       onPress={() =>
         Alert.alert('SOS yuborilsinmi?', 'Operatorlarga joylashuvingiz bilan xabar boradi.', [
           { text: 'Yo‘q', style: 'cancel' },
           { text: 'SOS', style: 'destructive', onPress: () => send.mutate() },
         ])
       }
-      style={({ pressed }) => [styles.sos, pressed && { opacity: 0.7 }]}
+      style={({ pressed }) => [styles.sos, (pressed || send.isPending) && { opacity: 0.7 }]}
     >
-      <Text style={styles.sosText} maxFontSizeMultiplier={1.2}>
-        SOS
-      </Text>
+      {send.isPending ? (
+        <ActivityIndicator color={colors.onDanger} />
+      ) : (
+        <Text style={styles.sosText} maxFontSizeMultiplier={1.2}>
+          SOS
+        </Text>
+      )}
     </Pressable>
   );
 });

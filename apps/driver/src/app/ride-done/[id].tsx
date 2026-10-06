@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { driver } from '../../api/driver';
 import type { DriverRide } from '../../api/types';
-import { keys, useRide } from '../../data/queries';
+import { keys, useDriverConfig, useRide } from '../../data/queries';
 import { errorMessage, isApiError } from '../../lib/api-client';
 import { COMMISSION_NOTES, digits, som } from '../../lib/format';
 import { withRetry } from '../../lib/ride-actions';
@@ -33,6 +33,7 @@ const BAD_TAGS = ['Kechikdi', 'Qo‘pol', 'Salonni ifloslatdi', 'Manzil noto‘g
 export default function RideDone() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const taxPercent = useDriverConfig().billing.taxPercent;
   const ride = useRide(String(id));
   const [stars, setStars] = useState(0);
   const [tags, setTags] = useState<string[]>([]);
@@ -136,7 +137,7 @@ export default function RideDone() {
             label={`Komissiya${e.commissionNote ? ` (${COMMISSION_NOTES[e.commissionNote] ?? e.commissionNote})` : ''}`}
             value={som(-e.commission)}
           />
-          <Row label="Soliq 1% (davlatga, siz uchun to‘lanadi)" value={som(-e.tax)} />
+          <Row label={`Soliq ${taxPercent}% (davlatga, siz uchun to‘lanadi)`} value={som(-e.tax)} />
           <Row label="Sizga qoladi" value={som(e.net)} strong tone="success" />
           <Muted>Komissiya va soliq balansingizdan yechildi; naqd pul to‘liq sizda qoladi.</Muted>
           {money.owedFee > 0 ? (

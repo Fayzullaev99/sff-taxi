@@ -52,8 +52,16 @@ export const CountdownRing = memo(function CountdownRing(props: {
           }}
         />
       ))}
-      <Text style={[styles.ringSeconds, { color, fontSize: size * 0.34 }]}>{props.seconds}</Text>
-      <Text style={styles.ringUnit}>soniya</Text>
+      {/* sized to the ring: a large system font would spill over it */}
+      <Text
+        style={[styles.ringSeconds, { color, fontSize: size * 0.34 }]}
+        maxFontSizeMultiplier={1}
+      >
+        {props.seconds}
+      </Text>
+      <Text style={styles.ringUnit} maxFontSizeMultiplier={1.15}>
+        soniya
+      </Text>
     </View>
   );
 });

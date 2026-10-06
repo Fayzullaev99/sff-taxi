@@ -167,7 +167,7 @@ export default function Money() {
             <Button
               title={`Kunlik · ${som(billing.passDay)}`}
               variant="secondary"
-              disabled={promo.active}
+              disabled={promo.active || buy.isPending}
               loading={buy.isPending && buy.variables === 'day'}
               onPress={() => confirmBuy('day')}
               style={{ flex: 1 }}
@@ -175,7 +175,7 @@ export default function Money() {
             <Button
               title={`Haftalik · ${som(billing.passWeek)}`}
               variant="secondary"
-              disabled={promo.active}
+              disabled={promo.active || buy.isPending}
               loading={buy.isPending && buy.variables === 'week'}
               onPress={() => confirmBuy('week')}
               style={{ flex: 1 }}

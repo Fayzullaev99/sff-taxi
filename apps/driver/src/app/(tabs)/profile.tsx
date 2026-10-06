@@ -5,7 +5,10 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, Platform, Vibration } from 'react-native';
 import { useSession } from '../../auth/session';
-import { useDriverMe } from '../../data/queries';
+import { keys, useDriverMe } from '../../data/queries';
+import type { DriverRide } from '../../api/types';
+import { errorMessage } from '../../lib/api-client';
+import { useQueryClient } from '@tanstack/react-query';
 import { tashkentToday } from '../../lib/application';
 import { date, formatPhone, RIDE_CLASSES } from '../../lib/format';
 import { NAV_APPS, type NavApp } from '../../lib/links';
@@ -23,7 +26,17 @@ import {
 } from '../../notifications/push';
 import { usePushPermission } from '../../notifications/use-push';
 import { getPreferredNavApp, setPreferredNavApp } from '../../ui/actions';
-import { Banner, Button, Card, Choice, Loading, Muted, Row, Title } from '../../ui/components';
+import {
+  Banner,
+  Button,
+  Card,
+  Choice,
+  ErrorState,
+  Loading,
+  Muted,
+  Row,
+  Title,
+} from '../../ui/components';
 import { haptics } from '../../ui/haptics';
 import { WomenRidersCard } from '../../home/women-riders-card';
 import { isCargoCar } from '../../lib/service';
@@ -39,13 +52,55 @@ export default function Profile() {
   const push = usePushPermission();
   const [navApp, setNavApp] = useState<NavApp | 'ask'>('ask');
   const [background, setBackground] = useState<boolean | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const qc = useQueryClient();
+
+  // signing out stops the GPS and takes the driver off shift: never with a rider waiting
+  // or in the car (the rider's map would freeze)
+  const signOut = () => {
+    if (signingOut) return;
+    const ride = qc.getQueryData<DriverRide | null>(keys.current);
+    if (ride) {
+      Alert.alert(
+        'Avval safarni yakunlang',
+        'Faol buyurtma bor: tugatmaguncha chiqib bo‘lmaydi. Muammo bo‘lsa, operatorga qo‘ng‘iroq qiling.',
+      );
+      return;
+    }
+    Alert.alert('Chiqasizmi?', 'Liniyadan chiqasiz va bu telefonga buyurtmalar kelmaydi.', [
+      { text: 'Bekor qilish', style: 'cancel' },
+      {
+        text: 'Chiqish',
+        style: 'destructive',
+        onPress: () => {
+          setSigningOut(true);
+          void session.signOut().finally(() => setSigningOut(false));
+        },
+      },
+    ]);
+  };
 
   useEffect(() => {
     void getPreferredNavApp().then((a) => setNavApp(a ?? 'ask'));
     void hasBackgroundPermission().then(setBackground);
   }, []);
 
-  if (!me.data) return <Loading />;
+  if (!me.data) {
+    // a failed load is said, with a retry (and the way out), not an endless spinner
+    return me.isError ? (
+      <Screen title="Profil">
+        <ErrorState message={errorMessage(me.error)} onRetry={() => void me.refetch()} />
+        <Button
+          title="Chiqish"
+          icon="log-out-outline"
+          variant="secondary"
+          onPress={() => signOut()}
+        />
+      </Screen>
+    ) : (
+      <Loading />
+    );
+  }
   const d = me.data;
   const cardExpired = d.licenceCard.expiresOn < tashkentToday();
 
@@ -61,12 +116,6 @@ export default function Profile() {
       trigger: Platform.OS === 'android' ? { channelId: OFFERS_CHANNEL } : null,
     }).catch(() => Alert.alert('Ovoz chalinmadi', 'Bildirishnomalarga ruxsat bering.'));
   };
-
-  const signOut = () =>
-    Alert.alert('Chiqasizmi?', 'Liniyadan chiqasiz va bu telefonga buyurtmalar kelmaydi.', [
-      { text: 'Bekor qilish', style: 'cancel' },
-      { text: 'Chiqish', style: 'destructive', onPress: () => void session.signOut() },
-    ]);
 
   return (
     <Screen title="Profil" refreshing={me.isRefetching} onRefresh={() => void me.refetch()}>
@@ -229,7 +278,14 @@ export default function Profile() {
 
       <SupportCard text="Savol, shikoyat yoki hujjat o‘zgarishi bo‘yicha ofisga murojaat qiling." />
 
-      <Button title="Chiqish" icon="log-out" variant="danger" onPress={signOut} />
+      <Button
+        title="Chiqish"
+        icon="log-out"
+        variant="danger"
+        loading={signingOut}
+        disabled={signingOut}
+        onPress={signOut}
+      />
       <Muted center>SFF Taxi Haydovchi {Constants.expoConfig?.version ?? ''}</Muted>
     </Screen>
   );

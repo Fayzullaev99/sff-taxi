@@ -54,7 +54,7 @@ export default function BookingsScreen() {
         <EmptyView
           icon="bus-outline"
           title="Bronlar yo‘q"
-          message="Shaharlararo qatnovlardan joy band qiling: narx oldindan ma’lum, to‘lov naqd."
+          message="Shaharlararo qatnovlardan joy band qiling: narx oldindan ma’lum, joy kichik oldindan to‘lov bilan band qilinadi, qolgani naqd."
           actionTitle="Qatnovlarni ko‘rish"
           onAction={() => router.replace('/intercity')}
         />

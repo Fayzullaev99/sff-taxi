@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { serverClock } from '../../api/client';
+import { errorMessage } from '../../lib/api-client';
 import { driver } from '../../api/driver';
 import type { DriverRide, Offer } from '../../api/types';
 import { keys, useDriverConfig, useStreamOpen } from '../../data/queries';
@@ -46,7 +47,7 @@ import { scheduledLabel } from '../../lib/when';
 import { announceOffer, dismissNotification, OFFER_VIBRATION } from '../../notifications/push';
 import { handledOffers } from '../../realtime/driver-runtime';
 import { useOfferClosed } from '../../realtime/use-realtime';
-import { Banner, Button, Chip, Loading, Muted } from '../../ui/components';
+import { Banner, Button, Chip, ErrorState, Loading, Muted } from '../../ui/components';
 import { haptics } from '../../ui/haptics';
 import { OfflineBanner } from '../../ui/screen';
 import { colors, radius, space } from '../../ui/theme';
@@ -174,7 +175,8 @@ export default function OfferScreen() {
     (closedByServer ? (CLOSED_TEXT[closedStatus] ?? 'gone') : null) ??
     (countdown?.expired && !answered.current ? 'expired' : null) ??
     // gone from the server's list: taken by another driver, or the rider cancelled
-    (offers.isFetchedAfterMount && !cached && !answered.current
+    // (a list that failed to load says nothing: shown as an error with a retry instead)
+    (offers.isFetchedAfterMount && !offers.isError && !cached && !answered.current
       ? countdown && countdown.seconds <= 2
         ? 'expired'
         : 'gone'
@@ -273,7 +275,22 @@ export default function OfferScreen() {
     return () => clearTimeout(t);
   }, [closed, closedByServer, close]);
 
-  if (!offer && !closed) return <Loading />;
+  // opened from a push before the list arrived: a way out while it loads, and a failed
+  // load is said as such (not "taken by another driver")
+  if (!offer && !closed) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        {offers.isError ? (
+          <ErrorState message={errorMessage(offers.error)} onRetry={() => void offers.refetch()} />
+        ) : (
+          <Loading />
+        )}
+        <View style={styles.loadingClose}>
+          <Button title="Yopish" variant="secondary" onPress={close} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (closed || !offer || !countdown) {
     const text = OFFER_FAILURE_TEXT[closed ?? 'gone'];
@@ -521,6 +538,7 @@ const OfferDetails = memo(function OfferDetails(props: { offer: Offer; minute: n
 });
 
 const styles = StyleSheet.create({
+  loadingClose: { padding: 16 },
   safe: { flex: 1, backgroundColor: colors.background },
   body: { flex: 1 },
   content: { padding: space.lg, gap: space.lg },

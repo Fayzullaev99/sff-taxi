@@ -157,15 +157,27 @@ export default function NewTrip() {
     onError: onFailed,
   });
 
-  if (points.isPending || me.isPending || (editId && edited.isPending)) return <Loading />;
+  const back = () => (router.canGoBack() ? router.back() : router.replace('/intercity'));
+  // loading and errors keep the header's back button (the stack header is hidden)
+  if (points.isPending || me.isPending || (editId && edited.isPending)) {
+    return (
+      <Screen title="Qatnov" onBack={back}>
+        <Loading />
+      </Screen>
+    );
+  }
   if (!points.data) {
     return (
-      <ErrorState message={errorMessage(points.error)} onRetry={() => void points.refetch()} />
+      <Screen title="Qatnov" onBack={back}>
+        <ErrorState message={errorMessage(points.error)} onRetry={() => void points.refetch()} />
+      </Screen>
     );
   }
   if (editId && !trip) {
     return (
-      <ErrorState message={errorMessage(edited.error)} onRetry={() => void edited.refetch()} />
+      <Screen title="Qatnov" onBack={back}>
+        <ErrorState message={errorMessage(edited.error)} onRetry={() => void edited.refetch()} />
+      </Screen>
     );
   }
   const towns = points.data;
@@ -292,7 +304,17 @@ export default function NewTrip() {
               />
             </>
           ) : (
-            <Text style={styles.error}>{errorMessage(fare.error)}</Text>
+            <>
+              <Text style={styles.error}>{errorMessage(fare.error)}</Text>
+              {/* without the price band the trip cannot be published: let the driver retry */}
+              <Button
+                title="Qayta urinish"
+                icon="refresh"
+                variant="secondary"
+                loading={fare.isFetching}
+                onPress={() => void fare.refetch()}
+              />
+            </>
           )}
         </Card>
       ) : null}
@@ -379,8 +401,8 @@ export default function NewTrip() {
             <Row label="Old o‘rindiq" value={som(front)} strong />
           ) : null}
           <Muted>
-            Birinchi bron qilinguncha narxni o‘zgartirish mumkin, keyin — yo‘q. Yo‘lovchi joy uchun
-            sizga naqd to‘laydi.
+            Birinchi bron qilinguncha narxni o‘zgartirish mumkin, keyin — yo‘q. Ilovadagi bronda
+            narxning bir qismi kartadan oldindan to‘lanadi, qolganini yo‘lovchi sizga naqd beradi.
           </Muted>
         </Card>
       ) : null}

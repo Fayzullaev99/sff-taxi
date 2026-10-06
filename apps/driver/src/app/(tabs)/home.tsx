@@ -30,7 +30,7 @@ import { useBatteryOptimization } from '../../location/use-battery-optimization'
 import { useTrackingMode } from '../../location/use-tracking-mode';
 import { registerPushDevice, requestPushPermission } from '../../notifications/push';
 import { usePushPermission } from '../../notifications/use-push';
-import { Banner, Button, Card, Loading, Row, Title } from '../../ui/components';
+import { Banner, Button, Card, ErrorState, Loading, Row, Title } from '../../ui/components';
 import { haptics } from '../../ui/haptics';
 import { Screen } from '../../ui/screen';
 import { colors, radius, space } from '../../ui/theme';
@@ -103,12 +103,22 @@ export default function Home() {
     },
   });
 
-  if (!me.data) return <Loading />;
+  if (!me.data) {
+    return me.isError ? (
+      <Screen>
+        <ErrorState message={errorMessage(me.error)} onRetry={() => void me.refetch()} />
+      </Screen>
+    ) : (
+      <Loading />
+    );
+  }
   const d = me.data;
   const online = d.isOnline;
   const money = balanceStatus(d.balance, d.minBalance);
   const promo = promoStatus(tashkentToday(), config.billing);
   const current = ride.data ?? null;
+  // the current ride could not be loaded: unknown is not "no ride" (ride.tsx does the same)
+  const rideUnknown = ride.isError && ride.data === undefined;
   // the balance is explained by its own card; the others are listed as they come
   const blockers = d.blockers.filter((b) => !/balans/i.test(b));
   const canGoOnline = money.canWork && blockers.length === 0;
@@ -116,6 +126,14 @@ export default function Home() {
     shift.error && isApiError(shift.error, 403) ? errorMessage(shift.error) : null;
 
   const toggle = () => {
+    if (online && rideUnknown) {
+      Alert.alert(
+        'Safar holati noma’lum',
+        'Faol buyurtmangiz bor-yo‘qligini tekshirib bo‘lmadi. Internetni tekshirib, qayta urinib ko‘ring.',
+      );
+      void ride.refetch();
+      return;
+    }
     if (online && current) {
       Alert.alert('Avval safarni yakunlang', 'Safar davomida liniyadan chiqib bo‘lmaydi.');
       return;
@@ -166,6 +184,22 @@ export default function Home() {
       </View>
 
       {/* the rides in hand: the next stop's ride and, when shared, every stop ahead */}
+      {rideUnknown ? (
+        <Banner
+          tone="warning"
+          icon="cloud-offline"
+          title="Joriy safar yuklanmadi"
+          text={errorMessage(ride.error)}
+          action={
+            <Button
+              title="Qayta urinish"
+              icon="refresh"
+              variant="secondary"
+              onPress={() => void ride.refetch()}
+            />
+          }
+        />
+      ) : null}
       <CurrentRideCard rides={current ? [current] : NO_RIDES} />
 
       <Pressable
@@ -297,11 +331,28 @@ export default function Home() {
 
       <Card>
         <Title>Bugun</Title>
-        <Row label="Safarlar" value={String(today.data?.rides ?? 0)} />
-        <Row label="Yo‘lovchilardan" value={som(today.data?.fares ?? 0)} />
-        <Row label="Komissiya" value={som(-(today.data?.commission ?? 0))} />
-        <Row label={`Soliq (${config.billing.taxPercent}%)`} value={som(-(today.data?.tax ?? 0))} />
-        <Row label="Sof daromad" value={som(today.data?.net ?? 0)} strong tone="success" />
+        {/* not loaded yet (or failed): a dash, never a "0 so'm" that looks real */}
+        <Row label="Safarlar" value={today.data ? String(today.data.rides) : '—'} />
+        <Row label="Yo‘lovchilardan" value={today.data ? som(today.data.fares) : '—'} />
+        <Row label="Komissiya" value={today.data ? som(-today.data.commission) : '—'} />
+        <Row
+          label={`Soliq (${config.billing.taxPercent}%)`}
+          value={today.data ? som(-today.data.tax) : '—'}
+        />
+        <Row
+          label="Sof daromad"
+          value={today.data ? som(today.data.net) : '—'}
+          strong
+          tone="success"
+        />
+        {today.isError && !today.data ? (
+          <Button
+            title="Daromadni qayta yuklash"
+            icon="refresh"
+            variant="secondary"
+            onPress={() => void today.refetch()}
+          />
+        ) : null}
         <Row
           label="Balans"
           value={som(d.balance)}

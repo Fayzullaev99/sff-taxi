@@ -83,10 +83,24 @@ export default function Intercity() {
         />
       ) : null}
 
+      {/* one list failed while the other has trips: the missing one says so (the upcoming
+          departures are the ones that matter) */}
+      {!empty && upcoming.isError && !upcoming.data ? (
+        <ErrorState
+          message={`Kelayotgan qatnovlar yuklanmadi. ${errorMessage(upcoming.error)}`}
+          onRetry={() => void upcoming.refetch()}
+        />
+      ) : null}
       {live.length ? <SectionTitle>Kelayotgan</SectionTitle> : null}
       {live.map((t) => (
         <TripRow key={t.id} trip={t} onPress={() => router.push(`/intercity/${t.id}`)} />
       ))}
+      {!empty && history.isError && !history.data ? (
+        <ErrorState
+          message={`O‘tgan qatnovlar yuklanmadi. ${errorMessage(history.error)}`}
+          onRetry={() => void history.refetch()}
+        />
+      ) : null}
       {past.length ? <SectionTitle>O‘tganlar</SectionTitle> : null}
       {past.map((t) => (
         <TripRow key={t.id} trip={t} onPress={() => router.push(`/intercity/${t.id}`)} />

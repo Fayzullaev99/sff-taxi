@@ -109,9 +109,18 @@ export default function TripScreen() {
     onError,
   });
 
-  if (trip.isPending) return <Loading />;
+  const back = () => (router.canGoBack() ? router.back() : router.replace('/intercity'));
+  // loading and errors keep the header's back button (the stack header is hidden)
   if (!trip.data) {
-    return <ErrorState message={errorMessage(trip.error)} onRetry={() => void trip.refetch()} />;
+    return (
+      <Screen title="Qatnov" onBack={back}>
+        {trip.isPending ? (
+          <Loading />
+        ) : (
+          <ErrorState message={errorMessage(trip.error)} onRetry={() => void trip.refetch()} />
+        )}
+      </Screen>
+    );
   }
   const t = trip.data;
   const actions = tripActions(t, now, rules.boardingOpensMinutes);
@@ -279,7 +288,8 @@ export default function TripScreen() {
         <BookingCard
           key={b.id}
           booking={b}
-          canBoard={actions.canBoard}
+          // one at a time: the spinner shows on the passenger being marked
+          canBoard={actions.canBoard && !board.isPending}
           boarding={board.isPending && board.variables === b.id}
           onBoard={() => board.mutate(b.id)}
         />

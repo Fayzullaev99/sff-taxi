@@ -126,6 +126,15 @@ function ActiveRide(props: {
         ? props.ride
         : poolRides.find((r) => r.id.toLowerCase() === firstStop.rideId.toLowerCase()))) ||
     props.ride;
+  // the next stop belongs to another rider whose ride has not loaded (or failed): the big
+  // button must not act on this ride meanwhile ("Yakunlash" at someone else's pickup)
+  const focusMissing =
+    !!firstStop &&
+    firstStop.rideId.toLowerCase() !== props.ride.id.toLowerCase() &&
+    focus === props.ride;
+  const missingView = focusMissing
+    ? views.find((_, i) => ids[i]?.toLowerCase() === firstStop!.rideId.toLowerCase())
+    : undefined;
 
   const act = useMutation({
     mutationFn: (v: StepVars) => {
@@ -196,7 +205,7 @@ function ActiveRide(props: {
     act.mutate({ rideId: focus.id, action, ...(pin ? { pin } : {}) });
 
   const onStep = () => {
-    if (!step || act.isPending) return;
+    if (!step || act.isPending || focusMissing) return;
     if (step.action === 'start' && focus.hasStartPin) {
       setPinError(null);
       setPinOpen(true);
@@ -267,11 +276,19 @@ function ActiveRide(props: {
               variant={step.action === 'complete' ? 'success' : 'primary'}
               icon={STEP_ICON[step.action]}
               // an optimistic step shows the next button, which waits for the first to land
-              loading={pending?.action === 'complete'}
-              disabled={act.isPending}
+              loading={pending?.action === 'complete' || (focusMissing && !missingView?.isError)}
+              disabled={act.isPending || focusMissing}
               onPress={onStep}
               style={{ minHeight: 76 }}
             />
+            {focusMissing && missingView?.isError ? (
+              <Button
+                title="Keyingi yo‘lovchi ma’lumotini qayta yuklash"
+                icon="refresh"
+                variant="secondary"
+                onPress={() => void missingView.refetch()}
+              />
+            ) : null}
           </>
         )
       }
