@@ -5,6 +5,8 @@ import {
   useInfiniteQuery,
   useQuery,
 } from '@tanstack/react-query';
+import { useIsFocused } from 'expo-router';
+import { useEffect } from 'react';
 import { ApiError } from './client';
 import { endpoints } from './endpoints';
 import { isOnline, subscribeOnline } from './reachability';
@@ -158,9 +160,10 @@ export function useQuote(
   enabled = true,
 ) {
   const signedIn = useIsSignedIn();
+  const focused = useIsFocused();
   const every = scheduledFor ? QUOTE_REFRESH_MS : AVAILABILITY_REFRESH_MS;
   const opts = service === 'delivery' ? [] : options;
-  return useQuery({
+  const query = useQuery({
     queryKey: keys.quote(
       pickup ?? { lat: 0, lng: 0 },
       dropoff ?? { lat: 0, lng: 0 },
@@ -171,10 +174,32 @@ export function useQuote(
     queryFn: () => endpoints.quote(pickup!, dropoff!, opts, scheduledFor, service),
     enabled: enabled && signedIn && pickup !== null && dropoff !== null,
     staleTime: every,
-    refetchInterval: every,
+    // re-priced (fresh availability) only while the screen is in front: not under the
+    // search or the map picker the rider opened from it
+    refetchInterval: focused ? every : false,
     gcTime: QUOTE_REFRESH_MS,
     placeholderData: keepPreviousData,
   });
+  useRefreshOnFocus(query, focused, every);
+  return query;
+}
+
+/**
+ * Polling pauses while the screen is covered; back in front, a quote older than its refresh
+ * period is re-priced at once (not up to a minute later, with an expired quote on screen).
+ */
+function useRefreshOnFocus(
+  query: { dataUpdatedAt: number; refetch: () => unknown; isFetching: boolean },
+  focused: boolean,
+  every: number,
+) {
+  const { dataUpdatedAt, refetch, isFetching } = query;
+  useEffect(() => {
+    if (focused && dataUpdatedAt > 0 && !isFetching && Date.now() - dataUpdatedAt >= every) {
+      void refetch();
+    }
+    // only on coming back to the screen
+  }, [focused]);
 }
 
 /** A cargo quote: both classes with the loaders asked for (and the rider in the cab). */
@@ -185,8 +210,9 @@ export function useCargoQuote(
   scheduledFor: string | null = null,
 ) {
   const signedIn = useIsSignedIn();
+  const focused = useIsFocused();
   const every = scheduledFor ? QUOTE_REFRESH_MS : AVAILABILITY_REFRESH_MS;
-  return useQuery({
+  const query = useQuery({
     queryKey: [
       ...keys.quote(
         pickup ?? { lat: 0, lng: 0 },
@@ -201,10 +227,14 @@ export function useCargoQuote(
     queryFn: () => endpoints.cargoQuote(pickup!, dropoff!, cargo, scheduledFor),
     enabled: signedIn && pickup !== null && dropoff !== null,
     staleTime: every,
-    refetchInterval: every,
+    // re-priced (fresh availability) only while the screen is in front: not under the
+    // search or the map picker the rider opened from it
+    refetchInterval: focused ? every : false,
     gcTime: QUOTE_REFRESH_MS,
     placeholderData: keepPreviousData,
   });
+  useRefreshOnFocus(query, focused, every);
+  return query;
 }
 
 export function useCurrentRide() {
