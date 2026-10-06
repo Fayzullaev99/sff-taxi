@@ -1,6 +1,7 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
 import type { SosResult } from '../api/types';
-import { callPhone, OPERATOR_PHONE } from '../lib/links';
+import { useSupport } from '../api/support';
+import { callPhone } from '../lib/links';
 import { Banner, Button, T } from '../ui/primitives';
 import { Sheet } from '../ui/Sheet';
 import { space } from '../ui/theme';
@@ -31,6 +32,8 @@ export function SosSheet({
   failed: boolean;
 }) {
   const numbers = result?.emergency ?? EMERGENCY_FALLBACK;
+  // the office number from /config (the build's number only as a fallback)
+  const operatorPhone = useSupport().phone;
   return (
     <Sheet
       visible={visible}
@@ -85,13 +88,13 @@ export function SosSheet({
             icon="flame"
             onPress={() => void callPhone(numbers.fire)}
           />
-          {OPERATOR_PHONE ? (
+          {operatorPhone ? (
             <Button
               title="SFF Taxi operatori"
               variant="outline"
               size="lg"
               icon="headset"
-              onPress={() => void callPhone(OPERATOR_PHONE!)}
+              onPress={() => void callPhone(operatorPhone)}
             />
           ) : null}
         </View>

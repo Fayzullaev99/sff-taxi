@@ -171,6 +171,14 @@ export default function SearchScreen() {
                     />
                   </View>
                 ) : null}
+                {!save && places.failed ? (
+                  <Row
+                    icon="cloud-offline-outline"
+                    title="Saqlangan va oxirgi manzillar yuklanmadi"
+                    subtitle="Qayta urinish uchun bosing"
+                    onPress={places.retry}
+                  />
+                ) : null}
                 {!save
                   ? (['home', 'work'] as const).map((kind) =>
                       places[kind] ? (

@@ -440,7 +440,9 @@ export default function HomeScreen() {
           contentContainerStyle={styles.chips}
           style={styles.chipsScroll}
         >
-          {(['home', 'work'] as const).map((kind) => (
+          {/* "Uy qo‘shish" only once it is known there is none (a failed load is not "none":
+              the rider would add home again over the one saved) */}
+          {(places.loaded ? (['home', 'work'] as const) : []).map((kind) => (
             <Chip
               key={kind}
               icon={places[kind] ? (kind === 'home' ? 'home-outline' : 'briefcase-outline') : 'add'}

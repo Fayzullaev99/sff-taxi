@@ -75,7 +75,9 @@ export default function PickOnMapScreen() {
         initial={start}
         onChange={(lat, lng) => void onChange(lat, lng)}
         onMoveStart={() => setBusy(true)}
-        height={Math.max(260, height * 0.62)}
+        // the panel (title, 3-line address, button) keeps ~300 dp: in landscape or at a large
+        // font the map gives way instead of pushing "Tayyor" off the screen
+        height={Math.max(160, Math.min(height * 0.62, height - 300 - insets.bottom))}
       />
       <View style={[styles.panel, { paddingBottom: insets.bottom + space(4) }]}>
         <T variant="caption" color={colors.textMuted}>

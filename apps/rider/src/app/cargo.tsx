@@ -270,6 +270,22 @@ export default function CargoScreen() {
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, space(3)) }]}>
         {order.error ? <Banner tone="danger" message={order.error} /> : null}
+        {/* a background re-price failed: the button is off, so say why and offer a retry
+            (as the taxi order screen does) */}
+        {quote.isError && q ? (
+          <Banner
+            tone="warning"
+            message={describeError(quote.error)}
+            action={
+              <Button
+                title="Qayta hisoblash"
+                size="sm"
+                variant="secondary"
+                onPress={() => void quote.refetch()}
+              />
+            }
+          />
+        ) : null}
         {q && fare ? (
           <View style={styles.summary} accessible accessibilityRole="summary">
             <View style={styles.flex}>

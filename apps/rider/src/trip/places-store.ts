@@ -24,11 +24,29 @@ const LEGACY_KEY = 'sff-taxi.places';
 /** Older versions remembered rated rides on the phone; the API says `rated` now. */
 const LEGACY_RATED_KEY = 'sff-taxi.rated';
 
-export function usePlaces(): SavedPlaces & { list: SavedPlace[]; recent: Place[] } {
+export function usePlaces(): SavedPlaces & {
+  list: SavedPlace[];
+  recent: Place[];
+  /** The saved places arrived (until then "no home" is not known). */
+  loaded: boolean;
+  /** A list could not be loaded: it is not empty, it is unknown. */
+  failed: boolean;
+  retry: () => void;
+} {
   const saved = useSavedPlaces();
   const recent = useRecentPlaces();
   const list = saved.data ?? [];
-  return { ...groupSaved(list), list, recent: recentPlaces(recent.data, list) };
+  return {
+    ...groupSaved(list),
+    list,
+    recent: recentPlaces(recent.data, list),
+    loaded: saved.data !== undefined,
+    failed: (saved.isError && !saved.data) || (recent.isError && !recent.data),
+    retry: () => {
+      void saved.refetch();
+      void recent.refetch();
+    },
+  };
 }
 
 /** Saves a place; home and work replace the previous one (the API does that). */

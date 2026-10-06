@@ -127,8 +127,9 @@ export function Button({
           <T
             variant={size === 'sm' ? 'smallStrong' : 'bodyStrong'}
             color={c.fg}
-            numberOfLines={1}
-            style={trailing ? styles.buttonGrow : null}
+            // long Uzbek labels on a 320 dp phone or at a large font: two lines, not "…"
+            numberOfLines={2}
+            style={trailing ? styles.buttonGrow : styles.buttonLabel}
           >
             {title}
           </T>
@@ -513,6 +514,7 @@ export function RadioMark({ selected, square = false }: { selected: boolean; squ
 }
 
 const styles = StyleSheet.create({
+  buttonLabel: { flexShrink: 1, textAlign: 'center' },
   button: {
     flexDirection: 'row',
     alignItems: 'center',

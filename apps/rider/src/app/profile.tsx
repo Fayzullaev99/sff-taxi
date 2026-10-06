@@ -158,7 +158,21 @@ export default function ProfileScreen() {
         <T variant="small" color={colors.textMuted}>
           Telefon
         </T>
-        <T variant="h3">{me.data ? formatPhone(me.data.phone) : '…'}</T>
+        <T variant="h3">{me.data ? formatPhone(me.data.phone) : me.isError ? '—' : '…'}</T>
+        {me.isError && !me.data ? (
+          <Banner
+            tone="warning"
+            message={describeError(me.error)}
+            action={
+              <Button
+                title="Qayta urinish"
+                size="sm"
+                variant="secondary"
+                onPress={() => void me.refetch()}
+              />
+            }
+          />
+        ) : null}
         <TextField
           label="Ism"
           placeholder="Haydovchi sizga shu ism bilan murojaat qiladi"
