@@ -3,8 +3,10 @@ import { sql } from 'kysely';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Database } from '../src/core/db/database.js';
+import { purgeProcessedOutbox, uuidV7Floor } from '../src/core/outbox/outbox.js';
 import { BlockedDriverHandler } from '../src/modules/drivers/blocked-driver.handler.js';
 import { IntercityService } from '../src/modules/intercity/intercity.service.js';
+import { RealtimeHub } from '../src/modules/realtime/realtime.module.js';
 import { RidesService } from '../src/modules/rides/rides.service.js';
 import { DEFAULT_BOOKING } from '../src/modules/settings/settings.module.js';
 import {
@@ -16,6 +18,7 @@ import {
   signInAdmin,
   startPin,
 } from './helpers.js';
+import { payme, payWithPayme } from './payments-helpers.js';
 
 const inMinutes = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
 const tashkentDay = (iso: string) =>
@@ -177,7 +180,9 @@ describe('review 2026-10', () => {
   it('lists a page of trips for operators in a few queries, each with its own bookings', async () => {
     const a = await createDriver(app, { online: false });
     const b = await createDriver(app, { online: false });
-    const day = inMinutes(60 * 30);
+    // 09:00 Tashkent (04:00 UTC) two days ahead: the three departures (up to +2 h) share
+    // one Tashkent date whatever the time of the run (now + 30 h crossed midnight at night)
+    const day = `${tashkentDay(inMinutes(2 * 1440))}T04:00:00.000Z`;
     const ids: string[] = [];
     for (const [d, off] of [
       [a, 0],
@@ -217,5 +222,111 @@ describe('review 2026-10', () => {
         .send({ reason: 'Test tugadi' })
         .expect(200);
     }
+  });
+
+  it('pays no card money for a ride whose prepayment Payme gave back mid-ride: cash is taken', async () => {
+    const riderSession = await signIn(app);
+    const rider = api(app, riderSession.accessToken);
+    const quote = await rider
+      .post('/v1/rides/quote')
+      .send({ pickup: { lat: 40.4897, lng: 68.7848 }, dropoff: { lat: 40.49, lng: 68.8 } })
+      .expect(200);
+    const ordered = await rider
+      .post('/v1/rides')
+      .send({
+        quoteId: quote.body.quoteId,
+        class: 'economy',
+        paymentMethod: 'card',
+        clientRequestId: randomUUID(),
+      })
+      .expect(201);
+    const fare = ordered.body.fare.quoted as number;
+    const txId = await payWithPayme(app, ordered.body.payment.id, ordered.body.payment.amount);
+    const driver = await createDriver(app);
+    const id = ordered.body.id as string;
+    await admin.post(`/v1/admin/rides/${id}/assign`).send({ driverId: driver.id }).expect(200);
+    await driver.http.post(`/v1/driver/rides/${id}/arrive`).expect(200);
+    await driver.http
+      .post(`/v1/driver/rides/${id}/start`)
+      .send({ pin: await startPin(app, id) })
+      .expect(200);
+    // refunded from the Payme cabinet while the rider is in the car
+    const cancelled = await payme(app, 'CancelTransaction', { id: txId, reason: 5 });
+    expect(cancelled.body.result.state).toBe(-2);
+    const during = await driver.http.get(`/v1/driver/rides/${id}`).expect(200);
+    expect(during.body.collectCash).toBe(fare);
+
+    const done = await driver.http.post(`/v1/driver/rides/${id}/complete`).expect(200);
+    expect(done.body.paymentStatus).toBe('refunded');
+    const credits = await db
+      .selectFrom('driver_ledger')
+      .select('kind')
+      .where('ride_id', '=', id)
+      .where('kind', '=', 'card_fare')
+      .execute();
+    expect(credits).toHaveLength(0);
+  });
+
+  it('closes the open streams of a blocked account and follows operator rights', async () => {
+    const hub = app.get(RealtimeHub);
+    const idOf = async (token: string) =>
+      (await api(app, token).get('/v1/me').expect(200)).body.id as string;
+    const riderId = await idOf((await signIn(app)).accessToken);
+    const operatorId = await idOf((await signInAdmin(app)).accessToken);
+    const ended: string[] = [];
+    const fake = (userId: string, isAdmin: boolean) => {
+      const client = {
+        userId,
+        isAdmin,
+        res: {
+          end: () => ended.push(userId),
+          write: () => true,
+          on: () => undefined,
+        },
+      };
+      hub.add(client as never);
+      return client;
+    };
+    const riderStream = fake(riderId, false);
+    const operatorStream = fake(operatorId, true);
+    expect(await hub.reauthorize()).toBe(0);
+    expect(operatorStream.isAdmin).toBe(true);
+
+    await db.updateTable('users').set({ status: 'blocked' }).where('id', '=', riderId).execute();
+    expect(await hub.reauthorize()).toBe(1);
+    expect(ended).toEqual([riderId]);
+    expect(hub.count(riderId)).toBe(0);
+    expect(riderStream.isAdmin).toBe(false);
+    expect(hub.count(operatorId)).toBe(1);
+  });
+
+  it('deletes processed outbox events past retention by id range, keeps the rest', async () => {
+    const old = new Date(Date.now() - 30 * 86_400_000);
+    const idAt = (at: Date, tail: string) => uuidV7Floor(at).slice(0, 24) + tail;
+    const processedOld = idAt(old, '00000000a001');
+    const failedOld = idAt(old, '00000000a002');
+    // a processed event inside retention (no worker runs in tests: none is processed otherwise)
+    const yesterday = new Date(Date.now() - 86_400_000);
+    const processedRecent = idAt(yesterday, '00000000a003');
+    await db
+      .insertInto('outbox')
+      .values([
+        { id: processedOld, topic: 'ride.changed', payload: '{}', processed_at: old },
+        { id: failedOld, topic: 'ride.changed', payload: '{}', attempts: 99 },
+        { id: processedRecent, topic: 'ride.changed', payload: '{}', processed_at: yesterday },
+      ])
+      .execute();
+    await purgeProcessedOutbox(db, new Date(Date.now() - 14 * 86_400_000));
+    const left = await db
+      .selectFrom('outbox')
+      .select('id')
+      .where('id', 'in', [processedOld, failedOld, processedRecent])
+      .execute();
+    const ids = left.map((r) => r.id);
+    expect(ids).not.toContain(processedOld);
+    expect(ids).toContain(failedOld);
+    expect(ids).toContain(processedRecent);
+    await db.deleteFrom('outbox').where('id', 'in', [failedOld, processedRecent]).execute();
+    expect(uuidV7Floor(new Date(0x0123456789ab))).toBe('01234567-89ab-7000-8000-000000000000');
   });
 });

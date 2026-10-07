@@ -1549,6 +1549,14 @@ export class IntercityService {
    */
   private async creditDeposit(trx: Tx, trip: Trip, b: Booking, why: string) {
     if (b.deposit_amount <= 0) return;
+    // given back from the provider's cabinet meanwhile: nothing held to pass on
+    const held = await trx
+      .selectFrom('payment_intents')
+      .select('id')
+      .where('booking_id', '=', b.id)
+      .where('status', '=', 'paid')
+      .executeTakeFirst();
+    if (!held) return;
     await this.ledger.post(trx, {
       driverId: trip.driver_id,
       kind: 'deposit',

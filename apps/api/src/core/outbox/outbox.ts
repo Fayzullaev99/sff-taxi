@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
-import type { Tx } from '../db/database.js';
+import { sql } from 'kysely';
+import type { Database, Tx } from '../db/database.js';
 
 /** Events other parts of the system react to after the change has committed. */
 export type OutboxTopic =
@@ -51,4 +52,40 @@ export async function emit(trx: Tx, topic: OutboxTopic, payload: Record<string, 
     .insertInto('outbox')
     .values({ id: uuidv7(), topic, payload: JSON.stringify(payload) })
     .execute();
+}
+
+/** Processed events are kept this long (support looks back at what was sent), then deleted. */
+export const OUTBOX_RETENTION_DAYS = 14;
+
+/** The smallest uuid v7 of a moment: every event id below it was created earlier. */
+export function uuidV7Floor(at: Date): string {
+  const hex = Math.max(0, Math.floor(at.getTime())).toString(16).padStart(12, '0').slice(-12);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-7000-8000-000000000000`;
+}
+
+/**
+ * Deletes up to `limit` processed events older than `before` (their deliveries go with
+ * them). The ids are time-ordered (uuid v7), so the primary key finds them without a scan;
+ * events that failed for good (never processed) stay for the operators' outbox page.
+ */
+export async function purgeProcessedOutbox(
+  db: Database['kysely'],
+  before: Date,
+  limit = 5_000,
+): Promise<number> {
+  const res = await db
+    .deleteFrom('outbox')
+    .where(
+      'id',
+      'in',
+      db
+        .selectFrom('outbox')
+        .select('id')
+        .where('id', '<', sql<string>`${uuidV7Floor(before)}::uuid`)
+        .where('processed_at', 'is not', null)
+        .orderBy('id')
+        .limit(limit),
+    )
+    .executeTakeFirst();
+  return Number(res.numDeletedRows);
 }

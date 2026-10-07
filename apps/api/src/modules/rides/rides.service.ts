@@ -1573,6 +1573,7 @@ export class RidesService {
    */
   async cancelByRider(user: AuthUser, rideId: string, reason: string | null) {
     await this.db.transaction(async (trx) => {
+      await this.intents.lockForRide(trx, rideId);
       const ride = await this.lockRide(trx, rideId);
       if (ride.rider_id !== user.userId) throw new NotFoundException('Buyurtma topilmadi');
       if (!RIDER_CANCELLABLE.includes(ride.status)) {
@@ -1632,7 +1633,10 @@ export class RidesService {
       // a shared ride's discount (the part of the trip shared with other riders) is off
       const total = ride.fare_quoted - ride.pool_discount + ride.waiting_fee;
       await this.pool.droppedOff(trx, ride);
-      if (ride.payment_method === 'card') {
+      // the prepayment was given back from the provider's cabinet during the ride: there is
+      // no card money to credit, the driver takes the fare in cash (collectCash says so)
+      const refunded = ride.payment_status === 'refunded';
+      if (ride.payment_method === 'card' && !refunded) {
         // the rider prepaid the quoted fare to the platform: it is the driver's money now
         // (paid waiting on a card ride is collected in cash)
         await this.ledger.post(trx, {
@@ -1643,7 +1647,7 @@ export class RidesService {
           note: `Karta orqali to‘langan safar #${ride.number}`,
         });
       }
-      if (ride.deposit_amount > 0) {
+      if (ride.deposit_amount > 0 && !refunded) {
         // the platform holds the deposit paid in advance: it is the driver's money
         await this.ledger.post(trx, {
           driverId: ride.driver_id!,
@@ -1674,8 +1678,9 @@ export class RidesService {
         set: {
           completed_at: now,
           fare_total: total,
-          // cash went to the driver; a card fare was prepaid before dispatch
-          payment_status: 'paid' as const,
+          // cash went to the driver; a card fare was prepaid before dispatch (a refunded
+          // prepayment stays refunded: the fare was taken in cash)
+          payment_status: refunded ? ('refunded' as const) : ('paid' as const),
           // fees waived since the order are not collected
           owed_fee: owedCollected,
         },
@@ -1684,6 +1689,7 @@ export class RidesService {
           commission: charged.commission,
           tax: charged.tax,
           ...(owedCollected ? { owedFee: owedCollected } : {}),
+          ...(refunded ? { prepaymentRefunded: true } : {}),
         },
       };
     });
@@ -1760,6 +1766,7 @@ export class RidesService {
 
   async cancelByOperator(operator: AuthUser, rideId: string, reason: string) {
     await this.db.transaction(async (trx) => {
+      await this.intents.lockForRide(trx, rideId);
       const ride = await this.lockRide(trx, rideId);
       if (!isUnfinished(ride.status) && ride.status !== 'scheduled') {
         throw new ConflictException('Buyurtma allaqachon yakunlangan');
@@ -2211,6 +2218,8 @@ export class RidesService {
     let expired = 0;
     for (const rideId of due) {
       const done = await this.db.transaction(async (trx) => {
+        // the intent first (the payment callbacks' order); a payment landing now: next tick
+        if (!(await this.intents.lockForRide(trx, rideId, { skipLocked: true }))) return false;
         const ride = await trx
           .selectFrom('rides')
           .selectAll()
@@ -2395,10 +2404,13 @@ export class RidesService {
       // what the driver takes from the rider in cash: the fare after the shared discount and
       // the deposit paid in advance (card rides: prepaid, only paid waiting) plus fees the
       // rider owed from earlier rides
+      // (a prepayment refunded from the provider's cabinet: the whole fare is taken in cash)
       collectCash:
-        (ride.payment_method === 'cash'
-          ? ride.fare_quoted - ride.pool_discount - ride.deposit_amount
-          : 0) +
+        (ride.payment_status === 'refunded'
+          ? ride.fare_quoted - ride.pool_discount
+          : ride.payment_method === 'cash'
+            ? ride.fare_quoted - ride.pool_discount - ride.deposit_amount
+            : 0) +
         ride.waiting_fee +
         ride.owed_fee,
       // riders sharing the car: every stop ahead in order

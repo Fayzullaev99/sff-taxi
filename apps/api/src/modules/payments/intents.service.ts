@@ -434,6 +434,29 @@ export class IntentsService {
    * A card ride ended without a trip (cancelled by anyone, expired): an unpaid intent is
    * closed; a paid one is queued for a refund. Returns the ride's payment status.
    */
+  /**
+   * Locks a ride's payment intents before the ride is locked: the provider callbacks lock an
+   * intent, then its ride, so cancelling and expiring keep the same order (no deadlock when a
+   * payment lands while the rider cancels). `skipLocked`: false when busy (a callback holds it).
+   */
+  async lockForRide(trx: Tx, rideId: string, { skipLocked = false } = {}): Promise<boolean> {
+    const rows = await trx
+      .selectFrom('payment_intents')
+      .select('id')
+      .where('ride_id', '=', rideId)
+      .orderBy('id')
+      .forUpdate()
+      .$if(skipLocked, (q) => q.skipLocked())
+      .execute();
+    if (!skipLocked) return true;
+    const total = await trx
+      .selectFrom('payment_intents')
+      .select(sql<number>`count(*)::int`.as('n'))
+      .where('ride_id', '=', rideId)
+      .executeTakeFirstOrThrow();
+    return rows.length === total.n;
+  }
+
   async onRideCancelled(trx: Tx, rideId: string): Promise<RidePaymentStatus> {
     const i = await trx
       .selectFrom('payment_intents')
