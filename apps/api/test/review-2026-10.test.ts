@@ -180,7 +180,9 @@ describe('review 2026-10', () => {
   it('lists a page of trips for operators in a few queries, each with its own bookings', async () => {
     const a = await createDriver(app, { online: false });
     const b = await createDriver(app, { online: false });
-    const day = inMinutes(60 * 30);
+    // 09:00 Tashkent (04:00 UTC) two days ahead: the three departures (up to +2 h) share
+    // one Tashkent date whatever the time of the run (now + 30 h crossed midnight at night)
+    const day = `${tashkentDay(inMinutes(2 * 1440))}T04:00:00.000Z`;
     const ids: string[] = [];
     for (const [d, off] of [
       [a, 0],
@@ -303,30 +305,28 @@ describe('review 2026-10', () => {
     const idAt = (at: Date, tail: string) => uuidV7Floor(at).slice(0, 24) + tail;
     const processedOld = idAt(old, '00000000a001');
     const failedOld = idAt(old, '00000000a002');
+    // a processed event inside retention (no worker runs in tests: none is processed otherwise)
+    const yesterday = new Date(Date.now() - 86_400_000);
+    const processedRecent = idAt(yesterday, '00000000a003');
     await db
       .insertInto('outbox')
       .values([
         { id: processedOld, topic: 'ride.changed', payload: '{}', processed_at: old },
         { id: failedOld, topic: 'ride.changed', payload: '{}', attempts: 99 },
+        { id: processedRecent, topic: 'ride.changed', payload: '{}', processed_at: yesterday },
       ])
       .execute();
-    const recent = await db
-      .selectFrom('outbox')
-      .select('id')
-      .where('processed_at', 'is not', null)
-      .orderBy('id', 'desc')
-      .executeTakeFirst();
     await purgeProcessedOutbox(db, new Date(Date.now() - 14 * 86_400_000));
     const left = await db
       .selectFrom('outbox')
       .select('id')
-      .where('id', 'in', [processedOld, failedOld, ...(recent ? [recent.id] : [])])
+      .where('id', 'in', [processedOld, failedOld, processedRecent])
       .execute();
     const ids = left.map((r) => r.id);
     expect(ids).not.toContain(processedOld);
     expect(ids).toContain(failedOld);
-    if (recent) expect(ids).toContain(recent.id);
-    await db.deleteFrom('outbox').where('id', '=', failedOld).execute();
+    expect(ids).toContain(processedRecent);
+    await db.deleteFrom('outbox').where('id', 'in', [failedOld, processedRecent]).execute();
     expect(uuidV7Floor(new Date(0x0123456789ab))).toBe('01234567-89ab-7000-8000-000000000000');
   });
 });
