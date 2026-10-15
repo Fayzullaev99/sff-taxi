@@ -280,6 +280,29 @@ public, so it is only sanity-checked; verifying it against the Ministry of Trans
 - **Share trip**: an unguessable token link shows the car, the driver's first name and the live
   position with its trail; no phone numbers; it stops working when the ride ends.
 
+### Ride chat
+
+`src/lib/chat.ts`, `src/modules/chat`, migration 0023. The rider and the ride's driver write
+to each other from the assignment until 30 minutes after completion (a forgotten bag), then
+the chat is read-only; a cancelled ride or one still searching has none. Text only: up to 500
+characters, control characters and invisible (zero-width, bidi override) characters stripped,
+links allowed; quick replies, one set per side ("Chiqyapman", "5 daqiqada chiqaman",
+"Qayerdasiz?", "Podyezd oldidaman" for riders; "Yetib keldim", "Tirbandlik, biroz
+kechikaman"… for drivers) are stored with their key. 20 messages a minute per person, 300 per
+ride; the app's `clientMessageId` makes a retry after a lost answer one message. Every message
+keeps the driver it was written to: a driver taken off the ride does not read the next one's
+conversation (and the next driver starts empty); the rider keeps all of it. Delivery: the
+outbox event `ride.message` sends `chat.message` over the stream to both sides and a push to
+the other side (`kind: chat`; not when it was already read, and the apps keep the banner quiet
+while that chat is on screen); reading sends `chat.read` (read receipts) and clears the
+unread badge. Operators read a ride's whole chat in the ride detail (`admin/rides/:id/messages`)
+and never write in it.
+
+**Phones**: the rider sees the driver's number and the driver the rider's only while the ride
+is on (the views hide them once it ends; the share link never shows them), and calling stays
+the phone's own dialer. Number masking (calls through a telephony provider's virtual numbers)
+needs a contract with an Uzbek telecom/IP-telephony provider: a future item.
+
 ## 10. Realtime and notifications
 
 SSE events are nudges (refetch the resource), never more than the recipient may read; the

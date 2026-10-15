@@ -167,6 +167,7 @@ function Screens() {
       <Stack.Screen name="places" options={{ title: 'Saqlangan manzillar' }} />
       <Stack.Screen name="promos" options={{ title: 'Promokod va bonuslar' }} />
       <Stack.Screen name="invite/[code]" options={{ title: 'Taklif' }} />
+      <Stack.Screen name="chat/[rideId]" options={{ title: 'Haydovchi bilan suhbat' }} />
       <Stack.Screen name="support/index" options={{ title: 'Murojaatlarim' }} />
       <Stack.Screen name="support/new" options={{ title: 'Murojaat' }} />
       <Stack.Screen name="support/[id]" options={{ title: 'Murojaat' }} />

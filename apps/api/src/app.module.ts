@@ -14,6 +14,7 @@ import { SmsModule } from './core/sms/sms.module.js';
 import { HealthController } from './health/health.controller.js';
 import { AppConfigModule } from './modules/app-config/app-config.module.js';
 import { BillingModule } from './modules/billing/billing.module.js';
+import { ChatModule } from './modules/chat/chat.module.js';
 import { DispatchModule } from './modules/dispatch/dispatch.module.js';
 import { DriversModule } from './modules/drivers/drivers.module.js';
 import { ComplaintsModule } from './modules/complaints/complaints.module.js';
@@ -99,6 +100,7 @@ export function logRequest<T extends { url?: unknown }>(req: T): T {
     PlacesModule,
     ComplaintsModule,
     PromosModule,
+    ChatModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_INTERCEPTOR, useClass: RateLimitInterceptor }],

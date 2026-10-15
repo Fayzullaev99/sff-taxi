@@ -15,6 +15,7 @@ import { cancelledText, rideScreen } from '../lib/ride-state';
 import { orderPath, updateDraft } from '../trip/draft';
 import { Banner, Button, Card, Divider, KeyValue, T } from '../ui/primitives';
 import { colors, space } from '../ui/theme';
+import { ChatButton } from './ChatButton';
 import { RatingForm } from './RatingForm';
 
 /** Rating stays possible this long after the ride (the API's window). */
@@ -188,6 +189,8 @@ export function RideSummary({ ride }: { ride: Ride }) {
           </T>
         </Card>
       ) : null}
+
+      {completed && ride.driver ? <ChatButton rideId={ride.id} afterRide /> : null}
 
       {complain ? (
         <Card style={styles.card}>

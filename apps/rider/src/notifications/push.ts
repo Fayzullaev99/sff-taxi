@@ -10,6 +10,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { endpoints } from '../api/endpoints';
 import { getSessionStatus } from '../api/session';
+import { isChatOnScreen } from '../lib/chat-open';
 import { colors } from '../ui/theme';
 import { pushLocale, pushPermissionState, resolveProjectId } from './data';
 
@@ -41,12 +42,16 @@ export function configureNotifications(): Promise<void> {
   configured ??= (async () => {
     if (!pushSupported) return;
     Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowBanner: true,
-        shouldShowList: true,
-        shouldPlaySound: true,
-        shouldSetBadge: false,
-      }),
+      handleNotification: async (n) => {
+        // a chat message for the chat on screen is already in front of the rider
+        const quiet = isChatOnScreen(n.request.content.data);
+        return {
+          shouldShowBanner: !quiet,
+          shouldShowList: !quiet,
+          shouldPlaySound: !quiet,
+          shouldSetBadge: false,
+        };
+      },
     });
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('rides', {

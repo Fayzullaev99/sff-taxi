@@ -5,6 +5,7 @@ import { Platform } from 'react-native';
 import { devices } from '../api/driver';
 import { BRAND } from '../config';
 import { type PushPermission, pushPermissionState } from '../lib/push-permission';
+import { isChatOnScreen } from './chat-open';
 
 /**
  * Push notifications. The API sends urgent offer pushes on the Android channel `offers`
@@ -39,6 +40,15 @@ Notifications.setNotificationHandler({
     const data = n.request.content.data;
     const offerId = offerIdOf(data);
     const local = (data as { kind?: unknown } | null)?.kind === 'offer_local';
+    // a chat message for the chat on screen: already in front of the driver
+    if (isChatOnScreen(data)) {
+      return {
+        shouldShowBanner: false,
+        shouldShowList: false,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+      };
+    }
     if (offerId && !local) {
       // the push for an offer the stream already announced: stay quiet
       if (announced.has(offerId)) {

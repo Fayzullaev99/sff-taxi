@@ -113,6 +113,8 @@ export function useNotificationRouting(enabled: boolean): void {
     } else if (target.kind === 'ride') {
       void qc.invalidateQueries({ queryKey: keys.current });
       router.navigate('/ride');
+    } else if (target.kind === 'chat') {
+      router.navigate({ pathname: '/chat/[rideId]', params: { rideId: target.rideId } });
     } else if (target.kind === 'trip') {
       void qc.invalidateQueries({ queryKey: keys.trip(target.tripId) });
       router.navigate(`/intercity/${target.tripId}`);

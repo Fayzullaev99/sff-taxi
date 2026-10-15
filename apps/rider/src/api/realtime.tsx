@@ -9,6 +9,8 @@ import {
   useState,
 } from 'react';
 import { AppState } from 'react-native';
+import { parseChatEvent } from '../lib/chat';
+import { applyChatEvent } from './chat-api';
 import { ApiError } from './client';
 import { endpoints } from './endpoints';
 import { pushFix } from './live-track';
@@ -136,6 +138,9 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         },
         onMessage: (raw) => {
           if (link) link.lastMessageAt = Date.now();
+          // the ride chat: a new message or a read receipt refetches the conversation
+          const chat = parseChatEvent(raw);
+          if (chat) applyChatEvent(queryClient, chat);
           const event = parseRealtimeEvent(raw);
           if (!event) return;
           // a refund queued or made: the ride's payment state changed

@@ -1,4 +1,5 @@
 import { backoffMs } from './backoff';
+import { type ChatEvent, parseChatEvent } from './chat';
 
 /** One server-sent event. */
 export interface SseMessage {
@@ -103,7 +104,9 @@ export type RealtimeEvent =
   /** A card top-up was paid: the balance grew. */
   | { type: 'topup.updated'; intentId: string; status: string; amount: number }
   /** An operator answered an appeal. */
-  | { type: 'appeal.updated'; appealId: string; status: string };
+  | { type: 'appeal.updated'; appealId: string; status: string }
+  /** The ride chat: a new message, or the rider read the driver's (lib/chat.ts). */
+  | ChatEvent;
 
 const str = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 
@@ -161,6 +164,9 @@ export function parseRealtimeEvent(data: string): RealtimeEvent | null {
       return str(v.appealId) && str(v.status)
         ? { type: 'appeal.updated', appealId: v.appealId, status: v.status }
         : null;
+    case 'chat.message':
+    case 'chat.read':
+      return parseChatEvent(data);
     default:
       return null;
   }

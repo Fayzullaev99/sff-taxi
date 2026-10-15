@@ -43,7 +43,11 @@ export type OutboxTopic =
   /** A shared ride's price changed: another rider joined or left the car. { rideId, cause, discount, pays } */
   | 'ride.pool_changed'
   /** An invitee's first completed ride rewarded the referrer's ride credit. { referralId, referrerId, amount } */
-  | 'promo.referral_rewarded';
+  | 'promo.referral_rewarded'
+  /** A ride chat message was written. { messageId, rideId, authorRole, recipientId } */
+  | 'ride.message'
+  /** One side read the other's chat messages. { rideId, readerRole, authorId, count } */
+  | 'ride.messages_read';
 
 /**
  * Records an event in the caller's transaction: it is delivered by the worker

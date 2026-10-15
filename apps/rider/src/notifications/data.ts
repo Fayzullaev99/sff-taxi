@@ -50,6 +50,8 @@ export function complaintIdFromData(data: unknown): string | null {
 /** Where a tapped push leads. */
 export type PushTarget =
   | { screen: 'ride'; id: string }
+  /** The driver wrote in the ride chat (`data.kind: 'chat'`). */
+  | { screen: 'chat'; id: string }
   | { screen: 'booking'; id: string }
   | { screen: 'complaint'; id: string };
 
@@ -63,6 +65,7 @@ export function pushTarget(data: unknown): PushTarget | null {
   const complaintId = complaintIdFromData(data);
   if (complaintId) return { screen: 'complaint', id: complaintId };
   const rideId = rideIdFromData(data);
+  if (rideId && (data as { kind?: unknown }).kind === 'chat') return { screen: 'chat', id: rideId };
   if (rideId) return { screen: 'ride', id: rideId };
   const bookingId = bookingIdFromData(data);
   if (bookingId) return { screen: 'booking', id: bookingId };

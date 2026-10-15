@@ -6,6 +6,7 @@ import { Alert, AppState } from 'react-native';
 import type { DriverRide, Topup } from '../api/types';
 import { keys, setStreamOpen } from '../data/queries';
 import type { RealtimeEvent } from '../lib/sse';
+import { chatKeys } from '../api/chat';
 import { driver } from '../api/driver';
 import { isApiError } from '../lib/api-client';
 import { type CarRide, carRides, endingOf, goneRides, rideEndedAlert } from '../lib/ride-ended';
@@ -210,6 +211,11 @@ export function useRealtime(enabled: boolean): void {
           // an operator answered: the appeal and maybe the account status changed
           void qc.invalidateQueries({ queryKey: keys.appeals });
           void qc.invalidateQueries({ queryKey: keys.me });
+          break;
+        case 'chat.message':
+        case 'chat.read':
+          // the ride chat: the conversation (and the badge) is fetched again
+          void qc.invalidateQueries({ queryKey: chatKeys.conversation(event.rideId) });
           break;
       }
     };

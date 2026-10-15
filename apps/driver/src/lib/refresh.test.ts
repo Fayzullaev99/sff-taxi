@@ -50,6 +50,9 @@ describe('pushTarget', () => {
       tripId: id,
     });
     expect(pushTarget({ kind: 'driver_active' })).toEqual({ kind: 'home' });
+    // a chat message opens the chat itself
+    expect(pushTarget({ kind: 'chat', rideId: id })).toEqual({ kind: 'chat', rideId: id });
+    expect(pushTarget({ kind: 'chat', rideId: 'x' })).toBeNull();
   });
 
   it('ignores anything malformed', () => {

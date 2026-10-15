@@ -41,6 +41,7 @@ import { shareText } from '../../lib/links';
 import { newerEta, pickupEta, type RideScreen, rideScreen } from '../../lib/ride-state';
 import { searchStartsAt } from '../../lib/schedule';
 import { CancelSheet } from '../../ride/CancelSheet';
+import { ChatButton } from '../../ride/ChatButton';
 import { PaymentPanel } from '../../ride/PaymentPanel';
 import { RideSummary } from '../../ride/RideSummary';
 import { KeyboardAvoider } from '../../ui/KeyboardAvoider';
@@ -304,6 +305,8 @@ function LiveRide({
           ) : null}
 
           {screen.showDriver ? <DriverCard driver={ride.driver} vehicle={ride.vehicle} /> : null}
+
+          {screen.showDriver && ride.driver ? <ChatButton rideId={ride.id} /> : null}
 
           {screen.showDriver && ride.car && (ride.shareable || ride.car.riders > 1) ? (
             <View style={styles.occupancy} accessible>

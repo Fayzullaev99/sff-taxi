@@ -916,6 +916,21 @@ export interface RiderCreditsTable {
   created_at: CreatedAt;
 }
 
+export interface RideMessagesTable {
+  id: string;
+  ride_id: string;
+  /** The ride's driver when it was written: a replaced driver does not read the next one's. */
+  driver_id: string;
+  author_id: string;
+  author_role: 'rider' | 'driver';
+  text: string;
+  /** A quick reply's key (the text is stored too). */
+  quick_reply: string | null;
+  client_message_id: string | null;
+  read_at: Timestamp | null;
+  created_at: CreatedAt;
+}
+
 export interface DB {
   users: UsersTable;
   admins: AdminsTable;
@@ -963,4 +978,5 @@ export interface DB {
   referrals: ReferralsTable;
   ride_discounts: RideDiscountsTable;
   rider_credits: RiderCreditsTable;
+  ride_messages: RideMessagesTable;
 }

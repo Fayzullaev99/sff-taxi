@@ -1451,6 +1451,9 @@ const routes: [RegExp, Mock][] = [
     },
   ],
   [/^\/v1\/admin\/customers\/lookup$/, (init: Init) => lookup(body(init).phone)],
+  // the ride chat and tip (engagement.smoke.test.ts drives them)
+  [/^\/v1\/admin\/rides\/[^/]+\/messages$/, { rideId: R1, writable: false, messages: [] }],
+  [/^\/v1\/admin\/rides\/[^/]+\/tip$/, { tip: null }],
   [/^\/v1\/admin\/rides\/[^/]+\/assign$/, () => (state.rideAfterAction = assignedDetail)],
   [/^\/v1\/admin\/rides\/[^/]+\/cancel$/, () => (state.rideAfterAction = cancelledDetail)],
   [

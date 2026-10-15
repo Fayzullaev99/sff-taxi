@@ -1,5 +1,5 @@
 /**
- * Mounts the rider-engagement screens (promo codes, referrals, their rules) against a
+ * Mounts the rider-engagement screens (promo codes, referrals, their rules, a ride's chat) against a
  * mocked API, like app.smoke.test.ts does for the rest of the panel, and drives the
  * operator's flows: create a code, switch one off, revoke a referral, save the rules.
  */
@@ -11,6 +11,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sessionStore } from './api/client';
 import type { AdminPromo, PromoRules, Referral } from './api/promo-types';
 import Promos from './promos/Promos';
+import { RideChat } from './rides/RideChat';
 import { FeedbackProvider } from './ui/feedback';
 
 type Init = RequestInit | undefined;
@@ -100,6 +101,39 @@ const routes: [RegExp, (init: Init, path: string) => unknown][] = [
   [/^\/v1\/admin\/referrals\/[^/]+\/revoke$/, () => ({ ...referral, status: 'revoked' })],
   [/^\/v1\/admin\/referrals$/, () => ({ items: [referral], nextCursor: null })],
   [/^\/v1\/admin\/settings\/promo$/, (init) => (method(init) === 'PUT' ? body(init) : rules)],
+  [
+    /^\/v1\/admin\/rides\/[^/]+\/messages$/,
+    () => ({
+      rideId: 'r1',
+      writable: true,
+      messages: [
+        {
+          id: 'm1',
+          authorRole: 'driver',
+          authorId: 'd1',
+          authorName: 'Aziz Karimov',
+          authorPhone: '+998901234001',
+          driverId: 'd1',
+          text: 'Yetib keldim',
+          quickReply: 'arrived',
+          readAt: '2026-10-10T10:01:00.000Z',
+          createdAt: '2026-10-10T10:00:00.000Z',
+        },
+        {
+          id: 'm2',
+          authorRole: 'rider',
+          authorId: 'u1',
+          authorName: 'Dilnoza',
+          authorPhone: '+998901112233',
+          driverId: 'd1',
+          text: 'Podyezd 3, chiqyapman',
+          quickReply: null,
+          readAt: null,
+          createdAt: '2026-10-10T10:02:00.000Z',
+        },
+      ],
+    }),
+  ],
 ];
 
 const calls: { path: string; method: string; body: Record<string, unknown> }[] = [];
@@ -264,6 +298,24 @@ describe('promo codes and referrals in the panel', () => {
     await click(button('Saqlash'));
     const [put] = sent('/v1/admin/settings/promo', 'PUT');
     expect(put?.body).toEqual(rules);
+  });
+
+  it('shows a ride’s chat to operators, read-only', async () => {
+    const text = await render(createElement(RideChat, { rideId: 'r1' }));
+    for (const t of [
+      'Suhbat (2)',
+      'Suhbat ochiq',
+      'Haydovchi',
+      'Aziz Karimov',
+      'Yetib keldim',
+      'tezkor javob',
+      'o‘qildi 15:01',
+      'Podyezd 3, chiqyapman',
+      '+998 90 111 22 33',
+    ]) {
+      expect(text).toContain(t);
+    }
+    expect(document.querySelector('textarea')).toBeNull();
   });
 
   it('called only mocked endpoints', () => {

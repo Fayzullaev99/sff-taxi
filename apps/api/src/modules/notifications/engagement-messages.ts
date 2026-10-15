@@ -5,6 +5,23 @@ const soum = (n: number) => `${String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} 
 
 /** Push texts of the rider-engagement features: referral rewards, ride chat, tips. */
 export const engagementPush = {
+  /** A chat message from the driver (`name`: the driver's given name) or from the rider. */
+  chatMessage: (
+    l: Locale,
+    from: 'driver' | 'rider',
+    name: string | null,
+    text: string,
+  ): PushText =>
+    l === 'ru'
+      ? {
+          title:
+            from === 'driver' ? `Водитель${name ? `: ${name}` : ''}` : 'Сообщение от пассажира',
+          body: text,
+        }
+      : {
+          title: from === 'driver' ? `Haydovchi${name ? `: ${name}` : ''}` : 'Yo‘lovchidan xabar',
+          body: text,
+        },
   referralRewarded: (l: Locale, amount: number): PushText =>
     l === 'ru'
       ? {

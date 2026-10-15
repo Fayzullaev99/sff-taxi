@@ -40,6 +40,7 @@ import {
   timeSec,
 } from '../lib/format';
 import { discountText } from '../lib/promos';
+import { RideChat } from './RideChat';
 import {
   canAssign,
   canCancel,
@@ -648,6 +649,8 @@ export function RideDetail({
           </div>
         )}
       </section>
+
+      {r.driver ? <RideChat rideId={r.id} /> : null}
 
       <section className="detail-section">
         <h3>Tarix</h3>

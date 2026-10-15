@@ -24,6 +24,7 @@ import {
   StopList,
   WaitingCard,
 } from '../ride/parts';
+import { ChatButton } from '../ride/chat-button';
 import { PinPad } from '../ride/pin-pad';
 import { ServiceCard } from '../ride/service-card';
 import { PoolRidersCard } from '../ride/pool-riders';
@@ -347,6 +348,8 @@ function ActiveRide(props: {
       ) : focus.rider ? (
         <RiderCard rider={focus.rider} channel={focus.channel} />
       ) : null}
+
+      {focus.channel === 'app' ? <ChatButton rideId={focus.id} /> : null}
 
       {canCancel(status) ? (
         cancelling ? (

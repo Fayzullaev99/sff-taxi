@@ -57,6 +57,16 @@ describe('parseRealtimeEvent', () => {
     expect(
       parseRealtimeEvent('{"type":"ride.updated","rideId":"r1","status":"cancelled"}'),
     ).toEqual({ type: 'ride.updated', rideId: 'r1', status: 'cancelled' });
+    expect(
+      parseRealtimeEvent(
+        '{"type":"chat.message","rideId":"r1","messageId":"m1","authorRole":"rider","text":"Chiqyapman"}',
+      ),
+    ).toEqual({ type: 'chat.message', rideId: 'r1', messageId: 'm1', authorRole: 'rider' });
+    expect(parseRealtimeEvent('{"type":"chat.read","rideId":"r1","readerRole":"rider"}')).toEqual({
+      type: 'chat.read',
+      rideId: 'r1',
+      readerRole: 'rider',
+    });
     expect(parseRealtimeEvent('{"type":"driver.updated","status":"blocked"}')).toEqual({
       type: 'driver.updated',
       status: 'blocked',
