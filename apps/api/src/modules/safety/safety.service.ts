@@ -200,6 +200,14 @@ export class SafetyService {
       status: ride.status,
       pickup: { ...ride.pickup, lat: ride.pickup_lat, lng: ride.pickup_lng },
       dropoff: { ...ride.dropoff, lat: ride.dropoff_lat, lng: ride.dropoff_lng },
+      // intermediate stops in order, and whether the car has been there
+      stops: ride.stops.map((s) => ({
+        address: s.address,
+        landmark: s.landmark,
+        lat: s.lat,
+        lng: s.lng,
+        passed: s.leftAt !== null,
+      })),
       driver: driver ? { name: driverGivenName(driver.name), rating: driver.rating } : null,
       vehicle: ride.vehicle
         ? {

@@ -91,6 +91,9 @@ export const driver = {
       action === 'start' && opts.pin ? { pin: opts.pin } : undefined,
       { timeoutMs: opts.timeoutMs },
     ),
+  /** At an intermediate stop (arrive) or driving on from it (leave); index from 0. */
+  stopStep: (id: string, index: number, action: 'arrive' | 'leave') =>
+    api.post<DriverRide>(`/v1/driver/rides/${id}/stops/${index}/${action}`),
   cancel: (id: string, reasonCode: CancelReason, note: string | null) =>
     api.post<void>(`/v1/driver/rides/${id}/cancel`, { reasonCode, note }),
   rateRider: (id: string, stars: number, tags: string[], comment: string | null) =>

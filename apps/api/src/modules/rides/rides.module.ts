@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Module,
   Param,
+  ParseIntPipe,
   ParseUUIDPipe,
   Post,
   Query,
@@ -20,7 +21,7 @@ import { CARGO_CLASSES } from '../../lib/cargo.js';
 import { RateLimit } from '../../core/http/rate-limit.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
 import { REASON_LABELS } from '../../lib/reasons.js';
-import { RIDE_CLASSES, RIDE_OPTIONS } from '../../lib/tariff.js';
+import { MAX_STOPS, RIDE_CLASSES, RIDE_OPTIONS } from '../../lib/tariff.js';
 import { BillingModule } from '../billing/billing.module.js';
 import { FiscalCoreModule } from '../fiscal/fiscal.module.js';
 import { GeoCoreModule } from '../geo/geo-core.module.js';
@@ -65,6 +66,11 @@ const QuoteBody = z.object({
       weightKg: z.number().int().min(1).max(50).nullable().default(null),
     })
     .optional(),
+  /** Intermediate stops in order ("Oraliq manzil"): the fare goes by the road through them. */
+  stops: z
+    .array(PointBody)
+    .max(MAX_STOPS, `Oraliq manzillar ${MAX_STOPS} tadan ko‘p bo‘lmaydi`)
+    .default([]),
   /** Order for later: 30 minutes to 24 hours ahead, cash (dispatch starts 15 min before). */
   scheduledFor: z.iso
     .datetime({ offset: true })
@@ -107,6 +113,11 @@ const OrderBody = z.object({
   womenOnly: z.boolean().default(false),
   /** car: the whole car; seat: the fixed route's per-person price in a shared car. */
   fareMode: z.enum(['car', 'seat']).default('car'),
+  /** The quote's stops in words, in order (left out: no address texts). */
+  stops: z
+    .array(z.object({ address: Address, landmark: Landmark }))
+    .max(MAX_STOPS)
+    .optional(),
 });
 // coordinates may be left out when the operator's quote gives them
 const PhonePlace = z.object({
@@ -128,6 +139,8 @@ const PhoneOrderBody = z.object({
   /** The panel's idempotency key: a repeated request returns the same ride (200). */
   clientRequestId: z.uuid().nullable().default(null),
   passengers: z.number().int().min(1).max(6).default(1),
+  /** Intermediate stops: with a quote its points (coordinates optional), else coordinates. */
+  stops: z.array(PhonePlace).max(MAX_STOPS).optional(),
 });
 const LookupBody = z.object({ phone: UzPhone });
 const DayString = z.iso.date('Sana YYYY-MM-DD ko‘rinishida');
@@ -299,6 +312,28 @@ export class DriverRidesController {
     @Body(new ZodPipe(StartBody)) body: z.output<typeof StartBody>,
   ) {
     return this.rides.start(user, id, body.pin);
+  }
+
+  /** At an intermediate stop (index from 0): the free stop minutes start. */
+  @Post(':id/stops/:index/arrive')
+  @HttpCode(HttpStatus.OK)
+  arriveAtStop(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('index', ParseIntPipe) index: number,
+  ) {
+    return this.rides.arriveAtStop(user, id, index);
+  }
+
+  /** Driving on from an intermediate stop: paid waiting there is fixed. */
+  @Post(':id/stops/:index/leave')
+  @HttpCode(HttpStatus.OK)
+  leaveStop(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('index', ParseIntPipe) index: number,
+  ) {
+    return this.rides.leaveStop(user, id, index);
   }
 
   @Post(':id/complete')

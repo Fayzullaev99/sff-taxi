@@ -11,9 +11,11 @@ import {
   type FareInput,
   freeWaitingOver,
   isNight,
+  MAX_STOPS,
   RIDE_CLASSES,
   type RideClass,
   splitInsideOutside,
+  stopWaitingFee,
   Tariff,
   waitingFee,
 } from './tariff.js';
@@ -233,5 +235,64 @@ describe('classes', () => {
       },
     });
     expect(noEconomy.success).toBe(false);
+  });
+});
+
+describe('intermediate stops', () => {
+  it('adds a flat fee per stop on top of the road price through them', () => {
+    const one = fare({ roadM: 3800, stops: [{ lat: 40.5, lng: 68.78 }] });
+    expect(one.stops).toEqual({ count: 1, fee: 1000 });
+    expect(one.total).toBe(7000 + 1000);
+    const two = fare({
+      roadM: 5200,
+      stops: [
+        { lat: 40.5, lng: 68.78 },
+        { lat: 40.503, lng: 68.772 },
+      ],
+    });
+    expect(two.stops).toEqual({ count: 2, fee: 2000 });
+    // the bands apply to the whole road distance (5.2 km: the 7 km band)
+    expect(two.base).toBe(10_000);
+    expect(two.total).toBe(12_000);
+    expect(fare({}).stops).toBeUndefined();
+  });
+
+  it('counts a stop outside the city twice: the car drives out to it and back', () => {
+    const roadM = 12_000;
+    const { outsideM } = splitInsideOutside({
+      pickup: CENTRE,
+      dropoff: NEAR_CENTRE,
+      roadM,
+      boundary: GULISTON_BOUNDARY,
+      stops: [SOUTH_VILLAGE],
+    });
+    const villageOut = splitInsideOutside({
+      pickup: CENTRE,
+      dropoff: SOUTH_VILLAGE,
+      roadM: 6000,
+      boundary: GULISTON_BOUNDARY,
+    }).outsideM;
+    expect(outsideM).toBeGreaterThan(villageOut * 1.5);
+    expect(outsideM).toBeLessThan(roadM);
+  });
+
+  it('keeps the night add-on on the distance only', () => {
+    const night = fare({ at: tashkent('2026-09-28T23:30'), stops: [{ lat: 40.5, lng: 68.78 }] });
+    expect(night.night).toBe(1400);
+    expect(night.total).toBe(7000 + 1400 + 1000);
+  });
+
+  it('charges waiting at a stop after its free minutes, per started minute', () => {
+    const arrived = tashkent('2026-09-28T12:00');
+    const after = (s: number) => new Date(arrived.getTime() + s * 1000);
+    expect(stopWaitingFee(arrived, after(180), DEFAULT_TARIFF)).toBe(0);
+    expect(stopWaitingFee(arrived, after(181), DEFAULT_TARIFF)).toBe(500);
+    expect(stopWaitingFee(arrived, after(360), DEFAULT_TARIFF)).toBe(1500);
+  });
+
+  it('reads a tariff saved before stops with the default stop rules', () => {
+    const { stops: _s, ...old } = DEFAULT_TARIFF;
+    expect(Tariff.parse(old).stops).toEqual({ per_stop: 1000, free_minutes: 3 });
+    expect(MAX_STOPS).toBe(2);
   });
 });

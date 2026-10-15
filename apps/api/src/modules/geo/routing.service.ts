@@ -76,6 +76,22 @@ export class RoutingService {
   }
 
   /**
+   * The road route through several points in order (a ride with intermediate stops): the
+   * legs' sum, each leg routed (and cached) like a single route. It is an estimate when any
+   * leg is, and has no driving time then.
+   */
+  async via(points: Point[]): Promise<Route> {
+    if (points.length < 2) return { distanceM: 0, durationS: 0, source: 'estimate' };
+    const legs = await Promise.all(points.slice(1).map((to, i) => this.route(points[i]!, to)));
+    const estimated = legs.some((l) => l.source !== 'osrm' || l.durationS === null);
+    return {
+      distanceM: legs.reduce((s, l) => s + l.distanceM, 0),
+      durationS: estimated ? null : legs.reduce((s, l) => s + l.durationS!, 0),
+      source: estimated ? 'estimate' : 'osrm',
+    };
+  }
+
+  /**
    * Road legs between every pair of a few points (a car's stops ahead, a new rider's ends):
    * row = from, column = to. One table request per column, each cached per pair.
    */

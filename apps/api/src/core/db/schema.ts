@@ -314,6 +314,19 @@ export interface VehicleSnapshot {
 
 type Json<T> = ColumnType<T, string, string>;
 type NullableJson<T> = ColumnType<T | null, string | null, string | null>;
+/** A JSON column with a default (may be left out on insert). */
+type DefaultJson<T> = ColumnType<T, string | undefined, string>;
+
+/** An intermediate stop of a ride (rides.stops), in order. */
+export interface RideStop extends Place {
+  lat: number;
+  lng: number;
+  /** When the driver said they were at the stop, and when they drove on (ISO). */
+  arrivedAt: string | null;
+  leftAt: string | null;
+  /** Paid waiting at this stop (after the tariff's free stop minutes), added to waiting_fee. */
+  waitingFee: number;
+}
 
 export interface QuotesTable {
   id: string;
@@ -338,6 +351,8 @@ export interface QuotesTable {
   service: Generated<RideService>;
   /** Cargo options (CargoDetails) or a delivery's parcel (ParcelDetails) as quoted. */
   cargo: NullableJson<Record<string, unknown>>;
+  /** Intermediate stops as priced: [{lat, lng}] in order (at most 2). */
+  stops: DefaultJson<{ lat: number; lng: number }[]>;
   created_at: CreatedAt;
 }
 
@@ -420,6 +435,8 @@ export interface RidesTable {
   parcel: NullableJson<ParcelDetails>;
   recipient_name: string | null;
   recipient_phone: string | null;
+  /** Intermediate stops between the pickup and the drop-off, in order (at most 2). */
+  stops: DefaultJson<RideStop[]>;
   requested_at: Generated<Date>;
   assigned_at: Timestamp | null;
   arrived_at: Timestamp | null;

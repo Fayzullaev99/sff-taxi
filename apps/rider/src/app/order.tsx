@@ -12,6 +12,7 @@ import {
   orderableClass,
   quoteOwedFee,
   seatShareText,
+  stopRulesText,
 } from '../lib/fare';
 import { formatDateTime, formatDistance, formatMoney } from '../lib/format';
 import { cardLabel } from '../lib/payment';
@@ -54,6 +55,7 @@ export default function OrderScreen() {
     later,
     delivery ? 'delivery' : 'taxi',
     draft.service !== 'cargo',
+    draft.stops,
   );
   const [triedOrder, setTriedOrder] = useState(false);
   const tariff = useTariffAt(pickup);
@@ -155,6 +157,10 @@ export default function OrderScreen() {
       pickup: { address: pickup.address, landmark: draft.landmark.trim() || null },
       dropoff: { address: dropoff.address, landmark: null },
       comment: draft.comment.trim() || null,
+      // the quote's stops in words (the points are the quote's)
+      ...(current.stops?.length
+        ? { stops: draft.stops.map((s) => ({ address: s.address, landmark: null })) }
+        : {}),
       ...(parcel
         ? {
             parcel: {
@@ -193,7 +199,15 @@ export default function OrderScreen() {
           landmark={draft.landmark}
           distanceM={q?.distanceM}
           durationS={q?.durationS}
+          stops={draft.stops}
+          // a shared ride or a route seat has no stops (other riders' plans)
+          canAddStop={!choices?.shareable && choices?.fareMode !== 'seat'}
         />
+        {draft.stops.length && stopRulesText(q?.stopRules) ? (
+          <T variant="small" color={colors.textMuted}>
+            {stopRulesText(q?.stopRules)}
+          </T>
+        ) : null}
 
         {schedulingOn ? (
           <View style={styles.when}>

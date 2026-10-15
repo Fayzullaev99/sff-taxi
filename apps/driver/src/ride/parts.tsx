@@ -149,7 +149,11 @@ export const CashCard = memo(function CashCard(props: {
   );
 });
 
-const STOP_LABEL: Record<Stop['kind'], string> = { pickup: 'Qayerdan', dropoff: 'Qayerga' };
+const STOP_LABEL: Record<Stop['kind'], string> = {
+  pickup: 'Qayerdan',
+  via: 'Oraliq manzil',
+  dropoff: 'Qayerga',
+};
 
 /** The route as an ordered list of stops; the current one is highlighted. */
 export const StopList = memo(function StopList(props: {
@@ -162,7 +166,7 @@ export const StopList = memo(function StopList(props: {
       {props.stops.map((s) => (
         <View key={s.key} style={[styles.stop, s.done && { opacity: 0.55 }]}>
           <Ionicons
-            name={s.kind === 'pickup' ? 'radio-button-on' : 'flag'}
+            name={s.kind === 'pickup' ? 'radio-button-on' : s.kind === 'via' ? 'ellipse' : 'flag'}
             size={22}
             color={s.current ? colors.brand : s.kind === 'pickup' ? colors.brand : colors.text}
           />
@@ -173,8 +177,10 @@ export const StopList = memo(function StopList(props: {
                   `${s.kind === 'pickup' ? 'Olish' : 'Tushirish'} · ${s.riderName ?? 'Yo‘lovchi'}${
                     (s.passengers ?? 1) > 1 ? ` · ${s.passengers} kishi` : ''
                   }${s.rideNumber ? ` · #${s.rideNumber}` : ''}`
-                : `${STOP_LABEL[s.kind]}${s.kind === 'dropoff' ? ` · ${distance(ride.distanceM)}` : ''}`}
-              {s.current ? ' · hozir' : s.done ? ' · o‘tildi' : ''}
+                : s.kind === 'via'
+                  ? `${(s.index ?? 0) + 1}-${STOP_LABEL.via.toLowerCase()}`
+                  : `${STOP_LABEL[s.kind]}${s.kind === 'dropoff' ? ` · ${distance(ride.distanceM)}` : ''}`}
+              {s.arrived ? ' · shu yerda' : s.current ? ' · hozir' : s.done ? ' · o‘tildi' : ''}
             </Text>
             <Text style={styles.stopText}>{s.place.address ?? 'Xaritadagi nuqta'}</Text>
             {s.place.landmark ? (

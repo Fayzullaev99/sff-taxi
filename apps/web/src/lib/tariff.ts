@@ -32,6 +32,8 @@ export interface CalcInput {
   outsideM: number;
   options: RideOption[];
   night: boolean;
+  /** Intermediate stops (a flat fee each). */
+  stops?: number;
 }
 
 export interface CalcFare {
@@ -40,6 +42,8 @@ export interface CalcFare {
   outside: number;
   night: number;
   options: number;
+  /** Intermediate stops' flat fees. */
+  stops: number;
   total: number;
   seat: { rear: number; front: number } | null;
 }
@@ -58,7 +62,8 @@ export function calcFare(input: CalcInput, tariff: Tariff): CalcFare {
   }
   const night = input.night ? Math.round((base * tariff.night.percent) / 100) : 0;
   const options = [...new Set(input.options)].reduce((s, o) => s + tariff.options[o], 0);
-  const total = roundUp100(base + night + options);
+  const stops = (input.stops ?? 0) * (tariff.stops ?? DEFAULT_STOPS).per_stop;
+  const total = roundUp100(base + night + options + stops);
   const rear = roundUp100((total * tariff.seats.share_percent) / 100);
   return {
     kind,
@@ -66,6 +71,7 @@ export function calcFare(input: CalcInput, tariff: Tariff): CalcFare {
     outside,
     night,
     options,
+    stops,
     total,
     seat:
       kind === 'intercity'
@@ -148,6 +154,9 @@ export function validateTariff(t: Tariff): Problem[] {
   if (!isInt(t.intercity_from_km, 5, 500)) add('intercity_from_km', '5–500 km');
   if (!isInt(t.service_radius_km, 0, 100)) add('service_radius_km', '0–100 km');
   if (!isSoum(t.cancellation_fee)) add('cancellation_fee', 'Summani kiriting');
+  const stops = t.stops ?? DEFAULT_STOPS;
+  if (!isSoum(stops.per_stop)) add('stops.per_stop', 'Summani kiriting (0 = bepul)');
+  if (!isInt(stops.free_minutes, 0, 30)) add('stops.free_minutes', '0–30 daqiqa');
   return out;
 }
 
@@ -167,12 +176,16 @@ export function deriveClassTariff(from: ClassTariff, percent: number): ClassTari
   };
 }
 
+/** The API's stop rules for a tariff saved before stops: 1 000 so'm each, 3 minutes free. */
+export const DEFAULT_STOPS = { per_stop: 1000, free_minutes: 3 };
+
 /** A tariff with every class (an older API's document lacks minivan and business). */
 export function withAllClasses(t: Tariff): Tariff {
   const c = t.classes as Partial<Tariff['classes']> & Pick<Tariff['classes'], 'economy'>;
   const on = (k: ClassTariff | undefined) => (k ? { ...k, enabled: k.enabled ?? true } : k);
   return {
     ...t,
+    stops: t.stops ?? DEFAULT_STOPS,
     classes: {
       economy: on(c.economy)!,
       comfort: on(c.comfort) ?? deriveClassTariff(c.economy, 125),
@@ -241,4 +254,5 @@ export const DEFAULT_TARIFF: Tariff = {
   intercity_from_km: 20,
   service_radius_km: 15,
   cancellation_fee: 3000,
+  stops: { per_stop: 1000, free_minutes: 3 },
 };

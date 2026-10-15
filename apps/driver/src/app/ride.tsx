@@ -11,7 +11,7 @@ import { headcountText, offerBadges, pinErrorText, poolRideIds, ridePool } from 
 import { optimisticStatus, runRideStep } from '../lib/ride-actions';
 import { canCancel, cashBreakdown, owedFeeNote, type RideAction } from '../lib/ride-flow';
 import { customerWord, depositLine, serviceOf, serviceStep } from '../lib/service';
-import { nextStop, stopList, stopsFromPool } from '../lib/stops';
+import { nextStop, stopList, stopsFromPool, viaAction } from '../lib/stops';
 import type { WaitingRules } from '../lib/waiting';
 import { scheduledLabel } from '../lib/when';
 import { markRideEndedHere } from '../realtime/use-realtime';
@@ -28,7 +28,17 @@ import { PinPad } from '../ride/pin-pad';
 import { ServiceCard } from '../ride/service-card';
 import { PoolRidersCard } from '../ride/pool-riders';
 import { navigateTo } from '../ui/actions';
-import { Banner, Button, Chip, EmptyState, ErrorState, Loading, Muted } from '../ui/components';
+import {
+  Banner,
+  Button,
+  Card,
+  Chip,
+  EmptyState,
+  ErrorState,
+  Loading,
+  Muted,
+  Title,
+} from '../ui/components';
 import { haptics } from '../ui/haptics';
 import { Screen } from '../ui/screen';
 import { colors, space } from '../ui/theme';
@@ -198,6 +208,23 @@ function ActiveRide(props: {
     return optimistic === 'start' ? stopsFromPool(pool!.stops.slice(1)) : baseStops;
   }, [baseStops, shown, optimistic, pool]);
   const target = nextStop(stops);
+  // an intermediate stop on the trip: "there" (free minutes start), then "drive on"
+  const via = viaAction(target, status);
+  const stopAct = useMutation({
+    mutationFn: (v: { index: number; action: 'arrive' | 'leave' }) =>
+      driver.stopStep(focus.id, v.index, v.action),
+    onSuccess: (next) => {
+      haptics.success();
+      qc.setQueryData(keys.ride(next.id), next);
+      if (!pool) qc.setQueryData(keys.current, next);
+      void qc.invalidateQueries({ queryKey: keys.current });
+    },
+    onError: (error) => {
+      haptics.error();
+      Alert.alert('Amal bajarilmadi', errorMessage(error));
+      void qc.invalidateQueries({ queryKey: keys.current });
+    },
+  });
   const arrivedAt = arrivedAtOf(focus, optimistic === 'arrive' ? tappedAt.current : null);
   const waitingNow = status === 'driver_arrived' && arrivedAt !== null;
 
@@ -241,13 +268,15 @@ function ActiveRide(props: {
 
   const scheduled = scheduledLabel(focus.scheduledFor, Date.now());
   const navTitle =
-    target?.kind === 'dropoff'
-      ? service === 'delivery'
-        ? 'Qabul qiluvchiga yo‘l'
-        : 'Manzilga yo‘l'
-      : service === 'taxi'
-        ? 'Yo‘lovchiga yo‘l'
-        : 'Olish joyiga yo‘l';
+    target?.kind === 'via'
+      ? 'Oraliq manzilga yo‘l'
+      : target?.kind === 'dropoff'
+        ? service === 'delivery'
+          ? 'Qabul qiluvchiga yo‘l'
+          : 'Manzilga yo‘l'
+        : service === 'taxi'
+          ? 'Yo‘lovchiga yo‘l'
+          : 'Olish joyiga yo‘l';
   const badges = offerBadges(focus);
 
   return (
@@ -330,6 +359,25 @@ function ActiveRide(props: {
           variant="secondary"
           onPress={() => void navigateTo(target.place, navTitle)}
         />
+      ) : null}
+
+      {via ? (
+        <Card>
+          <Title>{`${via.index + 1}-oraliq manzil`}</Title>
+          <Muted>
+            {via.action === 'arrive'
+              ? 'Yetib kelganda bosing: bepul kutish boshlanadi.'
+              : 'Yo‘lovchi qaytgach bosing. Bepul daqiqalardan keyingi kutish narxga qo‘shiladi.'}
+          </Muted>
+          <Button
+            title={via.button}
+            icon={via.action === 'arrive' ? 'flag' : 'arrow-forward'}
+            big
+            loading={stopAct.isPending}
+            disabled={stopAct.isPending || act.isPending}
+            onPress={() => stopAct.mutate({ index: via.index, action: via.action })}
+          />
+        </Card>
       ) : null}
 
       {waitingNow && arrivedAt ? <WaitingCard arrivedAt={arrivedAt} rules={rules} /> : null}

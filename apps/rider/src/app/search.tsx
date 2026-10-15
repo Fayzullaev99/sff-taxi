@@ -19,13 +19,14 @@ import { parseSaveTarget, type Place, SAVED_LABELS, savedToPlace, saveTitle } fr
 import { describePoint } from '../location/geo';
 import { LocationNotice, useLocator } from '../location/useLocator';
 import { NATIVE_MAP } from '../location/MapFallback';
-import { choosePickup, updateDraft, useDraft, getDraft, orderPath } from '../trip/draft';
+import { choosePickup, getDraft, orderPath, setStop, updateDraft, useDraft } from '../trip/draft';
 import { hideRecentPlace, savePicked, usePlaces } from '../trip/places-store';
 import { confirm } from '../lib/dialogs';
 import { Button, Icon, type IconName, IconButton, T } from '../ui/primitives';
 import { colors, radius, space } from '../ui/theme';
 
-type Field = 'pickup' | 'dropoff';
+/** The pickup, the destination or an intermediate stop (with its index). */
+type Field = 'pickup' | 'dropoff' | 'stop';
 
 /**
  * Address search for the destination (or the pickup, or a saved place): suggestions from
@@ -33,8 +34,10 @@ type Field = 'pickup' | 'dropoff';
  * "my location" and "choose on the map".
  */
 export default function SearchScreen() {
-  const params = useLocalSearchParams<{ field?: string; save?: string }>();
-  const field: Field = params.field === 'pickup' ? 'pickup' : 'dropoff';
+  const params = useLocalSearchParams<{ field?: string; save?: string; index?: string }>();
+  const field: Field =
+    params.field === 'pickup' ? 'pickup' : params.field === 'stop' ? 'stop' : 'dropoff';
+  const stopIndex = Number(params.index ?? 0) || 0;
   const save = parseSaveTarget(params.save);
   const config = useGeoConfig().data;
   const draft = useDraft();
@@ -74,6 +77,12 @@ export default function SearchScreen() {
       router.back();
       return;
     }
+    if (field === 'stop') {
+      // back to the order sheet, which prices the route through the stop
+      setStop(stopIndex, point);
+      router.back();
+      return;
+    }
     updateDraft({ dropoff: point });
     router.replace(orderPath(getDraft().service));
   };
@@ -104,10 +113,20 @@ export default function SearchScreen() {
   const onMap = () =>
     router.push({
       pathname: '/pick-on-map',
-      params: { field, ...(save ? { save } : {}) },
+      params: {
+        field,
+        ...(field === 'stop' ? { index: String(stopIndex) } : {}),
+        ...(save ? { save } : {}),
+      },
     });
 
-  const title = save ? saveTitle(save) : field === 'pickup' ? 'Qayerdan?' : 'Qayerga?';
+  const title = save
+    ? saveTitle(save)
+    : field === 'pickup'
+      ? 'Qayerdan?'
+      : field === 'stop'
+        ? `${stopIndex + 1}-oraliq manzil`
+        : 'Qayerga?';
   const searching = q.length >= 2;
   const results = searching ? (search.data ?? []) : [];
   const noGeocoder = config?.geocoder === 'none';

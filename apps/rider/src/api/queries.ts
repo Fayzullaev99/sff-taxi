@@ -56,6 +56,7 @@ export const keys = {
     options: RideOption[],
     scheduledFor: string | null,
     service: string = 'taxi',
+    stops: readonly LatLng[] = [],
   ) =>
     [
       'quote',
@@ -66,6 +67,7 @@ export const keys = {
       round(dropoff.lng),
       [...options].sort(),
       scheduledFor,
+      stops.map((s) => `${round(s.lat)},${round(s.lng)}`).join(';'),
     ] as const,
   currentRide: ['ride-current'] as const,
   ride: (id: string) => ['ride', id] as const,
@@ -158,6 +160,7 @@ export function useQuote(
   scheduledFor: string | null = null,
   service: 'taxi' | 'delivery' = 'taxi',
   enabled = true,
+  stops: readonly LatLng[] = [],
 ) {
   const signedIn = useIsSignedIn();
   const focused = useIsFocused();
@@ -170,8 +173,9 @@ export function useQuote(
       opts,
       scheduledFor,
       service,
+      stops,
     ),
-    queryFn: () => endpoints.quote(pickup!, dropoff!, opts, scheduledFor, service),
+    queryFn: () => endpoints.quote(pickup!, dropoff!, opts, scheduledFor, service, stops),
     enabled: enabled && signedIn && pickup !== null && dropoff !== null,
     staleTime: every,
     // re-priced (fresh availability) only while the screen is in front: not under the

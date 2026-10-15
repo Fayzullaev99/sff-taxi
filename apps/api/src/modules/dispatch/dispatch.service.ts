@@ -575,6 +575,7 @@ export class DispatchService {
         'r.service',
         'r.cargo',
         'r.parcel',
+        'r.stops',
         'o.detour_s as detourS',
         'o.pool_plan as poolPlan',
         'u.rider_rating_sum',
@@ -617,6 +618,13 @@ export class DispatchService {
         service: r.service,
         cargo: r.cargo,
         parcel: r.parcel,
+        // intermediate stops in order (the fare already includes them)
+        stops: r.stops.map((s) => ({
+          address: s.address,
+          landmark: s.landmark,
+          lat: s.lat,
+          lng: s.lng,
+        })),
         riderRating: Math.round(((r.rider_rating_sum + 24) / (r.rider_rating_count + 5)) * 10) / 10,
       },
     }));

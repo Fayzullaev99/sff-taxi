@@ -53,7 +53,12 @@ export interface TripDraft {
   recipientPhone: string;
   /** Asks the home map to move (a pickup chosen by search); the key repeats a move. */
   moveMap: { lat: number; lng: number; key: number } | null;
+  /** Intermediate stops in order ("Oraliq manzil", up to MAX_STOPS), fixed with the order. */
+  stops: TripPoint[];
 }
+
+/** Intermediate stops a ride may have (the API's MAX_STOPS). */
+export const MAX_STOPS = 2;
 
 const INITIAL: TripDraft = {
   pickup: null,
@@ -79,6 +84,7 @@ const INITIAL: TripDraft = {
   recipientName: '',
   recipientPhone: '',
   moveMap: null,
+  stops: [],
 };
 
 let draft: TripDraft = INITIAL;
@@ -124,7 +130,25 @@ export function resetAfterOrder(): void {
     recipientName: '',
     recipientPhone: '',
     moveMap: null,
+    stops: [],
   });
+}
+
+/** Sets the stop at `index` (the next index adds one), never more than MAX_STOPS. */
+export function setStop(index: number, point: TripPoint): void {
+  updateDraft({ stops: withStop(draft.stops, index, point) });
+}
+
+export function removeStop(index: number): void {
+  updateDraft({ stops: draft.stops.filter((_, i) => i !== index) });
+}
+
+/** The stops with one set or added (pure, for setStop and tests). */
+export function withStop(stops: readonly TripPoint[], index: number, point: TripPoint) {
+  if (index < 0 || index > stops.length || index >= MAX_STOPS) return [...stops];
+  const next = [...stops];
+  next[index] = point;
+  return next;
 }
 
 /** Where the price screen of the chosen service is. */

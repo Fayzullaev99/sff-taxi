@@ -212,6 +212,15 @@ export interface Place {
   lng: number;
 }
 
+/** An intermediate stop of a ride ("Oraliq manzil"), in order. */
+export interface RideStop extends Place {
+  /** When the driver said they were there and when they drove on (null: not yet). */
+  arrivedAt: string | null;
+  leftAt: string | null;
+  /** Paid waiting there (after the free minutes), already in the ride's waiting. */
+  waitingFee: number;
+}
+
 /** `GET /v1/driver/offers` */
 export interface Offer {
   id: string;
@@ -251,6 +260,8 @@ export interface Offer {
     cargo?: CargoDetails | null;
     /** A delivery's parcel (the recipient is shown only after accepting). */
     parcel?: ParcelDetails | null;
+    /** Intermediate stops in order (the fare already includes them). */
+    stops?: Place[];
   };
 }
 
@@ -325,6 +336,8 @@ export interface DriverRide {
   hasStartPin?: boolean;
   /** taxi (default), cargo or delivery; `class` is cargo_s/cargo_m for cargo. */
   service?: 'taxi' | 'cargo' | 'delivery';
+  /** Intermediate stops in order (older APIs: absent). */
+  stops?: RideStop[];
   /** Cargo rides: loaders, the customer riding along, the load (null otherwise). */
   cargo?: CargoDetails | null;
   /** Deliveries: the parcel and who receives it. */

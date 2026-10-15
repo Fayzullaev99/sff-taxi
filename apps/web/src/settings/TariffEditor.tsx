@@ -9,7 +9,7 @@ import {
   type Tariff,
 } from '../api/types';
 import { CLASSES, OPTIONS, som } from '../lib/format';
-import { calcFare, isNightNow, type Problem } from '../lib/tariff';
+import { calcFare, DEFAULT_STOPS, isNightNow, type Problem } from '../lib/tariff';
 import { Field, MoneyInput, NumberInput, Segmented, Toggle } from '../ui/controls';
 
 /** Empty inputs are kept as NaN in the draft; validation (lib/tariff) refuses them. */
@@ -218,6 +218,7 @@ export function TariffEditor({
 }) {
   const [rideClass, setRideClass] = useState<RideClass>('economy');
   const t = value;
+  const stops = t.stops ?? DEFAULT_STOPS;
   return (
     <div className="tariff-editor">
       <section className="card">
@@ -292,6 +293,21 @@ export function TariffEditor({
             onChange={(cancellation_fee) => onChange({ ...t, cancellation_fee })}
             error={errorAt(problems, 'cancellation_fee')}
           />
+          <Money
+            label="Oraliq manzil narxi"
+            hint="Har bir oraliq manzil uchun (2 tagacha)"
+            value={stops.per_stop}
+            onChange={(per_stop) => onChange({ ...t, stops: { ...stops, per_stop } })}
+            error={errorAt(problems, 'stops.per_stop')}
+          />
+          <Whole
+            label="Oraliq manzilda bepul kutish"
+            hint="Keyin pullik kutish narxida"
+            suffix="daq"
+            value={stops.free_minutes}
+            onChange={(free_minutes) => onChange({ ...t, stops: { ...stops, free_minutes } })}
+            error={errorAt(problems, 'stops.free_minutes')}
+          />
         </div>
       </section>
 
@@ -358,6 +374,7 @@ export function FareCalculator({ tariff, valid }: { tariff: Tariff; valid: boole
   const [insideKm, setInsideKm] = useState<number | null>(3.5);
   const [outsideKm, setOutsideKm] = useState<number | null>(0);
   const [options, setOptions] = useState<RideOption[]>([]);
+  const [stops, setStops] = useState<number | null>(0);
   const [night, setNight] = useState(() => isNightNow(tariff.night));
   const fare =
     valid && insideKm !== null && outsideKm !== null
@@ -368,6 +385,7 @@ export function FareCalculator({ tariff, valid }: { tariff: Tariff; valid: boole
             outsideM: Math.round(outsideKm * 1000),
             options,
             night,
+            stops: stops ?? 0,
           },
           tariff,
         )
@@ -390,6 +408,15 @@ export function FareCalculator({ tariff, valid }: { tariff: Tariff; valid: boole
         <Field label="Chegaradan tashqarida">
           {(p) => (
             <NumberInput {...p} decimals suffix="km" value={outsideKm} onChange={setOutsideKm} />
+          )}
+        </Field>
+        <Field label="Oraliq manzillar" hint="0–2">
+          {(p) => (
+            <NumberInput
+              {...p}
+              value={stops}
+              onChange={(v) => setStops(v === null ? null : Math.max(0, Math.min(2, v)))}
+            />
           )}
         </Field>
       </div>
@@ -437,6 +464,12 @@ export function FareCalculator({ tariff, valid }: { tariff: Tariff; valid: boole
               <div>
                 <dt>Qo‘shimchalar</dt>
                 <dd>{som(fare.options)}</dd>
+              </div>
+            )}
+            {fare.stops > 0 && (
+              <div>
+                <dt>Oraliq manzillar</dt>
+                <dd>{som(fare.stops)}</dd>
               </div>
             )}
             {fare.seat && (

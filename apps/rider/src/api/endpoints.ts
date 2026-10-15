@@ -92,6 +92,7 @@ export const endpoints = {
     options: RideOption[],
     scheduledFor: string | null = null,
     service: 'taxi' | 'delivery' = 'taxi',
+    stops: readonly LatLng[] = [],
   ) =>
     api.request<Quote>('/v1/rides/quote', {
       method: 'POST',
@@ -102,6 +103,8 @@ export const endpoints = {
         options: service === 'delivery' ? [] : options,
         scheduledFor,
         ...(service === 'delivery' ? { service } : {}),
+        // intermediate stops: only sent when there are some (older APIs know none)
+        ...(stops.length ? { stops: stops.map((s) => ({ lat: s.lat, lng: s.lng })) } : {}),
       },
     }),
   /** A cargo quote: both cargo classes priced with the loaders asked for. */

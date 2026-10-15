@@ -1,5 +1,6 @@
 import type {
   AdminRideItem,
+  LatLng,
   LiveBoard,
   LiveDriverState,
   Place,
@@ -7,6 +8,7 @@ import type {
   RideEvent,
   ReasonLabels,
   RideStatus,
+  RideStop,
   SosEvent,
 } from '../api/types';
 import {
@@ -18,8 +20,27 @@ import {
   duration,
   OPTIONS,
   PROVIDERS,
+  som,
   tashkentLocalToIso,
+  time,
 } from './format';
+
+/** An intermediate stop's state for operators: ahead, the car is there, or passed. */
+export function stopState(stop: RideStop): string {
+  if (stop.leftAt) {
+    return `o‘tdi ${time(stop.leftAt)}${stop.waitingFee > 0 ? ` · kutish ${som(stop.waitingFee)}` : ''}`;
+  }
+  if (stop.arrivedAt) return `mashina shu yerda (${time(stop.arrivedAt)} dan)`;
+  return 'oldinda';
+}
+
+/** The ride's route in order: the pickup, the stops, the destination (for the map). */
+export function routePoints(ride: { pickup: LatLng; dropoff: LatLng; stops?: LatLng[] }) {
+  return [ride.pickup, ...(ride.stops ?? []), ride.dropoff].map((p) => ({
+    lat: p.lat,
+    lng: p.lng,
+  }));
+}
 
 export const OPEN_STATUSES: RideStatus[] = [
   'searching',
@@ -151,6 +172,16 @@ export function eventDetail(
       return typeof d.waitingFee === 'number' && d.waitingFee > 0
         ? `pullik kutish ${digits(d.waitingFee)} so‘m`
         : '';
+    case 'stop_arrived':
+    case 'stop_left':
+      return [
+        typeof d.index === 'number' ? `${d.index + 1}-oraliq manzil` : null,
+        typeof d.waitingFee === 'number' && d.waitingFee > 0
+          ? `pullik kutish ${digits(d.waitingFee)} so‘m`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(', ');
     case 'completed':
       return [
         typeof d.fare === 'number' ? `jami ${digits(d.fare)} so‘m` : null,

@@ -142,10 +142,29 @@ export interface Fare {
   outside: number;
   night: number;
   options: Partial<Record<RideOption, number>>;
+  /** Intermediate stops: how many and their flat fees (absent without stops). */
+  stops?: { count: number; fee: number };
   total: number;
   seat: { rear: number; front: number } | null;
   /** A fixed route price replaced the distance price (whole car, or seats × people). */
   fixed?: FixedFare | null;
+}
+
+/** What an intermediate stop costs and how long the car waits there free. */
+export interface StopRules {
+  max: number;
+  perStop: number;
+  freeMinutes: number;
+  waitingPerMinute: number;
+}
+
+/** An intermediate stop of a ride, in order. */
+export interface RideStop extends RidePlace {
+  /** When the car got there and drove on (null: not yet). */
+  arrivedAt: string | null;
+  leftAt: string | null;
+  /** Paid waiting there (after the free minutes), part of the ride's waiting. */
+  waitingFee: number;
 }
 
 export type FareMode = 'car' | 'seat';
@@ -222,6 +241,9 @@ export interface Quote {
   fares: Partial<Record<RideClass, Fare>>;
   /** The orderable classes in display order with their names (older APIs: absent). */
   classes?: QuoteClass[];
+  /** Intermediate stops as priced and their rules (older APIs: absent). */
+  stops?: LatLng[];
+  stopRules?: StopRules;
   paymentMethods: PaymentMethod[];
   waiting: WaitingRule;
   cancellationFee: number;
@@ -496,6 +518,8 @@ export interface RideSummary {
     pays?: number;
     breakdown: Fare;
   };
+  /** Intermediate stops in order (older APIs: absent). */
+  stops?: RideStop[];
   /** taxi, cargo or delivery (older APIs: absent = taxi). */
   service?: RideService;
   /** A cargo ride's load. */
@@ -579,6 +603,8 @@ export interface OrderInput {
   parcel?: { description?: string | null; weightKg?: number | null };
   /** Delivery: who receives it (the driver calls them). */
   recipient?: { name: string; phone: string } | null;
+  /** The quote's intermediate stops in words, in order. */
+  stops?: { address: string | null; landmark: string | null }[];
 }
 
 export interface ShareLink {

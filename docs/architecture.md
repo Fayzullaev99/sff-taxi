@@ -79,9 +79,22 @@ Yandex about price dynamics (MA §1.9). The engine is `src/lib/tariff.ts` (pure,
 | Waiting      | after arrival: free minutes, then per started minute            | 2 min free, 500/min                                                  |
 | Options      | flat; also filter which cars get the ride                       | child seat 2 000, luggage 2 000, pets 3 000, AC 0                    |
 | Cancellation | rider cancels after arrival + free waiting, or no-show          | 3 000 (to the driver)                                                |
+| Stops        | up to 2 intermediate stops: a flat fee each, free minutes there | 1 000 each, 3 min free, then the waiting's 500/min                   |
 
 - The suburb part is estimated as the straight-line distance of each end from the polygon,
   stretched by the route's own detour ratio. It needs no road geometry and is explainable.
+- **Intermediate stops** ("Oraliq manzil", `tariff.stops`): up to two between the pickup and
+  the drop-off. The road distance is the sum of the legs through them (each leg routed and
+  cached like a single route), the bands and the suburb part apply to that total (a stop
+  outside the polygon counts twice: out and back), and each stop adds a flat fee (never the
+  night add-on). A fixed route price does not apply to a trip with stops. Stops are fixed at
+  order time (the price promise; to change them, cancel and order again) and are refused on
+  shared rides and route seats, cargo rides and the trip board (the database checks the
+  first two). During the trip the driver marks each stop "arrived" and "driving on"
+  (`POST driver/rides/:id/stops/:index/arrive|leave`, in order; a skipped stop stays
+  unvisited and the price stays): waiting beyond the free stop minutes is added to the ride's
+  `waiting_fee`, so the final fare, cash to collect, receipts and earnings include it like
+  pickup waiting. A stop still open when the ride completes is closed then.
 - A **quote** is stored with the fares of both classes and the tariff snapshot; the order
   references it, so the rider pays exactly what was shown, and the ride keeps its tariff's
   waiting and cancellation rules even if operators change the tariff meanwhile. Quotes live

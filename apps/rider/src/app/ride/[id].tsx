@@ -18,6 +18,7 @@ import {
   OWED_FEE_LABEL,
   type RideRules,
   rideRules,
+  stopStateText,
   waitingRuleText,
   waitingState,
 } from '../../lib/fare';
@@ -590,6 +591,14 @@ function RouteBox({ ride }: { ride: Ride }) {
       <T variant="small" color={colors.textMuted} numberOfLines={1}>
         {placeLine(ride.pickup)}
       </T>
+      {(ride.stops ?? []).map((stop, i) => (
+        <View key={i} style={styles.routeBox}>
+          <Icon name="arrow-down" size={14} color={colors.textMuted} />
+          <T variant="small" color={colors.textMuted} numberOfLines={1}>
+            {i + 1}. {placeLine(stop)} · {stopStateText(stop)}
+          </T>
+        </View>
+      ))}
       <Icon name="arrow-down" size={14} color={colors.textMuted} />
       <T variant="small" color={colors.textMuted} numberOfLines={1}>
         {placeLine(ride.dropoff)}

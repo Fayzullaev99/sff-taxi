@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSupport } from '../api/support';
 import type { Ride } from '../api/types';
 import { canComplain } from '../lib/complaints';
-import { cancellationFeeNote, fareLines, OWED_FEE_LABEL } from '../lib/fare';
+import { cancellationFeeNote, fareLines, OWED_FEE_LABEL, stopStateText } from '../lib/fare';
 import { POOL_DISCOUNT_LABEL } from '../lib/sharing';
 import { classLabel, isCargoClass, loadLine, SERVICE_NAMES, serviceTitle } from '../lib/services';
 import { driverGivenName, formatDateTime, formatMoney, placeLine } from '../lib/format';
@@ -46,6 +46,7 @@ export function RideSummary({ ride }: { ride: Ride }) {
     updateDraft({
       pickup: { lat: ride.pickup.lat, lng: ride.pickup.lng, address: ride.pickup.address },
       dropoff: { lat: ride.dropoff.lat, lng: ride.dropoff.lng, address: ride.dropoff.address },
+      stops: (ride.stops ?? []).map((s) => ({ lat: s.lat, lng: s.lng, address: s.address })),
       landmark: ride.pickup.landmark ?? '',
       comment: ride.comment ?? '',
       options: ride.options,
@@ -109,6 +110,13 @@ export function RideSummary({ ride }: { ride: Ride }) {
 
       <Card style={styles.card}>
         <KeyValue label="Qayerdan" value={placeLine(ride.pickup)} />
+        {(ride.stops ?? []).map((stop, i) => (
+          <KeyValue
+            key={i}
+            label={`${i + 1}-oraliq manzil`}
+            value={`${placeLine(stop)} · ${stopStateText(stop)}`}
+          />
+        ))}
         <KeyValue label="Qayerga" value={placeLine(ride.dropoff)} />
         {ride.scheduledFor ? (
           <KeyValue label="Oldindan, vaqti" value={formatDateTime(ride.scheduledFor)} />

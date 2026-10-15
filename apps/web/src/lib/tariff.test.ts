@@ -145,3 +145,19 @@ describe('classes in the tariff', () => {
     expect(t.classes.economy.enabled).toBe(true);
   });
 });
+
+describe('intermediate stops in the tariff', () => {
+  it('adds the flat stop fees in the calculator', () => {
+    const two = city({ stops: 2 });
+    expect(two.stops).toBe(2000);
+    expect(two.total).toBe(9000);
+    expect(city().stops).toBe(0);
+  });
+
+  it('checks the stop rules, and fills them for an older document', () => {
+    const t: Tariff = { ...DEFAULT_TARIFF, stops: { per_stop: NaN, free_minutes: 31 } };
+    expect(validateTariff(t).map((p) => p.path)).toEqual(['stops.per_stop', 'stops.free_minutes']);
+    const { stops: _s, ...old } = DEFAULT_TARIFF;
+    expect(withAllClasses(old as Tariff).stops).toEqual({ per_stop: 1000, free_minutes: 3 });
+  });
+});

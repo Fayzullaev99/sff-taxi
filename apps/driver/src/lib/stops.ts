@@ -1,9 +1,10 @@
 import type { Point } from './geo';
 
 /**
- * The driver's ordered stop list. Today a driver carries one ride: its pickup, then its
- * drop-off. Shared rides (several riders at once) add more rides to the same list; the
- * screens render stops, not "the pickup and the drop-off", so they need no change then.
+ * The driver's ordered stop list. A driver carries one ride: its pickup, its intermediate
+ * stops ("Oraliq manzil", up to two), then its drop-off. Shared rides (several riders at
+ * once) add more rides to the same list; the screens render stops, not "the pickup and the
+ * drop-off", so they need no change then.
  */
 
 export interface StopPlace extends Point {
@@ -18,12 +19,18 @@ export interface StopRide {
   pickup: StopPlace;
   dropoff: StopPlace;
   distanceM: number;
+  /** Intermediate stops in order, with when the car got there and drove on. */
+  stops?: readonly (StopPlace & { arrivedAt: string | null; leftAt: string | null })[];
 }
 
 export interface Stop {
   /** Stable React key. */
   key: string;
-  kind: 'pickup' | 'dropoff';
+  /** via: an intermediate stop of the ride (`index` from 0). */
+  kind: 'pickup' | 'via' | 'dropoff';
+  index?: number;
+  /** An intermediate stop the car is standing at (arrived, not driven on yet). */
+  arrived?: boolean;
   rideId: string;
   rideNumber: number;
   place: StopPlace;
@@ -77,10 +84,15 @@ function pickedUp(status: string): boolean {
   return status === 'in_progress' || status === 'completed';
 }
 
-/** One ride's stops. */
+/**
+ * One ride's stops. An intermediate stop is passed once the car drove on from it, or when
+ * the car went on to a later stop (the rider skipped it).
+ */
 export function rideStops(ride: StopRide): Stop[] {
   const inCar = pickedUp(ride.status);
   const done = ride.status === 'completed';
+  const via = ride.stops ?? [];
+  const lastVisited = via.reduce((last, s, i) => (s.arrivedAt ? i : last), -1);
   return [
     {
       key: `${ride.id}:pickup`,
@@ -91,6 +103,17 @@ export function rideStops(ride: StopRide): Stop[] {
       done: inCar,
       current: false,
     },
+    ...via.map((s, i): Stop => ({
+      key: `${ride.id}:via${i}`,
+      kind: 'via',
+      index: i,
+      rideId: ride.id,
+      rideNumber: ride.number,
+      place: { lat: s.lat, lng: s.lng, address: s.address, landmark: s.landmark },
+      done: done || s.leftAt !== null || i < lastVisited,
+      arrived: s.arrivedAt !== null && s.leftAt === null,
+      current: false,
+    })),
     {
       key: `${ride.id}:dropoff`,
       kind: 'dropoff',
@@ -119,6 +142,23 @@ export function stopList(rides: readonly StopRide[], order?: readonly string[] |
   }
   const next = stops.findIndex((s) => !s.done);
   return stops.map((s, i) => (i === next ? { ...s, current: true } : s));
+}
+
+/**
+ * What the driver does at the current intermediate stop, during the trip: say they are there
+ * (the free minutes start) or drive on (paid waiting is fixed). Null when the current stop
+ * is not an intermediate one.
+ */
+export function viaAction(
+  stop: Stop | null,
+  status: string,
+): { index: number; action: 'arrive' | 'leave'; button: string } | null {
+  if (!stop || stop.kind !== 'via' || status !== 'in_progress' || stop.index === undefined) {
+    return null;
+  }
+  return stop.arrived
+    ? { index: stop.index, action: 'leave', button: 'Davom etish' }
+    : { index: stop.index, action: 'arrive', button: `${stop.index + 1}-oraliq manzilga yetdim` };
 }
 
 /** Where the navigation button leads: the current stop, or null when all are done. */

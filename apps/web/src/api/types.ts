@@ -138,6 +138,8 @@ export interface Tariff {
   intercity_from_km: number;
   service_radius_km: number;
   cancellation_fee: number;
+  /** Intermediate stops: a flat fee each, free waiting minutes at each (older APIs: absent). */
+  stops?: { per_stop: number; free_minutes: number };
 }
 
 export interface DispatchRules {
@@ -263,8 +265,26 @@ export interface Fare {
   outside: number;
   night: number;
   options: Partial<Record<RideOption, number>>;
+  /** Intermediate stops: how many and their flat fees (absent without stops). */
+  stops?: { count: number; fee: number };
   total: number;
   seat: { rear: number; front: number } | null;
+}
+
+/** An intermediate stop of a ride, in order. */
+export interface RideStop extends Place {
+  arrivedAt: string | null;
+  leftAt: string | null;
+  /** Paid waiting at the stop (after the free stop minutes), part of the ride's waiting. */
+  waitingFee: number;
+}
+
+/** What a stop costs and how long the car waits there free. */
+export interface StopRules {
+  max: number;
+  perStop: number;
+  freeMinutes: number;
+  waitingPerMinute: number;
 }
 
 export interface Quote {
@@ -278,6 +298,9 @@ export interface Quote {
   options: RideOption[];
   /** The classes switched on where the ride starts (switched-off ones are not priced). */
   fares: Partial<Record<RideClass, Fare>>;
+  /** Intermediate stops as priced, and their rules (older APIs: absent). */
+  stops?: LatLng[];
+  stopRules?: StopRules;
   paymentMethods: string[];
   /** Card providers a card payment can go through (Payme, Click). */
   cardProviders?: string[];
@@ -358,6 +381,8 @@ export interface RideBase {
     pays?: number;
     breakdown: Fare;
   };
+  /** Intermediate stops in order (older APIs: absent). */
+  stops?: RideStop[];
   /** Wave 4 (docs/shared-rides.md): optional so older API builds still render. */
   service?: RideService;
   /** Cargo rides: loaders, the customer in the cab, the load (null otherwise). */

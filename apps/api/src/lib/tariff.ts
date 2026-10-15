@@ -107,8 +107,18 @@ export const Tariff = z.object({
   service_radius_km: z.number().int().min(0).max(100),
   /** Charged when the rider cancels after the driver arrived and free waiting ran out. */
   cancellation_fee: soum,
+  /**
+   * Intermediate stops (up to MAX_STOPS): a flat fee each, and free minutes at each stop,
+   * then the waiting's per-minute price. Documents saved before stops read the default.
+   */
+  stops: z
+    .object({ per_stop: soum, free_minutes: z.number().int().min(0).max(30) })
+    .default({ per_stop: 1000, free_minutes: 3 }),
 });
 export type Tariff = z.infer<typeof Tariff>;
+
+/** Intermediate stops a ride may have between the pickup and the drop-off. */
+export const MAX_STOPS = 2;
 
 /** The launch tariff for Guliston: market analysis §6.3 (Yandex Start caps for comparison). */
 export const DEFAULT_TARIFF: Tariff = {
@@ -172,6 +182,8 @@ export const DEFAULT_TARIFF: Tariff = {
   intercity_from_km: 20,
   service_radius_km: 15,
   cancellation_fee: 3000,
+  // a stop on the way (a pharmacy, picking a child up): 1 000 so'm, 3 minutes free there
+  stops: { per_stop: 1000, free_minutes: 3 },
 };
 
 export interface FareInput {
@@ -185,6 +197,8 @@ export interface FareInput {
   options: readonly RideOption[];
   /** When the rider orders: decides the night add-on. */
   at: Date;
+  /** Intermediate stops in order (the road distance already goes through them). */
+  stops?: readonly Point[];
 }
 
 export interface Fare {
@@ -200,6 +214,8 @@ export interface Fare {
   outside: number;
   night: number;
   options: Partial<Record<RideOption, number>>;
+  /** Intermediate stops: how many and their flat fees (absent in fares without stops). */
+  stops?: { count: number; fee: number };
   total: number;
   /** Intercity only: what one seat would cost (rear, front). */
   seat: { rear: number; front: number } | null;
@@ -231,7 +247,7 @@ export function fixedFare(fare: Fare, fixed: FixedPrice): Fare {
     outside: 0,
     night: 0,
     options,
-    total: roundUp100(base + optionsTotal),
+    total: roundUp100(base + optionsTotal + (fare.stops?.fee ?? 0)),
     seat: null,
     fixed,
   };
@@ -271,23 +287,38 @@ export function rideKind(roadM: number, tariff: Tariff): RideKind {
 /**
  * Splits a city ride's road distance into the parts inside and outside the city polygon.
  * The straight-line distance of each end from the boundary, stretched by the route's own
- * detour ratio, is the outside part (a village 3 km out adds ~3 road km).
+ * detour ratio, is the outside part (a village 3 km out adds ~3 road km). An intermediate
+ * stop outside counts twice: the car drives out to it and back in (or on).
  */
 export function splitInsideOutside(
-  input: Pick<FareInput, 'pickup' | 'dropoff' | 'roadM' | 'boundary'>,
+  input: Pick<FareInput, 'pickup' | 'dropoff' | 'roadM' | 'boundary' | 'stops'>,
 ) {
-  const straight = distanceM(
-    input.pickup.lat,
-    input.pickup.lng,
-    input.dropoff.lat,
-    input.dropoff.lng,
-  );
+  const path = [input.pickup, ...(input.stops ?? []), input.dropoff];
+  let straight = 0;
+  for (let i = 1; i < path.length; i++) {
+    straight += distanceM(path[i - 1]!.lat, path[i - 1]!.lng, path[i]!.lat, path[i]!.lng);
+  }
   const ratio = straight > 50 ? Math.min(3, Math.max(1, input.roadM / straight)) : 1;
   const outsideStraight =
     distanceToPolygonM(input.pickup, input.boundary) +
-    distanceToPolygonM(input.dropoff, input.boundary);
+    distanceToPolygonM(input.dropoff, input.boundary) +
+    (input.stops ?? []).reduce((s, p) => s + 2 * distanceToPolygonM(p, input.boundary), 0);
   const outsideM = Math.min(input.roadM, Math.round(outsideStraight * ratio));
   return { insideM: input.roadM - outsideM, outsideM };
+}
+
+/** The flat fees of a ride's intermediate stops (null without stops). */
+export function stopsFee(count: number, tariff: Tariff): { count: number; fee: number } | null {
+  return count > 0 ? { count, fee: count * tariff.stops.per_stop } : null;
+}
+
+/**
+ * Waiting at an intermediate stop: free for the tariff's stop minutes, then the waiting's
+ * per-minute price per started minute.
+ */
+export function stopWaitingFee(arrivedAt: Date, leftAt: Date, tariff: Tariff): number {
+  const seconds = (leftAt.getTime() - arrivedAt.getTime()) / 1000 - tariff.stops.free_minutes * 60;
+  return seconds > 0 ? Math.ceil(seconds / 60) * tariff.waiting.per_minute : 0;
 }
 
 export function computeFare(input: FareInput, tariff: Tariff): Fare {
@@ -310,7 +341,9 @@ export function computeFare(input: FareInput, tariff: Tariff): Fare {
   const options: Partial<Record<RideOption, number>> = {};
   for (const o of new Set(input.options)) options[o] = tariff.options[o];
   const optionsTotal = Object.values(options).reduce((s, v) => s + v, 0);
-  const total = roundUp100(base + night + optionsTotal);
+  // stops are flat like options: the night add-on is on the distance only
+  const stops = stopsFee(input.stops?.length ?? 0, tariff);
+  const total = roundUp100(base + night + optionsTotal + (stops?.fee ?? 0));
   const rear = roundUp100((total * tariff.seats.share_percent) / 100);
   return {
     kind,
@@ -322,6 +355,7 @@ export function computeFare(input: FareInput, tariff: Tariff): Fare {
     outside,
     night,
     options,
+    ...(stops ? { stops } : {}),
     total,
     seat:
       kind === 'intercity'

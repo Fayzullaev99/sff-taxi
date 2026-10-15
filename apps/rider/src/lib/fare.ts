@@ -7,6 +7,8 @@ import type {
   Fare,
   Quote,
   RideClass,
+  RideStop,
+  StopRules,
   RideOption,
   RideRulesView,
   RideStatus,
@@ -171,11 +173,35 @@ export function fareLines(fare: Fare, waiting = 0): FareLine[] {
     const price = fare.options[option];
     if (price !== undefined) lines.push({ label: OPTION_LABELS[option], amount: price });
   }
+  if (fare.stops && fare.stops.count > 0) {
+    lines.push({ label: `Oraliq manzillar × ${fare.stops.count}`, amount: fare.stops.fee });
+  }
   // the API rounds the total up to 100 so‘m for cash: show the difference honestly
   const sum = lines.reduce((s, l) => s + l.amount, 0);
   if (fare.total > sum) lines.push({ label: 'Yaxlitlash', amount: fare.total - sum });
   if (waiting > 0) lines.push({ label: 'Pullik kutish', amount: waiting });
   return lines;
+}
+
+/**
+ * What intermediate stops cost, in one sentence for the order screen; null without rules
+ * (an older API).
+ */
+export function stopRulesText(rules: StopRules | null | undefined): string | null {
+  if (!rules) return null;
+  return (
+    `Har bir oraliq manzil ${formatMoney(rules.perStop)}. U yerda ${rules.freeMinutes} daqiqa ` +
+    `kutish bepul, keyin har daqiqa ${formatMoney(rules.waitingPerMinute)}. Manzillar buyurtmadan ` +
+    `keyin o‘zgarmaydi.`
+  );
+}
+
+/** A stop on the ride screen: ahead, the car is there, or passed (with paid waiting). */
+export function stopStateText(stop: Pick<RideStop, 'arrivedAt' | 'leftAt' | 'waitingFee'>) {
+  if (stop.leftAt) {
+    return stop.waitingFee > 0 ? `O‘tildi · kutish ${formatMoney(stop.waitingFee)}` : 'O‘tildi';
+  }
+  return stop.arrivedAt ? 'Mashina shu yerda kutmoqda' : 'Oldinda';
 }
 
 /** The option price as shown next to its switch: "+2 000 so‘m" or "Bepul". */

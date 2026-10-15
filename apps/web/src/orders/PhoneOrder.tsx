@@ -7,8 +7,10 @@ import {
   History,
   MapPin,
   PhoneCall,
+  Plus,
   RotateCcw,
   Send,
+  X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
@@ -58,7 +60,11 @@ import { WaiveFeeDialog } from '../rides/WaiveFeeDialog';
 import { Badge, Button, Field, PageHeader, PhoneInput, Segmented } from '../ui/controls';
 import { ErrorBox, Loading, Spinner, useToast } from '../ui/feedback';
 
-type Target = 'pickup' | 'dropoff';
+/** The pickup, the destination, or an intermediate stop (0, 1). */
+type Target = 'pickup' | 'dropoff' | 'stop0' | 'stop1';
+const STOP_TARGETS = ['stop0', 'stop1'] as const;
+/** Intermediate stops a phone order may have (the API's MAX_STOPS). */
+const MAX_STOPS = STOP_TARGETS.length;
 
 interface PlaceDraft {
   point: LatLng | null;
@@ -73,6 +79,14 @@ const EMPTY_PLACE: PlaceDraft = { point: null, address: '', landmark: '', addres
 const TARGET_LABEL: Record<Target, string> = {
   pickup: 'Olib ketish joyi (A)',
   dropoff: 'Borish manzili (B)',
+  stop0: '1-oraliq manzil',
+  stop1: '2-oraliq manzil',
+};
+const TARGET_DOT: Record<Target, { text: string; className: string }> = {
+  pickup: { text: 'A', className: 'is-a' },
+  dropoff: { text: 'B', className: 'is-b' },
+  stop0: { text: '1', className: 'is-stop' },
+  stop1: { text: '2', className: 'is-stop' },
 };
 
 /**
@@ -111,6 +125,7 @@ function PlaceFields({
   onChange,
   onPick,
   onActivate,
+  onRemove,
 }: {
   target: Target;
   draft: PlaceDraft;
@@ -120,12 +135,14 @@ function PlaceFields({
   onChange: (patch: Partial<PlaceDraft>) => void;
   onPick: (a: GeoAddress) => void;
   onActivate: () => void;
+  /** Intermediate stops can be taken out. */
+  onRemove?: () => void;
 }) {
   return (
     <fieldset className={`place-fields${active ? ' is-active' : ''}`}>
       <legend>
-        <span className={`route-dot ${target === 'pickup' ? 'is-a' : 'is-b'}`}>
-          {target === 'pickup' ? 'A' : 'B'}
+        <span className={`route-dot ${TARGET_DOT[target].className}`}>
+          {TARGET_DOT[target].text}
         </span>
         {TARGET_LABEL[target]}
         {draft.point ? (
@@ -173,6 +190,11 @@ function PlaceFields({
       >
         {active ? 'Xaritani bosing…' : 'Xaritada belgilash'}
       </Button>
+      {onRemove && (
+        <Button size="sm" variant="ghost" icon={<X size={14} />} onClick={onRemove}>
+          Olib tashlash
+        </Button>
+      )}
     </fieldset>
   );
 }
@@ -334,6 +356,8 @@ export default function PhoneOrder() {
   const [nameTouched, setNameTouched] = useState(false);
   const [pickup, setPickup] = useState<PlaceDraft>(EMPTY_PLACE);
   const [dropoff, setDropoff] = useState<PlaceDraft>(EMPTY_PLACE);
+  // intermediate stops in order (fixed with the order; the fare goes through them)
+  const [stops, setStops] = useState<PlaceDraft[]>([]);
   const [target, setTarget] = useState<Target>('pickup');
   const [rideClass, setRideClass] = useState<RideClass>('economy');
   const [options, setOptions] = useState<RideOption[]>([]);
@@ -388,24 +412,39 @@ export default function PhoneOrder() {
   useEffect(() => {
     const found = reverse.data?.address;
     if (!found || !lookup) return;
-    const set = lookup.target === 'pickup' ? setPickup : setDropoff;
-    set((d) =>
+    updatePlace(lookup.target, (d) =>
       d.addressLocked || d.point !== lookup.point ? d : { ...d, address: addressLine(found) },
     );
   }, [reverse.data, lookup]);
 
+  /** Changes one place of the trip: the pickup, the destination or a stop. */
+  function updatePlace(t: Target, change: (d: PlaceDraft) => PlaceDraft) {
+    if (t === 'pickup') setPickup(change);
+    else if (t === 'dropoff') setDropoff(change);
+    else {
+      const i = STOP_TARGETS.indexOf(t);
+      setStops((list) => list.map((d, j) => (j === i ? change(d) : d)));
+    }
+  }
   const setPoint = (t: Target, point: LatLng) => {
-    const set = t === 'pickup' ? setPickup : setDropoff;
-    set((d) => ({ ...d, point, addressLocked: false, address: '' }));
+    updatePlace(t, (d) => ({ ...d, point, addressLocked: false, address: '' }));
     setLookup({ target: t, point });
+  };
+  const addStop = () => {
+    if (stops.length >= MAX_STOPS) return;
+    setStops((list) => [...list, EMPTY_PLACE]);
+    setTarget(STOP_TARGETS[stops.length]!);
+  };
+  const removeStop = (i: number) => {
+    setStops((list) => list.filter((_, j) => j !== i));
+    setTarget('dropoff');
   };
   const onMapClick = (point: LatLng) => {
     setPoint(target, point);
     if (target === 'pickup' && !dropoff.point) setTarget('dropoff');
   };
   const pickAddress = (t: Target, a: GeoAddress) => {
-    const set = t === 'pickup' ? setPickup : setDropoff;
-    set((d) => ({
+    updatePlace(t, (d) => ({
       ...d,
       point: { lat: a.lat, lng: a.lng },
       address: addressLine(a),
@@ -430,12 +469,14 @@ export default function PhoneOrder() {
   const laterProblem = later ? scheduleProblem(laterAt) : null;
   const scheduledFor = later && !laterProblem ? tashkentLocalToIso(laterAt) : null;
 
-  // the fixed price for both classes; recomputed when the trip, options or time change
+  // the fixed price for every class; recomputed when the trip, options or time change
+  const stopsReady = stops.every((s) => s.point !== null);
   const trip = useDebounced(
-    pickup.point && dropoff.point && (!later || scheduledFor)
+    pickup.point && dropoff.point && stopsReady && (!later || scheduledFor)
       ? {
           pickup: pickup.point,
           dropoff: dropoff.point,
+          ...(stops.length ? { stops: stops.map((s) => s.point!) } : {}),
           options: [...options].sort(),
           ...(scheduledFor ? { scheduledFor } : {}),
         }
@@ -481,6 +522,15 @@ export default function PhoneOrder() {
             address: dropoff.address.trim() || null,
             landmark: dropoff.landmark.trim() || null,
           },
+          ...(stops.length
+            ? {
+                stops: stops.map((s) => ({
+                  ...s.point!,
+                  address: s.address.trim() || null,
+                  landmark: s.landmark.trim() || null,
+                })),
+              }
+            : {}),
           class: rideClass,
           options,
           comment: comment.trim() || null,
@@ -522,6 +572,7 @@ export default function PhoneOrder() {
   if (!normalized) problems.push('Mijozning telefon raqamini kiriting');
   if (!pickup.point) problems.push('Olib ketish joyini belgilang');
   if (!dropoff.point) problems.push('Borish manzilini belgilang');
+  if (!stopsReady) problems.push('Oraliq manzilni xaritada belgilang yoki olib tashlang');
   // an unfinished ride blocks a ride now, not one for later (nor the other way round)
   if (openRide && !later) {
     problems.push(`Mijozda tugallanmagan buyurtma bor: #${openRide.number}`);
@@ -551,6 +602,7 @@ export default function PhoneOrder() {
     setNameTouched(false);
     setPickup(EMPTY_PLACE);
     setDropoff(EMPTY_PLACE);
+    setStops([]);
     setTarget('pickup');
     setRideClass('economy');
     setOptions([]);
@@ -588,16 +640,30 @@ export default function PhoneOrder() {
         onDragEnd: (p) => setPoint('dropoff', p),
       });
     }
+    stops.forEach((s, i) => {
+      if (!s.point) return;
+      const t = STOP_TARGETS[i]!;
+      markers.push({
+        id: t,
+        point: s.point,
+        kind: 'dropoff',
+        text: TARGET_DOT[t].text,
+        title: `${TARGET_LABEL[t]} (sudrab to‘g‘rilang)`,
+        draggable: true,
+        onDragEnd: (p) => setPoint(t, p),
+      });
+    });
+    const path = [pickup.point, ...stops.map((s) => s.point), dropoff.point].filter(
+      (p): p is LatLng => p !== null,
+    );
     return {
       polygons: cityLayers(geo.data),
       polylines:
-        pickup.point && dropoff.point
-          ? [{ id: 'route', points: [pickup.point, dropoff.point], style: 'route' }]
-          : [],
+        pickup.point && dropoff.point ? [{ id: 'route', points: path, style: 'route' }] : [],
       markers,
     };
-    // setPoint only sets state; the layers follow the two points
-  }, [geo.data, pickup.point, dropoff.point]);
+    // setPoint only sets state; the layers follow the points
+  }, [geo.data, pickup.point, dropoff.point, stops]);
 
   if (created) {
     return (
@@ -731,6 +797,36 @@ export default function PhoneOrder() {
               onPick={(a) => pickAddress('pickup', a)}
               onActivate={() => setTarget('pickup')}
             />
+            {stops.map((s, i) => {
+              const t = STOP_TARGETS[i]!;
+              return (
+                <PlaceFields
+                  key={t}
+                  target={t}
+                  draft={s}
+                  active={target === t}
+                  config={config}
+                  near={s.point ?? pickup.point}
+                  onChange={(patch) => updatePlace(t, (d) => ({ ...d, ...patch }))}
+                  onPick={(a) => pickAddress(t, a)}
+                  onActivate={() => setTarget(t)}
+                  onRemove={() => removeStop(i)}
+                />
+              );
+            })}
+            {stops.length < MAX_STOPS && (
+              <Button size="sm" variant="outline" icon={<Plus size={14} />} onClick={addStop}>
+                Oraliq manzil qo‘shish
+              </Button>
+            )}
+            {stops.length > 0 && (
+              <p className="muted small">
+                {quote.data?.stopRules
+                  ? `Har bir oraliq manzil ${som(quote.data.stopRules.perStop)}; u yerda ${quote.data.stopRules.freeMinutes} daqiqa kutish bepul, keyin har daqiqa ${som(quote.data.stopRules.waitingPerMinute)}.`
+                  : 'Oraliq manzillar narxga qo‘shiladi.'}{' '}
+                Hamroh bilan safarda oraliq manzil bo‘lmaydi.
+              </p>
+            )}
             <PlaceFields
               target="dropoff"
               draft={dropoff}

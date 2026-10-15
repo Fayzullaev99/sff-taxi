@@ -46,6 +46,8 @@ import {
   needsDriver,
   optionsText,
   placeLine,
+  routePoints,
+  stopState,
 } from '../lib/rides';
 import { awaitingDeposit } from '../lib/cargo';
 import { rideTags, seatingText } from '../lib/pool';
@@ -189,6 +191,13 @@ function RideMap({ ride, candidates }: { ride: AdminRide; candidates: Candidate[
     const markers: MarkerSpec[] = [
       { id: 'a', point: ride.pickup, kind: 'pickup', text: 'A', title: placeLine(ride.pickup) },
       { id: 'b', point: ride.dropoff, kind: 'dropoff', text: 'B', title: placeLine(ride.dropoff) },
+      ...(ride.stops ?? []).map((s, i) => ({
+        id: `stop-${i}`,
+        point: s,
+        kind: 'dropoff' as const,
+        text: String(i + 1),
+        title: `${i + 1}-oraliq manzil: ${placeLine(s)}`,
+      })),
       ...candidates.map((c) => ({
         id: `c-${c.driverId}`,
         point: c.position,
@@ -208,7 +217,7 @@ function RideMap({ ride, candidates }: { ride: AdminRide; candidates: Candidate[
     return {
       polygons: geo.data ? cityLayers(geo.data) : [],
       polylines: [
-        { id: 'route', points: [ride.pickup, ride.dropoff], style: 'route' },
+        { id: 'route', points: routePoints(ride), style: 'route' },
         ...(driverAt && ride.status === 'driver_assigned'
           ? [{ id: 'approach', points: [driverAt, ride.pickup], style: 'approach' as const }]
           : []),
@@ -217,7 +226,7 @@ function RideMap({ ride, candidates }: { ride: AdminRide; candidates: Candidate[
     };
   }, [geo.data, ride, candidates, driverAt]);
   if (!geo.data) return null;
-  const points = [ride.pickup, ride.dropoff, ...(driverAt ? [driverAt] : [])];
+  const points = [...routePoints(ride), ...(driverAt ? [driverAt] : [])];
   return (
     <GeoMap
       config={geo.data}
@@ -475,6 +484,14 @@ export function RideDetail({
             <span className="route-dot is-a">A</span>
             {placeLine(r.pickup)}
           </li>
+          {(r.stops ?? []).map((s, i) => (
+            <li key={i}>
+              <span className="route-dot is-stop">{i + 1}</span>
+              <span>
+                {placeLine(s)} <span className="muted small">· {stopState(s)}</span>
+              </span>
+            </li>
+          ))}
           <li>
             <span className="route-dot is-b">B</span>
             {placeLine(r.dropoff)}
@@ -536,6 +553,14 @@ export function RideDetail({
               <dd>
                 {r.hasStartPin ? 'Bor' : 'Yo‘q'}
                 {r.hasStartPin && <div className="muted small">kodni faqat yo‘lovchi ko‘radi</div>}
+              </dd>
+            </div>
+          )}
+          {r.fare.breakdown?.stops && (
+            <div>
+              <dt>Oraliq manzillar (narxda)</dt>
+              <dd>
+                {r.fare.breakdown.stops.count} ta · {som(r.fare.breakdown.stops.fee)}
               </dd>
             </div>
           )}

@@ -6,15 +6,16 @@ import { useGeoConfig } from '../api/queries';
 import { parseSaveTarget, saveTitle } from '../lib/places';
 import { coordinatesLabel, DEFAULT_CENTER, describePoint } from '../location/geo';
 import { PointPicker } from '../location/PointPicker';
-import { choosePickup, updateDraft, useDraft, getDraft, orderPath } from '../trip/draft';
+import { choosePickup, getDraft, orderPath, setStop, updateDraft, useDraft } from '../trip/draft';
 import { savePicked } from '../trip/places-store';
 import { Button, T } from '../ui/primitives';
 import { colors, space } from '../ui/theme';
 
 /** A place chosen by moving the map under a pin: the destination, pickup or a saved place. */
 export default function PickOnMapScreen() {
-  const params = useLocalSearchParams<{ field?: string; save?: string }>();
-  const field = params.field === 'pickup' ? 'pickup' : 'dropoff';
+  const params = useLocalSearchParams<{ field?: string; save?: string; index?: string }>();
+  const field = params.field === 'pickup' ? 'pickup' : params.field === 'stop' ? 'stop' : 'dropoff';
+  const stopIndex = Number(params.index ?? 0) || 0;
   const save = parseSaveTarget(params.save);
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
@@ -22,6 +23,7 @@ export default function PickOnMapScreen() {
   const draft = useDraft();
   const start =
     (field === 'dropoff' ? draft.dropoff : null) ??
+    (field === 'stop' ? (draft.stops[stopIndex] ?? draft.dropoff) : null) ??
     draft.pickup ??
     config?.defaultCenter ??
     DEFAULT_CENTER;
@@ -62,11 +64,23 @@ export default function PickOnMapScreen() {
       router.dismiss(2);
       return;
     }
+    if (field === 'stop') {
+      // past the search, back to the order sheet
+      setStop(stopIndex, { ...point, address });
+      router.dismiss(2);
+      return;
+    }
     updateDraft({ dropoff: { ...point, address } });
     router.replace(orderPath(getDraft().service));
   };
 
-  const title = save ? saveTitle(save) : field === 'pickup' ? 'Olib ketish joyi' : 'Borish manzili';
+  const title = save
+    ? saveTitle(save)
+    : field === 'pickup'
+      ? 'Olib ketish joyi'
+      : field === 'stop'
+        ? `${stopIndex + 1}-oraliq manzil`
+        : 'Borish manzili';
 
   return (
     <View style={styles.root}>
@@ -81,7 +95,7 @@ export default function PickOnMapScreen() {
       />
       <View style={[styles.panel, { paddingBottom: insets.bottom + space(4) }]}>
         <T variant="caption" color={colors.textMuted}>
-          {field === 'pickup' ? 'QAYERDAN' : 'QAYERGA'}
+          {field === 'pickup' ? 'QAYERDAN' : field === 'stop' ? 'ORALIQ MANZIL' : 'QAYERGA'}
         </T>
         <T variant="h3" numberOfLines={3}>
           {busy ? 'Manzil aniqlanmoqda…' : (address ?? coordinatesLabel(point.lat, point.lng))}

@@ -512,6 +512,17 @@ const OfferDetails = memo(function OfferDetails(props: { offer: Offer; minute: n
           ) : null}
         </View>
       </View>
+      {(r.stops ?? []).map((s, i) => (
+        <View key={i} style={styles.leg}>
+          <View style={[styles.dot, { backgroundColor: colors.muted }]} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.legLabel}>{i + 1}-oraliq manzil</Text>
+            <Text style={styles.legPlace} numberOfLines={2}>
+              {s.address ?? s.landmark ?? 'Xaritadagi nuqta'}
+            </Text>
+          </View>
+        </View>
+      ))}
       <View style={styles.leg}>
         <View style={[styles.dot, { backgroundColor: colors.text }]} />
         <View style={{ flex: 1 }}>

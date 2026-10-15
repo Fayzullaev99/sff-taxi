@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextStop, stopList, type StopRide, stopsFromPool } from './stops';
+import { nextStop, stopList, type StopRide, stopsFromPool, viaAction } from './stops';
 
 const place = (name: string) => ({ lat: 40.49, lng: 68.78, address: name, landmark: null });
 
@@ -60,5 +60,49 @@ describe('stopsFromPool', () => {
     ]);
     expect(nextStop(stops)?.riderName).toBe('Aziza');
     expect(stops[1]!.place.address).toBeNull();
+  });
+});
+
+describe('intermediate stops', () => {
+  const via = (arrivedAt: string | null, leftAt: string | null) => ({
+    ...place('stop'),
+    arrivedAt,
+    leftAt,
+  });
+  const withStops = (status: string, stops: ReturnType<typeof via>[]): StopRide => ({
+    ...ride('v', status),
+    stops,
+  });
+  const T = '2026-10-15T10:00:00Z';
+
+  it('puts the stops between the pickup and the drop-off, in order', () => {
+    const stops = stopList([withStops('in_progress', [via(null, null), via(null, null)])]);
+    expect(stops.map((s) => [s.kind, s.index ?? null, s.current, s.done])).toEqual([
+      ['pickup', null, false, true],
+      ['via', 0, true, false],
+      ['via', 1, false, false],
+      ['dropoff', null, false, false],
+    ]);
+    expect(viaAction(nextStop(stops), 'in_progress')).toEqual({
+      index: 0,
+      action: 'arrive',
+      button: '1-oraliq manzilga yetdim',
+    });
+    // not before the trip starts
+    expect(viaAction(nextStop(stops), 'driver_arrived')).toBeNull();
+  });
+
+  it('drives on from a stop the car is at, then heads to the next', () => {
+    const at0 = stopList([withStops('in_progress', [via(T, null), via(null, null)])]);
+    expect(nextStop(at0)).toMatchObject({ kind: 'via', index: 0, arrived: true });
+    expect(viaAction(nextStop(at0), 'in_progress')?.action).toBe('leave');
+    const past0 = stopList([withStops('in_progress', [via(T, T), via(null, null)])]);
+    expect(nextStop(past0)).toMatchObject({ kind: 'via', index: 1 });
+  });
+
+  it('skips a stop the car went past, and ends at the drop-off', () => {
+    const skipped = stopList([withStops('in_progress', [via(null, null), via(T, T)])]);
+    expect(nextStop(skipped)?.kind).toBe('dropoff');
+    expect(viaAction(nextStop(skipped), 'in_progress')).toBeNull();
   });
 });

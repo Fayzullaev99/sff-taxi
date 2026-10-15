@@ -28,6 +28,7 @@ import {
   type RidePaymentStatus,
   type RidesTable,
   type RideStatus,
+  type RideStop,
   UNFINISHED_RIDE_STATUSES,
 } from '../../core/db/schema.js';
 import { msg } from '../../core/http/messages.js';
@@ -69,9 +70,11 @@ import {
   fixedFare,
   freeWaitingOver,
   isNight,
+  MAX_STOPS,
   RIDE_CLASSES,
   type RideClass,
   type RideOption,
+  stopWaitingFee,
   Tariff,
   waitingFee,
 } from '../../lib/tariff.js';
@@ -117,6 +120,8 @@ export interface QuoteInput {
   cargo?: Partial<CargoDetails>;
   /** Delivery: the parcel (at most the configured weight). */
   parcel?: Partial<ParcelDetails>;
+  /** Intermediate stops in order (at most MAX_STOPS): the fare goes through them. */
+  stops?: Point[];
 }
 
 /** Scheduled rides: how far ahead, when dispatch starts, how many a rider may hold. */
@@ -152,6 +157,8 @@ export interface OrderInput {
   womenOnly?: boolean;
   /** car: the whole car; seat: the fixed route's per-person price in a shared car. */
   fareMode?: 'car' | 'seat';
+  /** The quote's intermediate stops in words, in order (the points are the quote's). */
+  stops?: { address: string | null; landmark: string | null }[];
 }
 
 export interface PhoneOrderInput {
@@ -168,6 +175,8 @@ export interface PhoneOrderInput {
   /** The panel's idempotency key: a double click creates one ride. */
   clientRequestId: string | null;
   passengers?: number;
+  /** Intermediate stops: the quote's points (coordinates optional then) with their words. */
+  stops?: (Partial<Point> & { address: string | null; landmark: string | null })[];
 }
 
 const placeText = (p: { address: string | null; landmark: string | null }) => ({
@@ -243,6 +252,13 @@ export class RidesService {
       }
     }
     const service = input.service ?? 'taxi';
+    const stops = input.stops ?? [];
+    if (stops.length > MAX_STOPS) {
+      throw new BadRequestException(msg('Oraliq manzillar {0} tadan ko‘p bo‘lmaydi', MAX_STOPS));
+    }
+    if (service === 'cargo' && stops.length) {
+      throw new BadRequestException('Yuk tashishda oraliq manzil bo‘lmaydi');
+    }
     if (service === 'cargo') return this.cargoQuote(user, input, scheduledFor, now, opts);
     // a delivery: a parcel in a taxi car, priced as the ride (or a share of it)
     const delivery = service === 'delivery' ? await this.deliveryRules(input.parcel) : null;
@@ -252,6 +268,7 @@ export class RidesService {
       input.dropoff,
       delivery ? [] : input.options,
       scheduledFor ?? now,
+      stops,
     );
     if (delivery) {
       for (const rideClass of priced.classes) {
@@ -282,6 +299,7 @@ export class RidesService {
         route: priced.fixedRoute ? JSON.stringify(priced.fixedRoute) : null,
         service,
         cargo: delivery ? JSON.stringify(delivery.parcel) : null,
+        stops: JSON.stringify(stops.map((s) => ({ lat: s.lat, lng: s.lng }))),
       })
       .execute();
     if (delivery) {
@@ -293,6 +311,7 @@ export class RidesService {
         delivery,
         forRider: opts.forRider,
         pickup: input.pickup,
+        stops,
       });
     }
     const [poolRules, rider, booking] = await Promise.all([
@@ -312,7 +331,8 @@ export class RidesService {
     const [owedFee, availability, poolCars, womenDrivers] = await Promise.all([
       opts.forRider ? this.owedFeeLine(user.userId) : null,
       scheduledFor ? null : this.availability.near(input.pickup, user.userId, priced.classes),
-      poolRules.enabled && !scheduledFor
+      // a ride with stops is never shared
+      poolRules.enabled && !scheduledFor && !stops.length
         ? this.pool.preview({
             riderId: user.userId,
             riderGender: rider?.gender ?? null,
@@ -342,6 +362,8 @@ export class RidesService {
       fares: priced.fares,
       // the classes riders may order here (switched-off classes are not priced), in order
       classes: classCatalog(priced.classes),
+      // intermediate stops as priced, and their rules
+      ...stopsBlock(stops, priced.tariff),
       deposit: deposit && deposit.amount > 0 ? deposit : null,
       // rides for later are cash only (a card ride is prepaid before dispatch)
       paymentMethods: scheduledFor
@@ -376,21 +398,23 @@ export class RidesService {
           }
         : null,
       // "Hamroh bilan": the discount when the car is shared, and cars already going that way
-      pool: poolRules.enabled
-        ? {
-            available: true,
-            discountPercent: poolRules.discount_percent,
-            fullDiscountSharePercent: poolRules.full_discount_share_percent,
-            cashOnly: true,
-            cars: poolCars,
-          }
-        : {
-            available: false,
-            discountPercent: 0,
-            fullDiscountSharePercent: 0,
-            cashOnly: true,
-            cars: [],
-          },
+      // (never with intermediate stops)
+      pool:
+        poolRules.enabled && !stops.length
+          ? {
+              available: true,
+              discountPercent: poolRules.discount_percent,
+              fullDiscountSharePercent: poolRules.full_discount_share_percent,
+              cashOnly: true,
+              cars: poolCars,
+            }
+          : {
+              available: false,
+              discountPercent: 0,
+              fullDiscountSharePercent: 0,
+              cashOnly: true,
+              cars: [],
+            },
       // a woman driver only: offered to riders who declared themselves women
       womenOnly: opts.forRider
         ? {
@@ -484,6 +508,7 @@ export class RidesService {
       delivery: Awaited<ReturnType<RidesService['deliveryRules']>>;
       forRider: boolean;
       pickup: Point;
+      stops: Point[];
     },
   ) {
     const { priced } = q;
@@ -500,6 +525,7 @@ export class RidesService {
       options: [],
       fares: priced.fares,
       classes: classCatalog(priced.classes),
+      ...stopsBlock(q.stops, priced.tariff),
       ...this.paymentOptions(q.scheduledFor),
       owedFee: q.forRider ? await this.owedFeeLine(user.userId) : null,
       waiting: priced.tariff.waiting,
@@ -659,12 +685,22 @@ export class RidesService {
     };
   }
 
-  /** Prices a trip; `now` is real time, read through the business calendar for the night add-on. */
-  private async price(pickup: Point, dropoff: Point, options: RideOption[], now: Date) {
+  /**
+   * Prices a trip; `now` is real time, read through the business calendar for the night
+   * add-on. With intermediate stops the road distance goes through them, a fee per stop is
+   * added, and no fixed route price applies (it is the price between two towns).
+   */
+  private async price(
+    pickup: Point,
+    dropoff: Point,
+    options: RideOption[],
+    now: Date,
+    stops: Point[] = [],
+  ) {
     const at = this.calendar.at(now);
     const [found, route] = await Promise.all([
       this.geo.serviceCity(pickup),
-      this.routes.match(pickup, dropoff),
+      stops.length ? Promise.resolve(null) : this.routes.match(pickup, dropoff),
     ]);
     let service = found;
     // a fixed route may start in a town not yet served in the city (Yangiyer -> Guliston)
@@ -683,7 +719,9 @@ export class RidesService {
     if (distanceM(pickup.lat, pickup.lng, dropoff.lat, dropoff.lng) < MIN_TRIP_M) {
       throw new BadRequestException('Olib ketish va borish manzillari juda yaqin');
     }
-    const roadRoute = await this.routing.route(pickup, dropoff);
+    const roadRoute = stops.length
+      ? await this.routing.via([pickup, ...stops, dropoff])
+      : await this.routing.route(pickup, dropoff);
     // switched-off classes are not priced: riders never see them
     const classes = enabledClasses(service.tariff);
     const fares = Object.fromEntries(
@@ -698,6 +736,7 @@ export class RidesService {
             rideClass,
             options,
             at,
+            stops,
           },
           service.tariff,
         ),
@@ -808,6 +847,7 @@ export class RidesService {
         cargo: how.cargo,
         parcel: how.parcel,
         recipient: how.recipient,
+        stops: rideStops(quote.stops, input.stops),
       });
     });
     return { created: true, ride: await this.riderView(user, id) };
@@ -826,6 +866,7 @@ export class RidesService {
       scheduled_for: Date | null;
       service: RideService;
       cargo: unknown;
+      stops: { lat: number; lng: number }[];
     },
     input: OrderInput,
     riderGender: 'female' | 'male' | null,
@@ -855,6 +896,9 @@ export class RidesService {
     const shareable = fareMode === 'seat' || Boolean(input.shareable);
     if (shareable && !POOL_CLASSES.includes(input.class)) {
       throw new BadRequestException('Hamroh bilan safar faqat Ekonom va Komfort sinflarida');
+    }
+    if (shareable && quote.stops.length) {
+      throw new BadRequestException('Hamroh bilan safarda oraliq manzil bo‘lmaydi');
     }
     if (shareable) {
       const rules = await this.settings.pool();
@@ -1001,6 +1045,7 @@ export class RidesService {
     if (existing) return { created: false, ride: await this.adminView(existing.id) };
 
     // the price the operator read out to the caller (their quote), or priced on the spot
+    let phoneStops: RideStop[] = [];
     let priced: {
       cityId: string;
       pickup: PlaceInput;
@@ -1026,6 +1071,7 @@ export class RidesService {
       if (quote.service !== 'taxi') {
         throw new BadRequestException('Telefon orqali hozircha faqat taksi buyurtma qilinadi');
       }
+      phoneStops = rideStops(quote.stops, input.stops);
       priced = {
         cityId: quote.city_id,
         pickup: { lat: quote.pickup_lat, lng: quote.pickup_lng, ...placeText(input.pickup) },
@@ -1044,7 +1090,16 @@ export class RidesService {
       }
       const pickup = input.pickup as PlaceInput;
       const dropoff = input.dropoff as PlaceInput;
-      const p = await this.price(pickup, dropoff, input.options, now);
+      const stopsIn = input.stops ?? [];
+      if (stopsIn.some((s) => s.lat === undefined || s.lng === undefined)) {
+        throw new BadRequestException('Oraliq manzillar koordinatasi yoki narx (quoteId) kerak');
+      }
+      if (stopsIn.length > MAX_STOPS) {
+        throw new BadRequestException(msg('Oraliq manzillar {0} tadan ko‘p bo‘lmaydi', MAX_STOPS));
+      }
+      const points = stopsIn.map((s) => ({ lat: s.lat!, lng: s.lng! }));
+      phoneStops = rideStops(points, stopsIn);
+      const p = await this.price(pickup, dropoff, input.options, now, points);
       priced = {
         cityId: p.city.id,
         pickup,
@@ -1110,6 +1165,7 @@ export class RidesService {
         paymentMethod: 'cash',
         scheduledFor: priced.scheduledFor,
         passengers: input.passengers ?? 1,
+        stops: phoneStops,
       }).then((rideId) => ({ id: rideId, created: true }));
     });
     return { created: id.created, ride: await this.adminView(id.id) };
@@ -1341,6 +1397,8 @@ export class RidesService {
       cargo?: CargoDetails | null;
       parcel?: ParcelDetails | null;
       recipient?: { name: string; phone: string } | null;
+      /** Intermediate stops in order. */
+      stops?: RideStop[];
     },
   ): Promise<string> {
     const id = uuidv7();
@@ -1396,6 +1454,7 @@ export class RidesService {
         parcel: r.parcel ? JSON.stringify(r.parcel) : null,
         recipient_name: r.recipient?.name ?? null,
         recipient_phone: r.recipient?.phone ?? null,
+        stops: JSON.stringify(r.stops ?? []),
         status,
         updated_at: new Date(),
       })
@@ -1410,6 +1469,7 @@ export class RidesService {
       ...(r.womenOnly ? { womenOnly: true } : {}),
       ...(r.fareMode === 'seat' ? { fareMode: 'seat' } : {}),
       ...(r.service && r.service !== 'taxi' ? { service: r.service } : {}),
+      ...(r.stops?.length ? { stops: r.stops.length } : {}),
     });
     // fees owed from cancelled cash rides are paid with this cash fare (a separate line)
     if (r.paymentMethod === 'cash') await this.attachOwedFees(trx, r.riderId, id);
@@ -1651,13 +1711,92 @@ export class RidesService {
   }
 
   /**
+   * At an intermediate stop (the trip is on): the free stop minutes start. Stops go in order;
+   * one the rider skipped stays unvisited (the price is fixed). Repeating it is harmless.
+   */
+  async arriveAtStop(user: AuthUser, rideId: string, index: number, now = new Date()) {
+    await this.stopStep(user, rideId, index, async (trx, ride, stops) => {
+      const stop = stops[index]!;
+      if (stop.arrivedAt) return;
+      const open = stops.findIndex((s) => s.arrivedAt && !s.leftAt);
+      if (open >= 0) {
+        throw new ConflictException(msg('Avval {0}-oraliq manzildan yo‘lga chiqing', open + 1));
+      }
+      if (stops.some((s, i) => i > index && s.arrivedAt)) {
+        throw new ConflictException('Bu oraliq manzil ortda qoldi');
+      }
+      stops[index] = { ...stop, arrivedAt: now.toISOString() };
+      await this.saveStops(trx, ride, stops, 0, 'stop_arrived', { index });
+    });
+    return this.driverView(user, rideId);
+  }
+
+  /** Driving on from an intermediate stop: waiting beyond the free minutes is added to the fare. */
+  async leaveStop(user: AuthUser, rideId: string, index: number, now = new Date()) {
+    await this.stopStep(user, rideId, index, async (trx, ride, stops) => {
+      const stop = stops[index]!;
+      if (stop.leftAt) return;
+      if (!stop.arrivedAt) throw new ConflictException('Avval oraliq manzilga yetib keling');
+      const fee = stopWaitingFee(new Date(stop.arrivedAt), now, this.tariffOf(ride));
+      stops[index] = { ...stop, leftAt: now.toISOString(), waitingFee: fee };
+      await this.saveStops(trx, ride, stops, fee, 'stop_left', { index, waitingFee: fee });
+    });
+    return this.driverView(user, rideId);
+  }
+
+  private async stopStep(
+    user: AuthUser,
+    rideId: string,
+    index: number,
+    apply: (trx: Tx, ride: Ride, stops: RideStop[]) => Promise<void>,
+  ): Promise<void> {
+    await this.db.transaction(async (trx) => {
+      const ride = await this.lockRide(trx, rideId);
+      if (ride.driver_id !== user.userId) {
+        throw new NotFoundException('Sizda bunday faol buyurtma yo‘q');
+      }
+      if (ride.status !== 'in_progress') {
+        throw new ConflictException('Oraliq manzillar safar boshlangach belgilanadi');
+      }
+      const stops = [...ride.stops];
+      if (!stops[index]) throw new NotFoundException('Bunday oraliq manzil yo‘q');
+      await apply(trx, ride, stops);
+    });
+  }
+
+  private async saveStops(
+    trx: Tx,
+    ride: Ride,
+    stops: RideStop[],
+    fee: number,
+    type: 'stop_arrived' | 'stop_left',
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    await trx
+      .updateTable('rides')
+      .set({
+        stops: JSON.stringify(stops),
+        ...(fee > 0 ? { waiting_fee: ride.waiting_fee + fee } : {}),
+        updated_at: new Date(),
+      })
+      .where('id', '=', ride.id)
+      .execute();
+    await this.event(trx, ride.id, type, 'driver', ride.driver_id, data);
+    // the rider's and operators' screens refetch the ride (no status change)
+    await emit(trx, 'ride.changed', { rideId: ride.id });
+  }
+
+  /**
    * Arrived at the destination: the rider pays the quoted fare plus paid waiting (cash to
    * the driver), and the ride's tax and commission are debited from the driver's balance.
    */
   async complete(user: AuthUser, rideId: string) {
     await this.driverStep(user, rideId, 'in_progress', 'completed', async (trx, ride, now) => {
+      // the car is still at a stop: the waiting there ends now
+      const closed = closeOpenStop(ride.stops, now, this.tariffOf(ride));
+      const waiting = ride.waiting_fee + closed.fee;
       // a shared ride's discount (the part of the trip shared with other riders) is off
-      const total = ride.fare_quoted - ride.pool_discount + ride.waiting_fee;
+      const total = ride.fare_quoted - ride.pool_discount + waiting;
       await this.pool.droppedOff(trx, ride);
       // the prepayment was given back from the provider's cabinet during the ride: there is
       // no card money to credit, the driver takes the fare in cash (collectCash says so)
@@ -1709,6 +1848,9 @@ export class RidesService {
           payment_status: refunded ? ('refunded' as const) : ('paid' as const),
           // fees waived since the order are not collected
           owed_fee: owedCollected,
+          ...(closed.fee || closed.changed
+            ? { waiting_fee: waiting, stops: JSON.stringify(closed.stops) }
+            : {}),
         },
         data: {
           fare: total,
@@ -2594,6 +2736,8 @@ export class RidesService {
         pays: ride.fare_quoted - ride.pool_discount,
         breakdown: ride.fare as unknown as Fare,
       },
+      /** Intermediate stops in order: where, and when the car got there and drove on. */
+      stops: ride.stops,
       service: ride.service,
       passengers: ride.passengers,
       shareable: ride.shareable,
@@ -2913,6 +3057,7 @@ const LIST_COLUMNS = [
   'parcel',
   'recipient_name',
   'recipient_phone',
+  'stops',
   'requested_at',
   'assigned_at',
   'arrived_at',
@@ -2964,6 +3109,55 @@ function assertPassengers(rideClass: RideClass, passengers: number): void {
   );
 }
 
+/**
+ * A ride's stops from the quote's points and the words given with the order. The words may
+ * be left out (null); a different number of stops than priced is refused.
+ */
+function rideStops(
+  points: { lat: number; lng: number }[],
+  words: { address: string | null; landmark: string | null }[] | undefined,
+): RideStop[] {
+  if (words && words.length !== points.length) {
+    throw new BadRequestException('Oraliq manzillar narxdagidan farq qiladi: qayta hisoblang');
+  }
+  return points.map((p, i) => ({
+    address: words?.[i]?.address ?? null,
+    landmark: words?.[i]?.landmark ?? null,
+    lat: p.lat,
+    lng: p.lng,
+    arrivedAt: null,
+    leftAt: null,
+    waitingFee: 0,
+  }));
+}
+
+/** A stop the car is still at when the ride ends: its waiting ends then. */
+function closeOpenStop(stops: RideStop[], now: Date, tariff: Tariff) {
+  let fee = 0;
+  let changed = false;
+  const next = stops.map((s) => {
+    if (!s.arrivedAt || s.leftAt) return s;
+    changed = true;
+    const waiting = stopWaitingFee(new Date(s.arrivedAt), now, tariff);
+    fee += waiting;
+    return { ...s, leftAt: now.toISOString(), waitingFee: waiting };
+  });
+  return { stops: next, fee, changed };
+}
+
+/** The quote's intermediate stops and their rules (what a stop costs, the free minutes). */
+function stopsBlock(stops: Point[], tariff: Tariff) {
+  return {
+    stops: stops.map((s) => ({ lat: s.lat, lng: s.lng })),
+    stopRules: {
+      max: MAX_STOPS,
+      perStop: tariff.stops.per_stop,
+      freeMinutes: tariff.stops.free_minutes,
+      waitingPerMinute: tariff.waiting.per_minute,
+    },
+  };
+}
+
 /** What the apps show of each orderable class: name, a line, car examples, people. */
 function classCatalog(classes: readonly RideClass[]) {
   return classes.map((c) => ({ id: c, ...CLASS_INFO[c] }));
@@ -2979,6 +3173,8 @@ const RIDER_EVENTS = [
   'driver_released',
   'arrived',
   'started',
+  'stop_arrived',
+  'stop_left',
   'completed',
   'cancelled',
 ] as const;
