@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Database } from '../../core/db/database.js';
 import type { OutboxEvent, OutboxHandler } from '../../core/outbox/handler.js';
-import { chatPreview } from '../../lib/chat.js';
+import { chatPreview, quickReplyText } from '../../lib/chat.js';
 import { driverGivenName } from '../../lib/names.js';
 import { engagementPush } from './engagement-messages.js';
+import type { Locale } from './messages.js';
 import { Notifier } from './notifier.js';
 
 /**
@@ -71,6 +72,7 @@ export class EngagementNotificationsHandler implements OutboxHandler {
         'm.author_role',
         'm.driver_id',
         'm.text',
+        'm.quick_reply',
         'm.read_at',
         'r.rider_id',
         'd.full_name as driver_name',
@@ -81,14 +83,16 @@ export class EngagementNotificationsHandler implements OutboxHandler {
     if (!m || m.read_at) return;
     const fromDriver = m.author_role === 'driver';
     const name = fromDriver && m.driver_name ? driverGivenName(m.driver_name) : null;
-    const preview = chatPreview(m.text);
+    // a quick reply is previewed in the reader's language (its key is stored)
+    const preview = (l: Locale) =>
+      chatPreview((m.quick_reply && quickReplyText(m.author_role, m.quick_reply, l)) || m.text);
     await this.notifier.push({
       key,
       kind: 'chat',
       rideId: m.ride_id,
       userId: fromDriver ? m.rider_id : m.driver_id,
       app: fromDriver ? 'rider' : 'driver',
-      text: (l) => engagementPush.chatMessage(l, m.author_role, name, preview),
+      text: (l) => engagementPush.chatMessage(l, m.author_role, name, preview(l)),
     });
   }
 }

@@ -12,6 +12,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { ENV, type Env } from '../../config/env.js';
 import { Database } from '../db/database.js';
 import type { SessionClient } from '../db/schema.js';
+import { currentLanguage, requestNamedLanguage } from '../i18n/language.js';
 import { RateLimiter } from '../redis/rate-limiter.js';
 import { SMS_PROVIDER, type SmsProvider } from '../sms/sms.provider.js';
 import type { RequestMeta } from './auth-context.js';
@@ -71,11 +72,12 @@ export class AuthService {
       .execute();
     if (fixed) return response;
 
+    // the code goes out in the app's language (Accept-Language); each template is approved
+    // with the SMS provider separately
+    const template =
+      currentLanguage() === 'ru' ? this.env.SMS_OTP_TEMPLATE_RU : this.env.SMS_OTP_TEMPLATE;
     try {
-      const receipt = await this.sms.send({
-        to: phone,
-        text: this.env.SMS_OTP_TEMPLATE.replace('{code}', code),
-      });
+      const receipt = await this.sms.send({ to: phone, text: template.replace('{code}', code) });
       await this.db.kysely
         .updateTable('phone_verifications')
         .set({ provider: receipt.provider, provider_message_id: receipt.providerMessageId })
@@ -140,9 +142,14 @@ export class AuthService {
     }
 
     return this.db.transaction(async (trx) => {
+      // a new account starts in the app's language (the guard keeps it current afterwards)
       const inserted = await trx
         .insertInto('users')
-        .values({ id: uuidv7(), phone })
+        .values({
+          id: uuidv7(),
+          phone,
+          ...(requestNamedLanguage() ? { locale: currentLanguage() } : {}),
+        })
         .onConflict((oc) => oc.column('phone').doNothing())
         .returning('id')
         .executeTakeFirst();

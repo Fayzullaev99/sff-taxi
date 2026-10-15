@@ -2,6 +2,8 @@ import { Controller, Get, Inject, Injectable, Module } from '@nestjs/common';
 import { ENV, type Env } from '../../config/env.js';
 import { Public } from '../../core/auth/auth-context.js';
 import { RateLimit } from '../../core/http/rate-limit.js';
+import { currentLanguage } from '../../core/i18n/language.js';
+import { tr, translateTable } from '../../core/i18n/translate.js';
 import { MAX_REAR_SEATS, MAX_TRIP_SEATS } from '../../lib/intercity.js';
 import { DRIVER_RULES } from '../../lib/driver-rules.js';
 import { DECLINE_REASONS, DRIVER_CANCEL_REASONS } from '../../lib/reasons.js';
@@ -12,12 +14,28 @@ import { enabledProviders, TOPUP_MAX, TOPUP_MIN } from '../payments/payment-conf
 import { SettingsService } from '../settings/settings.module.js';
 import { storageConfig } from '../uploads/object-storage.js';
 
-/** What a car needs for each class, in the driver's words. */
-const CLASS_RULE_TEXT: Record<RideClass, string> = {
-  economy: `${DRIVER_RULES.maxVehicleAgeYears} yildan eski bo‘lmagan, ${DRIVER_RULES.maxSeats} tagacha o‘rindiq`,
-  comfort: `${DRIVER_RULES.maxComfortAgeYears} yildan eski bo‘lmagan, konditsionerli`,
-  minivan: `${DRIVER_RULES.minMinivanSeats}–${DRIVER_RULES.maxMinivanSeats} o‘rindiq, ${DRIVER_RULES.maxMinivanAgeYears} yildan eski bo‘lmagan, konditsionerli`,
-  business: `Premium model, ${DRIVER_RULES.maxBusinessAgeYears} yildan eski bo‘lmagan, konditsionerli, reyting ${DRIVER_RULES.minBusinessRating}+`,
+/** What a car needs for each class, in the driver's words (and language). */
+const CLASS_RULE_TEXT: Record<RideClass, () => string> = {
+  economy: () =>
+    tr(
+      '{0} yildan eski bo‘lmagan, {1} tagacha o‘rindiq',
+      DRIVER_RULES.maxVehicleAgeYears,
+      DRIVER_RULES.maxSeats,
+    ),
+  comfort: () => tr('{0} yildan eski bo‘lmagan, konditsionerli', DRIVER_RULES.maxComfortAgeYears),
+  minivan: () =>
+    tr(
+      '{0}–{1} o‘rindiq, {2} yildan eski bo‘lmagan, konditsionerli',
+      DRIVER_RULES.minMinivanSeats,
+      DRIVER_RULES.maxMinivanSeats,
+      DRIVER_RULES.maxMinivanAgeYears,
+    ),
+  business: () =>
+    tr(
+      'Premium model, {0} yildan eski bo‘lmagan, konditsionerli, reyting {1}+',
+      DRIVER_RULES.maxBusinessAgeYears,
+      DRIVER_RULES.minBusinessRating,
+    ),
 };
 
 @Injectable()
@@ -138,17 +156,17 @@ export class AppConfigService {
       // it now (the global tariff), and what a car needs for it (src/lib/driver-rules.ts)
       classes: RIDE_CLASSES.map((c) => ({
         id: c,
-        label: CLASS_INFO[c].label,
-        description: CLASS_INFO[c].description,
+        label: tr(CLASS_INFO[c].label),
+        description: tr(CLASS_INFO[c].description),
         examples: CLASS_INFO[c].examples,
         maxPassengers: CLASS_INFO[c].maxPassengers,
         lower: LOWER_CLASSES[c],
         takesLowerByDefault: takesLower(c, null),
         enabled: tariff.classes[c].enabled,
-        rules: CLASS_RULE_TEXT[c],
+        rules: CLASS_RULE_TEXT[c](),
       })),
-      declineReasons: DECLINE_REASONS,
-      cancelReasons: DRIVER_CANCEL_REASONS,
+      declineReasons: translateTable(DECLINE_REASONS, currentLanguage()),
+      cancelReasons: translateTable(DRIVER_CANCEL_REASONS, currentLanguage()),
       topups: { min: TOPUP_MIN, max: TOPUP_MAX, providers: enabledProviders(this.env) },
       support: this.support(),
     };

@@ -38,9 +38,14 @@ const UpdateMeBody = z
       .pipe(z.string().min(1).max(100)),
     /** Self-declared; the female-driver option is offered to women. */
     gender: z.enum(['female', 'male']),
+    /** The app's language setting (also kept from Accept-Language on every request). */
+    locale: z.enum(['uz', 'ru']),
   })
   .partial()
-  .refine((b) => b.fullName !== undefined || b.gender !== undefined, 'O‘zgartirish yo‘q');
+  .refine(
+    (b) => b.fullName !== undefined || b.gender !== undefined || b.locale !== undefined,
+    'O‘zgartirish yo‘q',
+  );
 
 /** A declared gender can be changed once in this many days (the female-driver option). */
 export const GENDER_CHANGE_DAYS = 30;
@@ -105,7 +110,7 @@ export class MeController {
         .executeTakeFirst(),
       this.db.kysely
         .selectFrom('users')
-        .select(['gender', 'gender_set_at'])
+        .select(['gender', 'gender_set_at', 'locale'])
         .where('id', '=', user.userId)
         .executeTakeFirst(),
     ]);
@@ -113,6 +118,7 @@ export class MeController {
       id: user.userId,
       phone: user.phone,
       fullName: user.fullName,
+      locale: account?.locale ?? user.locale,
       gender: account?.gender ?? null,
       // when the declared gender may be changed again (null: now)
       genderLockedUntil:
@@ -148,17 +154,22 @@ export class MeController {
         `Jinsni ${GENDER_CHANGE_DAYS} kunda bir marta o‘zgartirish mumkin`,
       );
     }
-    if (body.fullName !== undefined || genderChanges) {
+    if (body.fullName !== undefined || genderChanges || body.locale !== undefined) {
       await this.db.kysely
         .updateTable('users')
         .set({
           ...(body.fullName !== undefined ? { full_name: body.fullName } : {}),
           ...(genderChanges ? { gender: body.gender!, gender_set_at: new Date() } : {}),
+          ...(body.locale !== undefined ? { locale: body.locale } : {}),
         })
         .where('id', '=', user.userId)
         .execute();
     }
-    return this.me({ ...user, fullName: body.fullName ?? user.fullName });
+    return this.me({
+      ...user,
+      fullName: body.fullName ?? user.fullName,
+      locale: body.locale ?? user.locale,
+    });
   }
 }
 

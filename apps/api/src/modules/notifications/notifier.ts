@@ -108,6 +108,26 @@ export class Notifier {
     }
   }
 
+  /** The language an account uses its app in (users.locale): what its SMS are written in. */
+  async localeOfUser(userId: string): Promise<Locale> {
+    const row = await this.db.kysely
+      .selectFrom('users')
+      .select('locale')
+      .where('id', '=', userId)
+      .executeTakeFirst();
+    return row?.locale ?? 'uz';
+  }
+
+  /** The language of a phone's account, if it has one (a passenger, a parcel recipient). */
+  async localeOfPhone(phone: string): Promise<Locale> {
+    const row = await this.db.kysely
+      .selectFrom('users')
+      .select('locale')
+      .where('phone', '=', phone)
+      .executeTakeFirst();
+    return row?.locale ?? 'uz';
+  }
+
   private async seen(dedupeKey: string): Promise<boolean> {
     const row = await this.db.kysely
       .selectFrom('notifications')

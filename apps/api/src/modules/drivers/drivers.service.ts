@@ -11,6 +11,8 @@ import { v7 as uuidv7 } from 'uuid';
 import type { AuthUser } from '../../core/auth/auth-context.js';
 import { Database, type Tx } from '../../core/db/database.js';
 import { containsPattern } from '../../core/db/like.js';
+import { currentLanguage } from '../../core/i18n/language.js';
+import { translate } from '../../core/i18n/translate.js';
 import {
   ACTIVE_RIDE_STATUSES,
   DOCUMENT_KINDS,
@@ -1114,7 +1116,16 @@ export class DriversService {
     };
   }
 
+  /** What keeps the driver off the line, in the driver's language. */
   private blockers(view: Awaited<ReturnType<DriversService['view']>>, canWork: boolean): string[] {
+    const lang = currentLanguage();
+    return this.blockerTexts(view, canWork).map((text) => translate(text, lang));
+  }
+
+  private blockerTexts(
+    view: Awaited<ReturnType<DriversService['view']>>,
+    canWork: boolean,
+  ): string[] {
     const out: string[] = [];
     if (view.status !== 'active') out.push(this.statusMessage(view.status, view.statusReason));
     if (view.missingDocuments.length) out.push('Hujjatlar to‘liq yuklanmagan');

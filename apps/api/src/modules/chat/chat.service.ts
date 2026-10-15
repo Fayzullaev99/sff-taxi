@@ -10,6 +10,7 @@ import { v7 as uuidv7 } from 'uuid';
 import type { AuthUser } from '../../core/auth/auth-context.js';
 import { Database } from '../../core/db/database.js';
 import type { RideMessagesTable } from '../../core/db/schema.js';
+import { currentLanguage } from '../../core/i18n/language.js';
 import { emit } from '../../core/outbox/outbox.js';
 import {
   CHAT_MAX_LENGTH,
@@ -17,7 +18,7 @@ import {
   type ChatRole,
   chatWritable,
   cleanChatText,
-  QUICK_REPLIES,
+  quickReplies,
   quickReplyText,
 } from '../../lib/chat.js';
 
@@ -65,7 +66,7 @@ export class ChatService {
       closesAt: chatClosesAt({ status: ride.status, completedAt: ride.completed_at }),
       unread,
       maxLength: CHAT_MAX_LENGTH,
-      quickReplies: Object.entries(QUICK_REPLIES[role]).map(([key, text]) => ({ key, text })),
+      quickReplies: quickReplies(role, currentLanguage()),
       /** Who is on the other side (the name as the ride shows it). */
       counterpart:
         other === 'driver'
@@ -226,14 +227,19 @@ export class ChatService {
     };
   }
 
-  /** A message as its reader sees it: `mine` from the reader's side. */
+  /**
+   * A message as its reader sees it: `mine` from the reader's side; a quick reply in the
+   * reader's language (its key is stored, the text was written in the sender's).
+   */
   private view(m: Message, role: ChatRole) {
     return {
       id: m.id,
       rideId: m.ride_id,
       authorRole: m.author_role,
       mine: m.author_role === role,
-      text: m.text,
+      text:
+        (m.quick_reply && quickReplyText(m.author_role, m.quick_reply, currentLanguage())) ||
+        m.text,
       quickReply: m.quick_reply,
       readAt: m.read_at,
       createdAt: m.created_at,

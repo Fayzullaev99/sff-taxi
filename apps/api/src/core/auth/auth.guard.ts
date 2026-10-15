@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Database } from '../db/database.js';
+import { applySavedLanguage, currentLanguage, requestNamedLanguage } from '../i18n/language.js';
 import { ADMIN_ONLY, type AuthenticatedRequest, type AuthUser, IS_PUBLIC } from './auth-context.js';
 import { TokenService } from './tokens.js';
 
@@ -49,15 +50,33 @@ export class AuthGuard implements CanActivate {
     const row = await this.db.kysely
       .selectFrom('users as u')
       .leftJoin('admins as a', 'a.user_id', 'u.id')
-      .select(['u.id', 'u.phone', 'u.full_name', 'u.status', 'a.user_id as adminId'])
+      .select(['u.id', 'u.phone', 'u.full_name', 'u.status', 'u.locale', 'a.user_id as adminId'])
       .where('u.id', '=', userId)
       .executeTakeFirst();
     if (!row || row.status !== 'active') return null;
+    // the app's language travels with every request: remember it when it changes, so SMS
+    // and push sent later (with no request to read) come in the same language; an old app
+    // that names none gets the language last remembered for the account
+    let locale = row.locale;
+    if (requestNamedLanguage()) {
+      const asked = currentLanguage();
+      if (asked !== locale) {
+        await this.db.kysely
+          .updateTable('users')
+          .set({ locale: asked })
+          .where('id', '=', row.id)
+          .execute();
+        locale = asked;
+      }
+    } else {
+      applySavedLanguage(locale);
+    }
     return {
       userId: row.id,
       phone: row.phone,
       fullName: row.full_name,
       isAdmin: row.adminId !== null,
+      locale,
     };
   }
 }

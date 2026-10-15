@@ -1,7 +1,9 @@
 /**
  * Tips ("choychaqa", docs/architecture.md §8 "Tips"): what a rider may give after a ride.
- * Pure rules; the tips module does the I/O and the payment.
+ * Pure rules; the tips module does the I/O and the payment. Texts for the rider are
+ * rendered in the language of the request (`tr`).
  */
+import { moneyNow, tr } from '../core/i18n/translate.js';
 
 /** The settings document `tips` (admin/settings/tips), as the rules read it. */
 export interface TipRules {
@@ -28,16 +30,16 @@ export function checkTip(
   ctx: { completedAt: Date; now: Date },
   rules: TipRules,
 ): { ok: true } | { ok: false; reason: TipRefusal; message: string } {
-  if (!rules.enabled) return no('disabled', 'Choychaqa hozircha o‘chirilgan');
+  if (!rules.enabled) return no('disabled', tr('Choychaqa hozircha o‘chirilgan'));
   if (!Number.isInteger(amount) || amount < rules.min_amount) {
-    return no('too_small', `Choychaqa kamida ${soum(rules.min_amount)}`);
+    return no('too_small', tr('Choychaqa kamida {0}', moneyNow(rules.min_amount)));
   }
   if (amount > rules.max_amount) {
-    return no('too_big', `Choychaqa ko‘pi bilan ${soum(rules.max_amount)}`);
+    return no('too_big', tr('Choychaqa ko‘pi bilan {0}', moneyNow(rules.max_amount)));
   }
-  if (amount % 100 !== 0) return no('not_round', 'Summani 100 so‘mga karrali yozing');
+  if (amount % 100 !== 0) return no('not_round', tr('Summani 100 so‘mga karrali yozing'));
   if (ctx.now.getTime() - ctx.completedAt.getTime() > rules.window_hours * 3600_000) {
-    return no('late', 'Choychaqa safardan keyin faqat bir kun ichida beriladi');
+    return no('late', tr('Choychaqa safardan keyin faqat bir kun ichida beriladi'));
   }
   return { ok: true };
 }

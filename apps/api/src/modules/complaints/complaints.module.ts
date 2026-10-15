@@ -28,6 +28,7 @@ import {
 } from '../../core/db/schema.js';
 import { RateLimit } from '../../core/http/rate-limit.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
+import { tr } from '../../core/i18n/translate.js';
 import { emit } from '../../core/outbox/outbox.js';
 import { UploadsService } from '../uploads/uploads.service.js';
 
@@ -163,7 +164,7 @@ export class ComplaintsService {
       .limit(30)
       .execute();
     return {
-      items: rows.map((r) => ({ ...r, typeLabel: COMPLAINT_LABELS[r.type] })),
+      items: rows.map((r) => ({ ...r, typeLabel: tr(COMPLAINT_LABELS[r.type]) })),
       nextCursor: rows.length === 30 ? rows.at(-1)!.id : null,
     };
   }
@@ -231,7 +232,7 @@ export class ComplaintsService {
       .limit(100)
       .execute();
     return {
-      items: rows.map((r) => ({ ...r, typeLabel: COMPLAINT_LABELS[r.type] })),
+      items: rows.map((r) => ({ ...r, typeLabel: tr(COMPLAINT_LABELS[r.type]) })),
       nextCursor: rows.length === 100 ? rows.at(-1)!.id : null,
     };
   }
@@ -352,7 +353,7 @@ export class ComplaintsService {
       riderId: c.rider_id,
       driverId: c.driver_id,
       type: c.type,
-      typeLabel: COMPLAINT_LABELS[c.type],
+      typeLabel: tr(COMPLAINT_LABELS[c.type]),
       status: c.status,
       text: c.text,
       resolution: c.resolution,

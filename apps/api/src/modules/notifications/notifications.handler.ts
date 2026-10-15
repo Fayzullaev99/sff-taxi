@@ -163,7 +163,13 @@ export class NotificationsHandler implements OutboxHandler {
             rideId,
             userId: ride.rider_id,
             phone: ride.rider_phone,
-            text: sms.driverAssigned(ride.number, car, minutes, driver.phone),
+            text: sms.driverAssigned(
+              await this.notifier.localeOfUser(ride.rider_id),
+              ride.number,
+              car,
+              minutes,
+              driver.phone,
+            ),
           });
         }
         if (ride.passenger_phone) {
@@ -179,6 +185,7 @@ export class NotificationsHandler implements OutboxHandler {
             userId: null,
             phone: ride.passenger_phone,
             text: sms.passengerAssigned(
+              await this.notifier.localeOfPhone(ride.passenger_phone),
               ride.number,
               car,
               minutes,
@@ -205,7 +212,11 @@ export class NotificationsHandler implements OutboxHandler {
             rideId,
             userId: ride.rider_id,
             phone: ride.rider_phone,
-            text: sms.driverArrived(ride.number, car),
+            text: sms.driverArrived(
+              await this.notifier.localeOfUser(ride.rider_id),
+              ride.number,
+              car,
+            ),
           });
         }
         if (ride.passenger_phone) {
@@ -215,7 +226,11 @@ export class NotificationsHandler implements OutboxHandler {
             rideId,
             userId: null,
             phone: ride.passenger_phone,
-            text: sms.driverArrived(ride.number, car),
+            text: sms.driverArrived(
+              await this.notifier.localeOfPhone(ride.passenger_phone),
+              ride.number,
+              car,
+            ),
           });
         }
         return;
@@ -242,7 +257,12 @@ export class NotificationsHandler implements OutboxHandler {
           rideId,
           userId: null,
           phone: ride.recipient_phone,
-          text: sms.parcelOnTheWay(ride.number, car, driver.phone),
+          text: sms.parcelOnTheWay(
+            await this.notifier.localeOfPhone(ride.recipient_phone),
+            ride.number,
+            car,
+            driver.phone,
+          ),
         });
         return;
       }
@@ -265,7 +285,11 @@ export class NotificationsHandler implements OutboxHandler {
               rideId,
               userId: ride.rider_id,
               phone: ride.rider_phone,
-              text: sms.cancelled(ride.number, ride.cancel_reason),
+              text: sms.cancelled(
+                await this.notifier.localeOfUser(ride.rider_id),
+                ride.number,
+                ride.cancel_reason,
+              ),
             });
           }
         }
@@ -278,6 +302,7 @@ export class NotificationsHandler implements OutboxHandler {
             userId: null,
             phone: ride.passenger_phone,
             text: sms.cancelled(
+              await this.notifier.localeOfPhone(ride.passenger_phone),
               ride.number,
               ride.cancelled_by === 'rider' ? null : ride.cancel_reason,
             ),

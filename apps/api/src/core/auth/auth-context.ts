@@ -1,5 +1,6 @@
 import { createParamDecorator, type ExecutionContext, SetMetadata } from '@nestjs/common';
 import type { Request } from 'express';
+import type { Language } from '../i18n/language.js';
 
 /** Who is calling, re-read from the database on every request. */
 export interface AuthUser {
@@ -7,6 +8,8 @@ export interface AuthUser {
   phone: string;
   fullName: string | null;
   isAdmin: boolean;
+  /** The language of their app, kept for SMS and push sent later (users.locale). */
+  locale: Language;
 }
 
 export interface RequestMeta {

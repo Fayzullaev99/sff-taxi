@@ -88,6 +88,8 @@ export async function apiResponse<T>(
     return fetch(`${API_URL}${path}`, {
       method: options.method ?? 'GET',
       headers: {
+        // the panel is Uzbek whatever the browser's language (the API answers per request)
+        'Accept-Language': 'uz',
         ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
         ...(session ? { Authorization: `Bearer ${session.accessToken}` } : {}),
       },

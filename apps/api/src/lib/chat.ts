@@ -2,6 +2,8 @@
  * Ride chat between the rider and the driver (docs/architecture.md §9 "Ride chat"): when it
  * is open, what a message may contain, the quick replies. Pure; the chat module does the I/O.
  */
+import type { Language } from '../core/i18n/language.js';
+import { translate } from '../core/i18n/translate.js';
 
 /** Longest message, in characters (after cleaning). */
 export const CHAT_MAX_LENGTH = 500;
@@ -73,9 +75,21 @@ export function cleanChatText(input: string): string | null {
   return text ? text : null;
 }
 
-/** A quick reply's text, or null for an unknown key. */
-export function quickReplyText(role: ChatRole, key: string): string | null {
-  return QUICK_REPLIES[role][key] ?? null;
+/**
+ * A quick reply's text in a language, or null for an unknown key. The Uzbek text is what is
+ * stored with the message; each reader sees the reply in their own language by its key.
+ */
+export function quickReplyText(role: ChatRole, key: string, lang: Language = 'uz'): string | null {
+  const uz = QUICK_REPLIES[role][key];
+  return uz === undefined ? null : translate(uz, lang);
+}
+
+/** The quick replies of a role as the app lists them, in a language. */
+export function quickReplies(role: ChatRole, lang: Language): { key: string; text: string }[] {
+  return Object.entries(QUICK_REPLIES[role]).map(([key, text]) => ({
+    key,
+    text: translate(text, lang),
+  }));
 }
 
 /** The push preview: the first line, at most 120 characters. */

@@ -13,29 +13,51 @@ export function msg(template: string, ...params: (string | number)[]) {
   return { message, key: template, params };
 }
 
+/**
+ * The generated validation messages, as templates: the exception filter renders them in
+ * the request's language by shape (src/core/i18n), so each has a catalog entry.
+ */
+export const VALIDATION_MESSAGES = {
+  required: 'Majburiy maydon',
+  type: 'Noto‘g‘ri qiymat turi',
+  minLength: 'Kamida {0} ta belgi',
+  minItems: 'Kamida {0} ta element',
+  min: 'Kamida {0}',
+  maxLength: 'Ko‘pi bilan {0} ta belgi',
+  maxItems: 'Ko‘pi bilan {0} ta element',
+  max: 'Ko‘pi bilan {0}',
+  format: 'Noto‘g‘ri format',
+  value: 'Ruxsat etilmagan qiymat',
+  multiple: 'Noto‘g‘ri qiymat',
+  unknownKey: 'Noma’lum maydon',
+} as const;
+
+const fill = (template: string, value: unknown) => template.replace('{0}', String(value));
+
 /** Validation messages in Uzbek, for every schema in the API. */
 export function useUzbekValidationMessages(): void {
+  const M = VALIDATION_MESSAGES;
   z.config({
     customError: (issue) => {
       switch (issue.code) {
         case 'invalid_type':
-          return issue.input === undefined ? 'Majburiy maydon' : 'Noto‘g‘ri qiymat turi';
+          return issue.input === undefined ? M.required : M.type;
         case 'too_small':
-          if (issue.origin === 'string') return `Kamida ${issue.minimum} ta belgi`;
-          if (issue.origin === 'array') return `Kamida ${issue.minimum} ta element`;
-          return `Kamida ${issue.minimum}`;
+          if (issue.origin === 'string') return fill(M.minLength, issue.minimum);
+          if (issue.origin === 'array') return fill(M.minItems, issue.minimum);
+          return fill(M.min, issue.minimum);
         case 'too_big':
-          if (issue.origin === 'string') return `Ko‘pi bilan ${issue.maximum} ta belgi`;
-          if (issue.origin === 'array') return `Ko‘pi bilan ${issue.maximum} ta element`;
-          return `Ko‘pi bilan ${issue.maximum}`;
+          if (issue.origin === 'string') return fill(M.maxLength, issue.maximum);
+          if (issue.origin === 'array') return fill(M.maxItems, issue.maximum);
+          return fill(M.max, issue.maximum);
         case 'invalid_format':
-          return 'Noto‘g‘ri format';
+          return M.format;
         case 'invalid_value':
-          return 'Ruxsat etilmagan qiymat';
+          return M.value;
         case 'not_multiple_of':
-          return 'Noto‘g‘ri qiymat';
+          return M.multiple;
         case 'unrecognized_keys':
-          return 'Noma’lum maydon';
+          return M.unknownKey;
         default:
           return undefined; // custom messages from .refine() stay as written
       }

@@ -2,6 +2,8 @@ import { type ArgumentsHost, Catch, HttpException, HttpStatus, Logger } from '@n
 import { BaseExceptionFilter } from '@nestjs/core';
 import type { Request, Response } from 'express';
 import pg from 'pg';
+import { currentLanguage, type Language } from '../i18n/language.js';
+import { translate, translateTemplate } from '../i18n/translate.js';
 import { reportError } from '../observability/sentry.js';
 
 const RETRY = 'Ma’lumot shu payt boshqa amal bilan o‘zgardi, qayta urinib ko‘ring';
@@ -23,16 +25,84 @@ const PG_ERROR_STATUS: Record<string, { status: HttpStatus; message: string }> =
   '57014': { status: HttpStatus.SERVICE_UNAVAILABLE, message: BUSY }, // query_canceled
 };
 
+/**
+ * Nest's English defaults for exceptions thrown without a message (`new
+ * UnauthorizedException()`), said in the person's language instead.
+ */
+const DEFAULT_MESSAGES: Record<number, string> = {
+  400: 'Noto‘g‘ri so‘rov',
+  401: 'Tizimga kiring',
+  403: 'Ruxsat yo‘q',
+  404: 'Topilmadi',
+  409: 'Bajarib bo‘lmaydi',
+  429: 'Juda ko‘p urinish',
+  500: 'Tizim xatosi',
+  503: BUSY,
+};
+
 /** node-postgres' error when no pooled connection frees up within connectionTimeoutMillis. */
 function isPoolTimeout(error: unknown): boolean {
   return error instanceof Error && /timeout exceeded when trying to connect/i.test(error.message);
 }
 
+type ErrorBody = Record<string, unknown> & {
+  message?: unknown;
+  key?: unknown;
+  params?: unknown;
+  issues?: unknown;
+};
+
+/**
+ * The body in the request's language. A message built by `msg()` carries its template
+ * (`key`) and values, so the Russian template is rendered with the same values; any other
+ * message, and every validation issue, is looked up as it is (templates match by shape).
+ * `key` stays the Uzbek template: a client may key its own texts on it.
+ */
+export function localizeBody(body: ErrorBody, status: number, lang: Language): ErrorBody {
+  const out: ErrorBody = { ...body };
+  const message = out.message;
+  if (typeof message === 'string') {
+    if (NEST_DEFAULTS[message] && DEFAULT_MESSAGES[status]) {
+      out.message = translate(DEFAULT_MESSAGES[status], lang);
+    } else if (typeof out.key === 'string' && Array.isArray(out.params)) {
+      out.message = translateTemplate(out.key, out.params as (string | number)[], lang);
+    } else {
+      out.message = translate(message, lang);
+    }
+  } else if (message === undefined && DEFAULT_MESSAGES[status]) {
+    out.message = translate(DEFAULT_MESSAGES[status], lang);
+  }
+  if (Array.isArray(out.issues)) {
+    out.issues = out.issues.map((issue: unknown) =>
+      issue &&
+      typeof issue === 'object' &&
+      typeof (issue as { message?: unknown }).message === 'string'
+        ? { ...issue, message: translate((issue as { message: string }).message, lang) }
+        : issue,
+    );
+  }
+  return out;
+}
+
+/** The exact English texts Nest puts in exceptions created without a message. */
+const NEST_DEFAULTS: Record<string, true> = {
+  'Bad Request': true,
+  Unauthorized: true,
+  Forbidden: true,
+  'Not Found': true,
+  Conflict: true,
+  Gone: true,
+  'Too Many Requests': true,
+  'Unprocessable Entity': true,
+  'Internal Server Error': true,
+  'Service Unavailable': true,
+};
+
 /**
  * The single global filter:
  * - expected Postgres errors (constraints, lock conflicts, timeouts) become 4xx/503
  *   instead of 500s;
- * - HTTP exceptions pass through unchanged;
+ * - HTTP exceptions pass through with their body, written in the request's language;
  * - anything else is an unexpected failure: logged, reported, answered as 500.
  */
 @Catch()
@@ -40,6 +110,7 @@ export class AppExceptionFilter extends BaseExceptionFilter {
   private readonly logger = new Logger('Exceptions');
 
   override catch(error: unknown, host: ArgumentsHost): void {
+    const lang = currentLanguage();
     const mapped =
       error instanceof pg.DatabaseError && error.code
         ? PG_ERROR_STATUS[error.code]
@@ -58,7 +129,7 @@ export class AppExceptionFilter extends BaseExceptionFilter {
         .status(mapped.status)
         .json({
           statusCode: mapped.status,
-          message: mapped.message,
+          message: translate(mapped.message, lang),
           ...(db?.constraint ? { constraint: db.constraint } : {}),
         });
       return;
@@ -67,19 +138,21 @@ export class AppExceptionFilter extends BaseExceptionFilter {
       const req = host.switchToHttp().getRequest<Request>();
       reportError(error, { method: req.method, route: req.route?.path ?? req.path });
     }
-    // exceptions built from msg() carry { message, key, params } only: give every error body
-    // the same statusCode/error fields the apps read
     if (error instanceof HttpException) {
-      const body = error.getResponse();
-      if (typeof body === 'object' && body !== null && !('statusCode' in body)) {
-        const status = error.getStatus();
-        host
-          .switchToHttp()
-          .getResponse<Response>()
-          .status(status)
-          .json({ statusCode: status, error: HttpStatus[status] ?? 'Error', ...body });
-        return;
-      }
+      const status = error.getStatus();
+      const raw = error.getResponse();
+      // exceptions built from msg() carry { message, key, params } only: give every error
+      // body the same statusCode/error fields the apps read
+      const body: ErrorBody =
+        typeof raw === 'object' && raw !== null
+          ? { statusCode: status, error: HttpStatus[status] ?? 'Error', ...(raw as ErrorBody) }
+          : { statusCode: status, error: HttpStatus[status] ?? 'Error', message: raw };
+      host
+        .switchToHttp()
+        .getResponse<Response>()
+        .status(status)
+        .json(localizeBody(body, status, lang));
+      return;
     }
     super.catch(error, host);
   }

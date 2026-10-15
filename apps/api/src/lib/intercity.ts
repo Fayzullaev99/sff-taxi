@@ -1,3 +1,4 @@
+import { tr } from '../core/i18n/translate.js';
 import { distanceM, roundUp100 } from './distance.js';
 import { MAX_PASSENGERS, REAR_SEATS_MAX } from './pool.js';
 import type { RideClass, Tariff } from './tariff.js';
@@ -79,10 +80,10 @@ export const MAX_REAR_SEATS = REAR_SEATS_MAX;
 /** Why a trip may not offer these seats (the rider-facing message), or null. */
 export function seatingError(seats: number, frontSeat: boolean): string | null {
   if (seats > MAX_TRIP_SEATS) {
-    return 'Mashinaga ko‘pi bilan 3 yo‘lovchi olinadi: oldinda 1, orqada 2';
+    return tr('Mashinaga ko‘pi bilan 3 yo‘lovchi olinadi: oldinda 1, orqada 2');
   }
   if (seats - (frontSeat ? 1 : 0) > MAX_REAR_SEATS) {
-    return 'Orqa o‘rindiqqa 2 tadan ortiq yo‘lovchi olinmaydi';
+    return tr('Orqa o‘rindiqqa 2 tadan ortiq yo‘lovchi olinmaydi');
   }
   return null;
 }

@@ -6,6 +6,7 @@ import type { Histogram } from 'prom-client';
 import { ENV, type Env } from './config/env.js';
 import { AppExceptionFilter } from './core/http/app-exception.filter.js';
 import { useUzbekValidationMessages } from './core/http/messages.js';
+import { languageMiddleware } from './core/i18n/middleware.js';
 import { HTTP_DURATION, httpMetrics } from './core/observability/metrics.module.js';
 
 /** Shared by main.ts and the tests, so tests exercise the same HTTP pipeline as production. */
@@ -19,11 +20,13 @@ export function configureApp(app: INestApplication): INestApplication {
   // bearer tokens, no cookies: credentials stay off. Mobile apps send no Origin.
   app.enableCors({
     origin: app.get<Env>(ENV).CORS_ORIGINS,
-    allowedHeaders: ['Authorization', 'Content-Type'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Accept-Language'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     maxAge: 600,
   });
   app.use(httpMetrics(app.get<Histogram<'method' | 'route' | 'status'>>(HTTP_DURATION)));
+  // the request's language (Accept-Language: uz | ru) for every message written on its way
+  app.use(languageMiddleware);
   app.setGlobalPrefix('v1', { exclude: ['health', 'metrics'] });
   app.useGlobalFilters(new AppExceptionFilter(app.get(HttpAdapterHost).httpAdapter));
   app.enableShutdownHooks();
