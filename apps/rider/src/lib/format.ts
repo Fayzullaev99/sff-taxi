@@ -1,11 +1,15 @@
-/** Display formatting. Money is whole so'm; times are shown in Tashkent (UTC+5, no DST). */
+/**
+ * Display formatting in the app's language (src/i18n). Money is whole so'm; times are
+ * shown in Tashkent (UTC+5, no DST).
+ */
+import { getLanguage, type Language, t } from '../i18n/dictionary';
 
 const TASHKENT_OFFSET_MS = 5 * 60 * 60 * 1000;
-const NBSP = '\u00a0';
+const NBSP = ' ';
 
-/** 45000 -> "45 000 so‘m" */
+/** 45000 -> "45 000 so‘m" / "45 000 сум" */
 export function formatMoney(amount: number): string {
-  return `${formatNumber(amount)}${NBSP}so‘m`;
+  return `${formatNumber(amount)}${NBSP}${t('common.units.som')}`;
 }
 
 export function formatNumber(n: number): string {
@@ -21,17 +25,20 @@ export function formatDelta(delta: number): string {
 }
 
 export function formatDistance(m: number): string {
-  if (m < 1000) return `${Math.max(10, Math.round(m / 10) * 10)}${NBSP}m`;
-  return `${(m / 1000).toFixed(m < 10_000 ? 1 : 0).replace('.', ',')}${NBSP}km`;
+  if (m < 1000) return `${Math.max(10, Math.round(m / 10) * 10)}${NBSP}${t('common.units.m')}`;
+  const km = (m / 1000).toFixed(m < 10_000 ? 1 : 0).replace('.', ',');
+  return `${km}${NBSP}${t('common.units.km')}`;
 }
 
-/** Whole minutes, at least 1: "7 daq", "1 soat 5 daq". */
+/** Whole minutes, at least 1: "7 daq", "1 soat 5 daq" ("7 мин", "1 ч 5 мин"). */
 export function formatMinutes(minutes: number): string {
   const m = Math.max(1, Math.round(minutes));
-  if (m < 60) return `${m}${NBSP}daq`;
+  const min = t('common.units.min');
+  const hour = t('common.units.hour');
+  if (m < 60) return `${m}${NBSP}${min}`;
   const h = Math.floor(m / 60);
   const rest = m % 60;
-  return rest ? `${h}${NBSP}soat ${rest}${NBSP}daq` : `${h}${NBSP}soat`;
+  return rest ? `${h}${NBSP}${hour} ${rest}${NBSP}${min}` : `${h}${NBSP}${hour}`;
 }
 
 /** A countdown or stopwatch: 65 -> "1:05". */
@@ -52,6 +59,7 @@ export function formatTime(iso: string | Date): string {
   return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
 }
 
+/** The Uzbek month names (the source language); `monthName` gives the app language's. */
 export const MONTHS = [
   'yanvar',
   'fevral',
@@ -67,7 +75,26 @@ export const MONTHS = [
   'dekabr',
 ];
 
-/** "Bugun, 14:05", "Kecha, 09:10" or "3 mart, 18:40". */
+/** The name of a month (0-based) in a date: "mart" / "марта". */
+export function monthName(index: number, lang: Language = getLanguage()): string {
+  const keys = [
+    'common.time.months.m1',
+    'common.time.months.m2',
+    'common.time.months.m3',
+    'common.time.months.m4',
+    'common.time.months.m5',
+    'common.time.months.m6',
+    'common.time.months.m7',
+    'common.time.months.m8',
+    'common.time.months.m9',
+    'common.time.months.m10',
+    'common.time.months.m11',
+    'common.time.months.m12',
+  ] as const;
+  return t(keys[index] ?? keys[0], undefined, lang);
+}
+
+/** "Bugun, 14:05", "Kecha, 09:10" or "3 mart, 18:40" ("Сегодня, 14:05", "3 марта, 18:40"). */
 export function formatDateTime(iso: string | Date, now: Date = new Date()): string {
   const d = tashkent(new Date(iso));
   const today = tashkent(now);
@@ -75,10 +102,10 @@ export function formatDateTime(iso: string | Date, now: Date = new Date()): stri
   const dayIndex = (x: Date) => Math.floor(x.getTime() / dayMs);
   const diff = dayIndex(today) - dayIndex(d);
   const time = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
-  if (diff === 0) return `Bugun, ${time}`;
-  if (diff === 1) return `Kecha, ${time}`;
-  if (diff === -1) return `Ertaga, ${time}`;
-  const date = `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+  if (diff === 0) return `${t('common.time.today')}, ${time}`;
+  if (diff === 1) return `${t('common.time.yesterday')}, ${time}`;
+  if (diff === -1) return `${t('common.time.tomorrow')}, ${time}`;
+  const date = `${d.getUTCDate()} ${monthName(d.getUTCMonth())}`;
   return d.getUTCFullYear() === today.getUTCFullYear()
     ? `${date}, ${time}`
     : `${date} ${d.getUTCFullYear()}, ${time}`;
@@ -90,10 +117,10 @@ export function tashkentDay(date: Date): string {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }
 
-/** "2026-03-03" -> "3 mart". */
+/** "2026-03-03" -> "3 mart" / "3 марта". */
 export function formatDay(day: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
-  return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}` : day;
+  return m ? `${Number(m[3])} ${monthName(Number(m[2]) - 1)}` : day;
 }
 
 /** "+998901234567" -> "+998 90 123 45 67" */

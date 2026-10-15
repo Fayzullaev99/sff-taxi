@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { devices } from '../api/driver';
+import { getLanguage } from '../i18n/core';
 import { BRAND } from '../config';
 import { type PushPermission, pushPermissionState } from '../lib/push-permission';
 import { isChatOnScreen } from './chat-open';
@@ -222,7 +223,8 @@ export async function registerPushDevice(): Promise<string | null> {
       token,
       platform: Platform.OS === 'ios' ? 'ios' : 'android',
       app: 'driver',
-      locale: 'uz',
+      // pushes come in the app's language (re-registered when it is switched)
+      locale: getLanguage(),
     });
     currentToken = token;
     return token;

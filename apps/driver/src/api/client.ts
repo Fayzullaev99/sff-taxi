@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { API_URL } from '../config';
+import { getLanguage } from '../i18n/core';
 import { createApiClient, type Tokens, type TokenStore } from '../lib/api-client';
 import { ServerClock } from '../lib/countdown';
 
@@ -50,4 +51,6 @@ export const api = createApiClient({
   store: secureTokenStore,
   onSessionExpired: () => expiredListeners.forEach((l) => l()),
   onServerTime: (serverMs, localMs) => serverClock.observe(serverMs, localMs),
+  // the API answers, and later writes push, in the app's language
+  language: getLanguage,
 });

@@ -8,6 +8,7 @@ import { endpoints } from '../api/endpoints';
 import { keys, useMe } from '../api/queries';
 import { signOut } from '../api/session';
 import { APP_VERSION, useFeature, useSupport } from '../api/support';
+import { changeLanguage, type Language, LANGUAGES, useT } from '../i18n';
 import { confirm } from '../lib/dialogs';
 import { formatPhone } from '../lib/format';
 import { GENDER_LABELS, genderLock } from '../lib/sharing';
@@ -92,6 +93,29 @@ function GenderCard({ me }: { me: Me }) {
         </T>
       ) : null}
       {error ? <Banner tone="danger" message={error} /> : null}
+    </Card>
+  );
+}
+
+/**
+ * The app's language: applied at once (every screen re-renders), kept on the phone and on
+ * the account (the API writes SMS and push in it).
+ */
+function LanguageCard() {
+  const { t, lang } = useT();
+  return (
+    <Card style={styles.card}>
+      <T variant="h3" accessibilityRole="header">
+        {t('common.language.title')}
+      </T>
+      <Segmented
+        value={lang}
+        onChange={(next: Language) => void changeLanguage(next)}
+        options={LANGUAGES.map((l) => ({ value: l, label: t(`common.language.${l}`) }))}
+      />
+      <T variant="small" color={colors.textMuted}>
+        {t('common.language.hint')}
+      </T>
     </Card>
   );
 }
@@ -197,6 +221,8 @@ export default function ProfileScreen() {
       </Card>
 
       {me.data && me.data.gender !== undefined ? <GenderCard me={me.data} /> : null}
+
+      <LanguageCard />
 
       <Card style={styles.menu}>
         <MenuRow

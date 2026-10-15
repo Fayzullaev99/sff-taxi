@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { type ReactNode, useEffect, useState } from 'react';
 import { AppState, InteractionManager } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { endpoints } from '../api/endpoints';
 import { clearAccountData, queryClient } from '../api/queries';
 import { RealtimeProvider } from '../api/realtime';
 import { forgetOpenRide, keepOpenRide, restoreOpenRide } from '../api/ride-cache';
@@ -15,8 +16,10 @@ import {
   useIsSignedIn,
   useSessionStatus,
 } from '../api/session';
+import { initLanguage, onLanguageChange, useT } from '../i18n';
 import { pendingInvite } from '../lib/pending-invite';
 import { PushManager } from '../notifications/PushManager';
+import { syncPushToken } from '../notifications/push';
 import { resetDraft } from '../trip/draft';
 import { clearLegacyPlaces, migrateLegacyPlaces } from '../trip/places-store';
 import { OfflineFrame } from '../ui/OfflineBanner';
@@ -30,9 +33,9 @@ export default function RootLayout() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // the saved session, then the open ride kept on the phone (a cold start offline
-    // still shows it), then the first screen
-    void hydrateSession()
+    // the language (saved, else the phone's) and the saved session, then the open ride
+    // kept on the phone (a cold start offline still shows it), then the first screen
+    void Promise.all([initLanguage(), hydrateSession()])
       .then(() => (getSessionStatus() === 'signedIn' ? restoreOpenRide() : undefined))
       .catch(() => undefined)
       .finally(() => setReady(true));
@@ -43,6 +46,15 @@ export default function RootLayout() {
       clearLegacyPlaces();
       resetDraft();
     });
+    // a switched language: the API keeps it (SMS, push), the push device is re-registered
+    // in it, and everything the API worded (class names, labels, quick replies) is refetched
+    const stopLanguage = onLanguageChange((lang) => {
+      if (getSessionStatus() === 'signedIn') {
+        void endpoints.updateLocale(lang).catch(() => undefined);
+        void syncPushToken();
+      }
+      void queryClient.invalidateQueries();
+    });
     // refetch stale queries when the app comes back to the foreground
     const sub = AppState.addEventListener('change', (state) => {
       focusManager.setFocused(state === 'active');
@@ -50,6 +62,7 @@ export default function RootLayout() {
     return () => {
       stopKeeping();
       stopListening();
+      stopLanguage();
       sub.remove();
     };
   }, []);
@@ -140,6 +153,7 @@ function PlacesMigration() {
 }
 
 function Screens() {
+  const { t } = useT();
   return (
     <Stack
       screenOptions={{
@@ -152,32 +166,38 @@ function Screens() {
     >
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="sign-in" options={{ headerShown: false }} />
-      <Stack.Screen name="home" options={{ headerShown: false, title: 'Xarita' }} />
-      <Stack.Screen name="search" options={{ title: 'Qayerga?', animation: 'slide_from_bottom' }} />
-      <Stack.Screen name="pick-on-map" options={{ title: 'Xaritada belgilang' }} />
-      <Stack.Screen name="order" options={{ title: 'Tarifni tanlang' }} />
-      <Stack.Screen name="cargo" options={{ title: 'Yuk tashish' }} />
+      <Stack.Screen name="home" options={{ headerShown: false, title: t('common.screens.map') }} />
+      <Stack.Screen
+        name="search"
+        options={{ title: t('common.screens.search'), animation: 'slide_from_bottom' }}
+      />
+      <Stack.Screen name="pick-on-map" options={{ title: t('common.screens.pickOnMap') }} />
+      <Stack.Screen name="order" options={{ title: t('common.screens.order') }} />
+      <Stack.Screen name="cargo" options={{ title: t('common.screens.cargo') }} />
       <Stack.Screen
         name="ride/[id]"
-        options={{ headerShown: false, gestureEnabled: false, title: 'Safar' }}
+        options={{ headerShown: false, gestureEnabled: false, title: t('common.screens.ride') }}
       />
-      <Stack.Screen name="history" options={{ title: 'Safarlar tarixi' }} />
-      <Stack.Screen name="scheduled" options={{ title: 'Oldindan buyurtmalar' }} />
-      <Stack.Screen name="profile" options={{ title: 'Profil va sozlamalar' }} />
-      <Stack.Screen name="places" options={{ title: 'Saqlangan manzillar' }} />
-      <Stack.Screen name="promos" options={{ title: 'Promokod va bonuslar' }} />
-      <Stack.Screen name="invite/[code]" options={{ title: 'Taklif' }} />
-      <Stack.Screen name="chat/[rideId]" options={{ title: 'Haydovchi bilan suhbat' }} />
-      <Stack.Screen name="support/index" options={{ title: 'Murojaatlarim' }} />
-      <Stack.Screen name="support/new" options={{ title: 'Murojaat' }} />
-      <Stack.Screen name="support/[id]" options={{ title: 'Murojaat' }} />
-      <Stack.Screen name="intercity/index" options={{ title: 'Shaharlararo' }} />
-      <Stack.Screen name="intercity/trip/[id]" options={{ title: 'Qatnov' }} />
-      <Stack.Screen name="intercity/bookings" options={{ title: 'Bronlarim' }} />
-      <Stack.Screen name="intercity/booking/[id]" options={{ title: 'Bron' }} />
+      <Stack.Screen name="history" options={{ title: t('common.screens.history') }} />
+      <Stack.Screen name="scheduled" options={{ title: t('common.screens.scheduled') }} />
+      <Stack.Screen name="profile" options={{ title: t('common.screens.profile') }} />
+      <Stack.Screen name="places" options={{ title: t('common.screens.places') }} />
+      <Stack.Screen name="promos" options={{ title: t('common.screens.promos') }} />
+      <Stack.Screen name="invite/[code]" options={{ title: t('common.screens.invite') }} />
+      <Stack.Screen name="chat/[rideId]" options={{ title: t('common.screens.chat') }} />
+      <Stack.Screen name="support/index" options={{ title: t('common.screens.support') }} />
+      <Stack.Screen name="support/new" options={{ title: t('common.screens.complaint') }} />
+      <Stack.Screen name="support/[id]" options={{ title: t('common.screens.complaint') }} />
+      <Stack.Screen name="intercity/index" options={{ title: t('common.screens.intercity') }} />
+      <Stack.Screen name="intercity/trip/[id]" options={{ title: t('common.screens.trip') }} />
+      <Stack.Screen name="intercity/bookings" options={{ title: t('common.screens.bookings') }} />
+      <Stack.Screen
+        name="intercity/booking/[id]"
+        options={{ title: t('common.screens.booking') }}
+      />
       <Stack.Screen
         name="payments/[id]"
-        options={{ headerShown: false, animation: 'none', title: 'To‘lov' }}
+        options={{ headerShown: false, animation: 'none', title: t('common.screens.payment') }}
       />
     </Stack>
   );

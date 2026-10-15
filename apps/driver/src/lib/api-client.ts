@@ -1,8 +1,10 @@
 /**
  * HTTP client for the SFF Taxi API: bearer auth, refresh-token rotation with a
- * single refresh in flight, Uzbek error messages. No React Native imports, so
- * it is unit-tested under Node.
+ * single refresh in flight, error messages in the app's language (every request
+ * carries it as `Accept-Language`). No React Native imports, so it is unit-tested
+ * under Node.
  */
+import { t } from '../i18n/dictionary';
 
 export interface Tokens {
   accessToken: string;
@@ -49,17 +51,17 @@ export function isApiError(error: unknown, status?: number): error is ApiError {
 /** The message to show for any error thrown by the client (or anything else). */
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message;
-  return 'Kutilmagan xatolik yuz berdi';
+  return t('common.errors.unexpected');
 }
 
 function fallbackMessage(status: number): string {
-  if (status === 401) return 'Qaytadan tizimga kiring';
-  if (status === 403) return 'Bu amalga ruxsat yo‘q';
-  if (status === 404) return 'Topilmadi';
-  if (status === 409) return 'Amalni bajarib bo‘lmadi';
-  if (status === 429) return 'Juda ko‘p urinish, birozdan so‘ng qayta urinib ko‘ring';
-  if (status >= 500) return 'Serverda xatolik, birozdan so‘ng qayta urinib ko‘ring';
-  return 'So‘rov bajarilmadi';
+  if (status === 401) return t('common.errors.unauthorized');
+  if (status === 403) return t('common.errors.forbidden');
+  if (status === 404) return t('common.errors.notFound');
+  if (status === 409) return t('common.errors.conflict');
+  if (status === 429) return t('common.errors.tooMany');
+  if (status >= 500) return t('common.errors.server');
+  return t('common.errors.failed');
 }
 
 /** NestJS's English defaults, replaced by Uzbek ones. */
@@ -105,6 +107,8 @@ export interface ApiClientOptions {
    * arrived, so offer countdowns survive a phone whose clock is wrong.
    */
   onServerTime?: (serverMs: number, localMs: number) => void;
+  /** The app's language for `Accept-Language` on every request (default: Uzbek). */
+  language?: () => string;
 }
 
 export interface RequestOptions {
@@ -154,7 +158,10 @@ export function createApiClient(options: ApiClientOptions) {
     const timer = setTimeout(() => controller.abort(), timeout);
     const onAbort = () => controller.abort();
     signal?.addEventListener('abort', onAbort);
-    const headers: Record<string, string> = { Accept: 'application/json' };
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      'Accept-Language': options.language?.() ?? 'uz',
+    };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
     try {
@@ -170,7 +177,7 @@ export function createApiClient(options: ApiClientOptions) {
       return res;
     } catch (error) {
       if (signal?.aborted) throw error;
-      throw new ApiError(0, NETWORK_ERROR_MESSAGE);
+      throw new ApiError(0, t('common.errors.offline'));
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);

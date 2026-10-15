@@ -38,6 +38,8 @@ export const auth = {
       { auth: false },
     ),
   account: () => api.get<Account>('/v1/me'),
+  /** The app's language: the API keeps it for push and SMS sent later. */
+  updateLocale: (locale: 'uz' | 'ru') => api.patch<Account>('/v1/me', { locale }),
 };
 
 export const driver = {
@@ -173,8 +175,12 @@ export const geo = {
 };
 
 export const devices = {
-  register: (body: { token: string; app: 'driver'; platform: 'ios' | 'android'; locale: 'uz' }) =>
-    api.request<unknown>('PUT', '/v1/devices', { body }),
+  register: (body: {
+    token: string;
+    app: 'driver';
+    platform: 'ios' | 'android';
+    locale: 'uz' | 'ru';
+  }) => api.request<unknown>('PUT', '/v1/devices', { body }),
   unregister: (token: string) => api.delete<void>(`/v1/devices/${encodeURIComponent(token)}`),
 };
 

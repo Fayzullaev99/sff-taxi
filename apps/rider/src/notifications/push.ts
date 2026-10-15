@@ -10,9 +10,10 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { endpoints } from '../api/endpoints';
 import { getSessionStatus } from '../api/session';
+import { getLanguage } from '../i18n/core';
 import { isChatOnScreen } from '../lib/chat-open';
 import { colors } from '../ui/theme';
-import { pushLocale, pushPermissionState, resolveProjectId } from './data';
+import { pushPermissionState, resolveProjectId } from './data';
 
 export type PushPermission = 'granted' | 'denied' | 'undetermined' | 'unsupported';
 
@@ -153,7 +154,8 @@ export function syncPushToken(knownToken?: string): Promise<SyncResult> {
         token,
         platform: Platform.OS === 'ios' ? 'ios' : 'android',
         app: 'rider',
-        locale: pushLocale(Intl.DateTimeFormat().resolvedOptions().locale),
+        // pushes come in the app's language (re-registered when it is switched)
+        locale: getLanguage(),
       });
     } catch {
       // offline: the next app start registers it

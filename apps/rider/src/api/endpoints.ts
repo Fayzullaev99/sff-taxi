@@ -61,6 +61,9 @@ export const endpoints = {
   /** 409 when it was changed within the last 30 days (`genderLockedUntil`). */
   updateGender: (gender: Gender) =>
     api.request<Me>('/v1/me', { method: 'PATCH', body: { gender } }),
+  /** The app's language: the API keeps it for SMS and push sent later. */
+  updateLocale: (locale: 'uz' | 'ru') =>
+    api.request<Me>('/v1/me', { method: 'PATCH', body: { locale } }),
 
   // Map (public)
   geoConfig: () => api.request<GeoConfig>('/v1/geo/config', { auth: 'none' }),

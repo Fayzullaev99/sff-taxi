@@ -1,7 +1,9 @@
 /**
  * HTTP client for the SFF Taxi API. Framework-free (no React Native imports) so the
- * token refresh logic is unit-tested in plain Node.
+ * token refresh logic is unit-tested in plain Node. Every request carries the app's
+ * language (`Accept-Language`): the API answers, and later writes SMS and push, in it.
  */
+import { t } from '../i18n/dictionary';
 
 export interface SessionTokens {
   accessToken: string;
@@ -32,7 +34,7 @@ export class ApiError extends Error {
 /** The request never got an answer: no network, server down or timed out. */
 export class OfflineError extends Error {
   constructor() {
-    super('Internet aloqasi yo‘q yoki server javob bermayapti');
+    super(t('common.errors.offline'));
     this.name = 'OfflineError';
   }
 }
@@ -78,6 +80,8 @@ export interface ApiClientConfig {
   refreshTimeoutMs?: number;
   /** Wait before GET retry number `attempt` (0-based); jittered exponential by default. */
   retryDelayMs?: (attempt: number) => number;
+  /** The app's language for `Accept-Language` on every request (default: Uzbek). */
+  language?: () => string;
 }
 
 type RefreshOutcome = 'ok' | 'rejected' | 'offline';
@@ -113,9 +117,9 @@ export function errorMessage(status: number, body: unknown): string {
     if (texts.length) return [...new Set(texts)].join('; ');
   }
   if (typeof b.message === 'string' && b.message) return b.message;
-  if (status === 429) return 'Juda ko‘p urinish. Birozdan so‘ng qayta urinib ko‘ring';
-  if (status >= 500) return 'Serverda xatolik. Birozdan so‘ng qayta urinib ko‘ring';
-  return `Xatolik (${status})`;
+  if (status === 429) return t('common.errors.tooMany');
+  if (status >= 500) return t('common.errors.server');
+  return t('common.errors.status', { status });
 }
 
 export function createApiClient(config: ApiClientConfig): ApiClient {
@@ -123,6 +127,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
   const timeoutMs = config.timeoutMs ?? 20_000;
   const refreshTimeoutMs = config.refreshTimeoutMs ?? 60_000;
   const retryDelayMs = config.retryDelayMs ?? defaultRetryDelayMs;
+  const language = config.language ?? (() => 'uz');
   let refreshing: Promise<RefreshOutcome> | null = null;
 
   async function send(
@@ -170,7 +175,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
           buildUrl(config.baseUrl, '/v1/auth/refresh'),
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Accept-Language': language() },
             body: JSON.stringify({ refreshToken: current.refreshToken }),
           },
           undefined,
@@ -246,6 +251,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
           method: options.method ?? 'GET',
           headers: {
             Accept: 'application/json',
+            'Accept-Language': language(),
             ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
@@ -256,7 +262,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
       );
 
     let token = auth !== 'none' ? (config.tokens.get()?.accessToken ?? null) : null;
-    if (auth === 'required' && !token) throw new ApiError(401, 'Tizimga kiring');
+    if (auth === 'required' && !token) throw new ApiError(401, t('common.errors.signIn'));
     let res = await attempt(token);
 
     // 'optional' routes answer 401 only when the token we sent is stale: refresh like
@@ -283,7 +289,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     }
     if (!res.ok) {
       const message =
-        res.status === 401 ? 'Sessiya tugadi, qaytadan kiring' : errorMessage(res.status, data);
+        res.status === 401 ? t('common.errors.sessionEnded') : errorMessage(res.status, data);
       throw new ApiError(res.status, message, data);
     }
     return { status: res.status, data: data as T };
@@ -332,7 +338,7 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
 /** Human-readable text for any error thrown by the client or a screen. */
 export function describeError(error: unknown): string {
   if (error instanceof ApiError || error instanceof OfflineError) return error.message;
-  return 'Kutilmagan xatolik yuz berdi';
+  return t('common.errors.unexpected');
 }
 
 export function isOffline(error: unknown): boolean {

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import {
   driverGivenName,
   firstName,
@@ -18,6 +19,37 @@ import {
 } from './format';
 
 const s = (text: string) => text.replace(/\u00a0/g, ' ');
+
+afterEach(() => setLanguage('uz'));
+
+describe('format in Russian', () => {
+  it('uses Russian units, day names and months', () => {
+    setLanguage('ru');
+    expect(s(formatMoney(45_000))).toBe('45 000 \u0441\u0443\u043c');
+    expect(s(formatDelta(3_000))).toBe('+3 000 \u0441\u0443\u043c');
+    expect(s(formatDistance(430))).toBe('430 \u043c');
+    expect(s(formatDistance(2_450))).toBe('2,5 \u043a\u043c');
+    expect(s(formatMinutes(14))).toBe('14 \u043c\u0438\u043d');
+    expect(s(formatMinutes(65))).toBe('1 \u0447 5 \u043c\u0438\u043d');
+    expect(s(formatMinutes(120))).toBe('2 \u0447');
+    const now = new Date('2026-03-03T12:00:00Z');
+    expect(formatDateTime('2026-03-03T09:05:00Z', now)).toBe(
+      '\u0421\u0435\u0433\u043e\u0434\u043d\u044f, 14:05',
+    );
+    expect(formatDateTime('2026-03-02T09:05:00Z', now)).toBe(
+      '\u0412\u0447\u0435\u0440\u0430, 14:05',
+    );
+    expect(formatDateTime('2026-03-04T02:30:00Z', now)).toBe(
+      '\u0417\u0430\u0432\u0442\u0440\u0430, 07:30',
+    );
+    expect(formatDateTime('2026-01-10T20:00:00Z', now)).toBe(
+      '11 \u044f\u043d\u0432\u0430\u0440\u044f, 01:00',
+    );
+    expect(formatDay('2026-03-04')).toBe('4 \u043c\u0430\u0440\u0442\u0430');
+    // the phone number format is the same in both languages
+    expect(formatPhone('+998901234567')).toBe('+998 90 123 45 67');
+  });
+});
 
 describe('format', () => {
   it('formats money with thin groups', () => {
