@@ -287,16 +287,19 @@ export function cashToPay(ride: {
     poolDiscount?: number;
     pays?: number;
     deposit?: number;
+    /** The rider's promo / credit discount (the platform pays it; `total` stays full). */
+    discount?: number;
   };
 }): { total: number; fare: number; owedFee: number; deposit: number } {
   const owedFee = ride.fare.owedFee ?? 0;
   // paid by card in advance (a ride booked for later): the driver takes the rest
   const deposit = Math.max(0, ride.fare.deposit ?? 0);
-  // after the shared discount (the API's total already has it)
+  // after the shared and promo discounts (the API's total already has the shared one)
   const pays = ride.fare.pays ?? ride.fare.quoted - (ride.fare.poolDiscount ?? 0);
+  const total = ride.fare.total !== null ? ride.fare.total - (ride.fare.discount ?? 0) : null;
   const fare =
     ride.paymentMethod === 'cash'
-      ? Math.max(0, (ride.fare.total ?? pays + ride.fare.waiting) - deposit)
+      ? Math.max(0, (total ?? pays + ride.fare.waiting) - deposit)
       : ride.fare.waiting;
   return { total: fare + owedFee, fare, owedFee, deposit };
 }

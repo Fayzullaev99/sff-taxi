@@ -32,6 +32,11 @@ So a card ride is **paid before dispatch**:
 **Paid waiting** on a card ride (after the free minutes) is collected in **cash** by the driver:
 it is not known at payment time. The driver's earnings show it as cash.
 
+**A rider discount** (a promo code, the invitation's welcome discount, ride credit:
+[architecture.md §8](architecture.md)) makes the intent that much smaller: the card is charged
+the fare less the discount, and on completion the driver is still credited the full fare
+(`card_fare`): the platform pays the difference. A cancelled ride refunds what was charged.
+
 **Cancelled after payment** (rider, driver no-show, operator, system): the whole payment is
 queued for a **full refund** (`paymentStatus: refund_pending`, `GET admin/payments/refunds`).
 Operators refund it in the Payme cabinet (Payme's `CancelTransaction` callback then records

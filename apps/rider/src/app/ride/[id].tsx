@@ -35,6 +35,7 @@ import { useNow } from '../../lib/hooks';
 import { freeCancelUntil } from '../../lib/deposit';
 import { loadLine, serviceTitle } from '../../lib/services';
 import { discountLine, occupancyText, pinDigits, ridePrice } from '../../lib/sharing';
+import { discountSentence, rideDiscountLines } from '../../lib/promo';
 import { SeatIcons } from '../../order/RideChoices';
 import { shareText } from '../../lib/links';
 import { newerEta, pickupEta, type RideScreen, rideScreen } from '../../lib/ride-state';
@@ -483,10 +484,12 @@ function FareLine({ ride }: { ride: Ride }) {
   // a shared ride: the quoted price is the ceiling, co-riders lower it (live)
   const price = ridePrice(ride.fare);
   const cashRide = ride.paymentMethod === 'cash';
+  // a promo code (or invitation) and ride credit: paid by the platform
+  const promoLines = rideDiscountLines(ride.fare);
   return (
     <View style={styles.owed}>
       <View style={styles.priceRow}>
-        {price.discount > 0 ? (
+        {price.discount > 0 || promoLines.length ? (
           <T variant="smallStrong" color={colors.textMuted} style={styles.struck}>
             {formatMoney(price.quoted)}
           </T>
@@ -496,6 +499,11 @@ function FareLine({ ride }: { ride: Ride }) {
           {price.discount > 0 ? 'hamroh bilan arzonroq' : 'narx o‘zgarmaydi'}
         </T>
       </View>
+      {promoLines.length ? (
+        <T variant="small" color={colors.success}>
+          {discountSentence(promoLines)}
+        </T>
+      ) : null}
       {price.discount > 0 ? (
         <T variant="small" color={colors.success}>
           {discountLine(price.discount)}

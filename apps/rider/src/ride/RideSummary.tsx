@@ -6,6 +6,7 @@ import type { Ride } from '../api/types';
 import { canComplain } from '../lib/complaints';
 import { cancellationFeeNote, fareLines, OWED_FEE_LABEL } from '../lib/fare';
 import { POOL_DISCOUNT_LABEL } from '../lib/sharing';
+import { rideDiscountLines } from '../lib/promo';
 import { classLabel, isCargoClass, loadLine, SERVICE_NAMES, serviceTitle } from '../lib/services';
 import { driverGivenName, formatDateTime, formatMoney, placeLine } from '../lib/format';
 import { callPhone, openLink } from '../lib/links';
@@ -31,7 +32,9 @@ export function RideSummary({ ride }: { ride: Ride }) {
   const completed = ride.status === 'completed';
   // fees owed from earlier cancelled rides this ride collected: a line apart from the fare
   const owedFee = ride.fare.owedFee ?? 0;
-  const total = (ride.fare.total ?? ride.fare.quoted + ride.fare.waiting) + owedFee;
+  // a promo code (or invitation) and ride credit: the platform paid that part
+  const discount = completed ? (ride.fare.discount ?? 0) : 0;
+  const total = (ride.fare.total ?? ride.fare.quoted + ride.fare.waiting) - discount + owedFee;
   const now = new Date();
   const canRate =
     completed &&
@@ -134,6 +137,16 @@ export function RideSummary({ ride }: { ride: Ride }) {
               valueColor={colors.success}
             />
           ) : null}
+          {discount > 0
+            ? rideDiscountLines(ride.fare).map((line) => (
+                <KeyValue
+                  key={line.label}
+                  label={line.label}
+                  value={`−${formatMoney(line.amount)}`}
+                  valueColor={colors.success}
+                />
+              ))
+            : null}
           {owedFee > 0 ? (
             <>
               <KeyValue label={OWED_FEE_LABEL} value={formatMoney(owedFee)} />

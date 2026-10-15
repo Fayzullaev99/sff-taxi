@@ -70,6 +70,8 @@ const OB1 = '01a0de48-9999-7000-8000-000000000031';
 
 const now = Date.now();
 const iso = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString();
+/** A date this many days ahead (a licence card expiring soon stays 'soon' whatever the day). */
+const inDays = (days: number) => new Date(now + days * 86_400_000).toISOString().slice(0, 10);
 
 const place = (
   lat: number,
@@ -483,7 +485,7 @@ const driverDetail: AdminDriver = {
   licence: { number: 'AF1234567', categories: ['B', 'C'], issuedOn: '2012-06-01' },
   licenceCard: {
     number: 'LK-20-000123',
-    expiresOn: '2026-10-10',
+    expiresOn: inDays(10),
     verification: 'unverified',
     checkedAt: null,
   },
@@ -508,7 +510,7 @@ const driverDetail: AdminDriver = {
     {
       kind: 'licence_card',
       url: 'https://files.example/lc.jpg',
-      expiresOn: '2026-10-10',
+      expiresOn: inDays(10),
       uploadedAt: iso(300),
     },
     {

@@ -97,7 +97,13 @@ export class FiscalService {
       const r = await this.db.kysely
         .selectFrom('rides as r')
         .innerJoin('drivers as d', 'd.user_id', 'r.driver_id')
+        .leftJoin('ride_discounts as rd', (j) =>
+          j.onRef('rd.ride_id', '=', 'r.id').on('rd.status', '=', 'redeemed'),
+        )
         .select([
+          'rd.promo_amount',
+          'rd.credit_amount',
+          'r.payment_status',
           'r.id',
           'r.number',
           'r.completed_at',
@@ -120,8 +126,14 @@ export class FiscalService {
         number: r.number,
         completedAt: r.completed_at,
         total: r.fare_total,
-        // a card ride's quoted fare was prepaid; paid waiting was cash
-        card: r.payment_method === 'card' ? r.fare_quoted : 0,
+        // a card ride's quoted fare was prepaid (less the rider's discount); paid waiting was
+        // cash, and the whole fare when the prepayment was refunded during the ride
+        card:
+          r.payment_method === 'card' && r.payment_status !== 'refunded'
+            ? r.fare_quoted - (r.promo_amount ?? 0) - (r.credit_amount ?? 0)
+            : 0,
+        discount: r.promo_amount ?? 0,
+        credit: r.credit_amount ?? 0,
         driverPinfl: r.pinfl,
         riderPhone: r.rider_phone,
         from: r.pickup.address,

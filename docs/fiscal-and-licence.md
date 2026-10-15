@@ -50,15 +50,23 @@ The platform issues it **as the commission agent** of the self-employed driver (
 supplier): the driver's PINFL goes into the item's commission info, the platform's TIN is the
 cash register owner's. One item per receipt:
 
-| Field                | Ride                                                                           | Intercity booking     |
-| -------------------- | ------------------------------------------------------------------------------ | --------------------- |
-| name                 | `city_item_name`                                                               | `intercity_item_name` |
-| MXIK (IKPU), package | `mxik_code`, `package_code` (settings)                                         | same                  |
-| quantity (× 1000)    | 1 000                                                                          | seats × 1 000         |
-| price (tiyin)        | fare total (quote + paid waiting)                                              | booking price         |
-| VAT                  | `vat_percent`, included (0 by default)                                         | same                  |
-| cash / card (tiyin)  | cash rides all cash; card rides the prepaid fare as card, paid waiting as cash | all cash              |
-| commission info      | driver's PINFL                                                                 | driver's PINFL        |
+| Field                | Ride                                                                                                                  | Intercity booking     |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| name                 | `city_item_name`                                                                                                      | `intercity_item_name` |
+| MXIK (IKPU), package | `mxik_code`, `package_code` (settings)                                                                                | same                  |
+| quantity (× 1000)    | 1 000                                                                                                                 | seats × 1 000         |
+| price (tiyin)        | fare total (quote + paid waiting)                                                                                     | booking price         |
+| VAT                  | `vat_percent`, included (0 by default)                                                                                | same                  |
+| discount (tiyin)     | a promo code's or the invitation's discount the platform paid                                                         | 0                     |
+| other (tiyin)        | ride credit ("bonus") the platform paid                                                                               | 0                     |
+| cash / card (tiyin)  | price − discount − other: cash rides all cash; card rides the prepaid (discounted) fare as card, paid waiting as cash | all cash              |
+| commission info      | driver's PINFL                                                                                                        | driver's PINFL        |
+
+**Rider discounts** (decision, to confirm with the tax adviser): the price stays the full fare,
+which is the driver's turnover (the platform compensates the driver: `promo_compensation` or
+the full `card_fare`), so the 1% withholding and the commission are on the full fare. What the
+rider did not pay is the platform's marketing cost, shown on the receipt as the OFD's item
+discount (promo) and "other" payment (bonus credit); cash + card equal what the rider paid.
 
 ### What we need from Soliq (and an OFD operator) to switch it on
 

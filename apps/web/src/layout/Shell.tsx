@@ -1,4 +1,5 @@
 import {
+  BadgePercent,
   Bell,
   BellOff,
   BusFront,
@@ -77,6 +78,7 @@ const NAV: { title: string; items: NavItem[] }[] = [
       { to: '/payments', label: 'To‘lovlar', icon: <Wallet size={18} /> },
       { to: '/taxes', label: 'Soliq hisoboti', icon: <Receipt size={18} /> },
       { to: '/fiscal', label: 'Fiskal cheklar', icon: <ScrollText size={18} /> },
+      { to: '/promos', label: 'Promokodlar', icon: <BadgePercent size={18} /> },
     ],
   },
   {

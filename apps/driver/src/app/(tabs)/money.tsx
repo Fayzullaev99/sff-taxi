@@ -201,8 +201,18 @@ export default function Money() {
             ) : null}
             <Row label="Yo‘lovchilar to‘lagan" value={som(e.fares)} />
             <Row label="Shundan naqd" value={som(e.cash)} />
-            {e.fares > e.cash ? (
-              <Row label="Kartada (balansingizga)" value={som(e.fares - e.cash)} />
+            {e.fares - e.cash - (e.promoCompensation ?? 0) > 0 ? (
+              <Row
+                label="Kartada (balansingizga)"
+                value={som(e.fares - e.cash - (e.promoCompensation ?? 0))}
+              />
+            ) : null}
+            {(e.promoCompensation ?? 0) > 0 ? (
+              <Row
+                label="Bonus kompensatsiya (balansingizga)"
+                value={som(e.promoCompensation!)}
+                tone="success"
+              />
             ) : null}
             <Row label="Platforma komissiyasi" value={som(-e.commission)} />
             <Row label={`Soliq ${billing.taxPercent}% (siz uchun to‘landi)`} value={som(-e.tax)} />

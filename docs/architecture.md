@@ -230,6 +230,47 @@ public, so it is only sanity-checked; verifying it against the Ministry of Trans
 - **Minimum balance** (default −10 000): below it a driver cannot start a shift nor get offers.
 - **Earnings**: per day/week, fares, cash collected, commission, tax, net.
 
+### Rider discounts: promo codes, "Do'stni taklif qil", ride credit
+
+`src/lib/promo.ts` (pure, tested), `src/modules/promos` (I/O, locking), migration 0021.
+
+- **Promo codes** are made by operators (`admin/promos`): a percent (capped) or a fixed
+  amount, a minimum fare, valid from/until, a total and a per-rider limit, first ride only,
+  services, classes, a city, on/off, a description riders see. Codes are upper-case; riders
+  type them in any case into one box (profile or order screen), which also takes a friend's
+  invitation code. A saved code is applied by the quote: per class the best one (or the
+  invitation's welcome discount), with the reason when it does not fit (class, service,
+  minimum fare). Wrong codes count against 10 per hour.
+- **Locked at order, counted on completion**: the order sends the `promoId` the quote showed;
+  the code's row is locked (`FOR UPDATE`) while its uses are counted, so however many riders
+  order at once a limit is never overused (a concurrency test orders three rides for the last
+  use: one wins, two get 409 "Promokodning limiti tugagan"). The discount is reserved in
+  `ride_discounts` (it counts against the limits at once), redeemed when the ride completes and
+  released when it is cancelled (the use comes back, spent credit is credited back). A code
+  that stopped applying between the quote and the order is refused (409 with `reason`), never
+  silently charged in full. Not for rides for later, shared rides or phone orders.
+- **Referrals**: every rider has a personal code (6 unambiguous characters) and a share text
+  with the deep link `sfftaxi://invite/CODE` and the web page (`invite_url` setting). A new
+  rider enters it before the first completed ride, once per phone (account) and once per
+  device (the app's install id); the referrer's own phone (an install that opened the
+  referrer's invitation card) is refused. The invitee gets the welcome discount (50% up to
+  10 000 on the first ride by default); the referrer gets ride credit (10 000) after the
+  invitee's first completed ride, at most `monthly_reward_cap` times per Tashkent month
+  (beyond it the referral is `capped`, no reward). Operators list and revoke referrals (the
+  reward is taken back from the credit that is left).
+- **Ride credit** is an append-only ledger per rider (`rider_credits`, balance = sum). It is
+  spent automatically after the promo, at most `credit_max_percent` (50%) of the fare; the
+  rider can switch it off on the order screen. The rider always pays at least
+  `min_rider_pays` (1 000): credit gives way first.
+- **Who pays**: the driver always earns the full fare. A cash ride: the rider hands over the
+  fare less the discount (`collectCash` says so) and the platform credits the discount to the
+  driver's balance on completion (`promo_compensation`, once per ride). A card ride: the card is
+  charged the discounted amount and the driver is credited the full fare (`card_fare`). The
+  commission, the 1% tax and its withholding row are computed on the full fare; the fiscal
+  receipt shows the full price with the promo as a discount and the credit as "other"
+  ([fiscal-and-licence.md](fiscal-and-licence.md)). Owed cancellation fees are collected on top
+  as before.
+
 ## 9. Safety
 
 - **Ratings** both ways, once per side per completed ride, within 7 days; driver stars feed the
@@ -328,10 +369,9 @@ Backend backlog:
 
 - **Legal integrations switched on**: the OFD provider and the Ministry of Transport registry
   (the adapters are ready; [fiscal-and-licence.md](fiscal-and-licence.md) lists what is needed).
-- Promo codes, masked calls
-  (a telephony provider's number masking; today riders and drivers see each other's phones only
-  within a ride or a booking), tips by card, owed fees of card riders and late seat cancellations,
-  automatic payouts.
+- Masked calls (a telephony provider's number masking; today riders and drivers see each
+  other's phones only within a ride or a booking), owed fees of card riders and late seat
+  cancellations, automatic payouts.
 - The shared driver pool with SFF Eats (A9); a load test on the production host with two API
   replicas (the laptop run and its fixes: [audit.md](audit.md) "Load test").
 - Deployment in a UZ data centre: [deploy.md](deploy.md).

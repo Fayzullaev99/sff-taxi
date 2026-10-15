@@ -299,6 +299,8 @@ export const LEDGER_KINDS: Record<LedgerKind, string> = {
   payout: 'Pul o‘tkazildi',
   cancel_fee: 'Bekor qilish to‘lovi',
   cancel_fee_collected: 'Olingan qarz (boshqa haydovchiga)',
+  deposit: 'Depozit (yo‘lovchi kech bekor qildi)',
+  promo_compensation: 'Bonus kompensatsiya (yo‘lovchi chegirmasi)',
 };
 
 export const OFFER_STATUS: Record<RideOffer['status'], string> = {

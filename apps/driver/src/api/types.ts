@@ -340,8 +340,22 @@ export interface DriverRide {
     noShows: number;
   };
   earnings: RideEarnings | null;
-  /** Cash to take: (cash ride ? fare : 0) + paid waiting + owed fees. */
+  /** Cash to take: (cash ride ? fare : 0) + paid waiting + owed fees, less the rider's discount. */
   collectCash?: number;
+  /**
+   * The rider's promo code / invitation discount and ride credit. The platform pays it: on a
+   * cash ride it is credited to the balance (compensation); a card ride's full fare is credited.
+   */
+  discount?: RideDiscount | null;
+}
+
+export interface RideDiscount {
+  amount: number;
+  promo: { id: string; source: 'code' | 'referral'; code: string; amount: number } | null;
+  credit: number;
+  /** Credited to the balance on completion ("bonus kompensatsiya"): cash rides. */
+  compensation: number;
+  status: 'reserved' | 'redeemed' | 'released';
 }
 
 export interface Page<T> {
@@ -360,7 +374,9 @@ export interface LedgerEntry {
     | 'card_fare'
     | 'payout'
     | 'cancel_fee'
-    | 'cancel_fee_collected';
+    | 'cancel_fee_collected'
+    | 'deposit'
+    | 'promo_compensation';
   amount: number;
   rideId: string | null;
   note: string | null;
@@ -393,6 +409,8 @@ export interface Earnings {
   intercityBookings?: number;
   fares: number;
   cash: number;
+  /** Riders' discounts the platform paid onto the balance (cash rides). */
+  promoCompensation?: number;
   commission: number;
   tax: number;
   net: number;

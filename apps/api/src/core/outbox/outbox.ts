@@ -41,7 +41,9 @@ export type OutboxTopic =
   /** A driver's licence card was checked (by an operator or the registry). { driverId, result } */
   | 'driver.licence_checked'
   /** A shared ride's price changed: another rider joined or left the car. { rideId, cause, discount, pays } */
-  | 'ride.pool_changed';
+  | 'ride.pool_changed'
+  /** An invitee's first completed ride rewarded the referrer's ride credit. { referralId, referrerId, amount } */
+  | 'promo.referral_rewarded';
 
 /**
  * Records an event in the caller's transaction: it is delivered by the worker

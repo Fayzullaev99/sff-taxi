@@ -138,6 +138,8 @@ export interface CashRide {
   };
   /** The API's figure: (cash ride ? fare : 0) + paid waiting + owed fees. */
   collectCash?: number | null;
+  /** The rider's promo / bonus discount: on a cash ride the platform pays it to the balance. */
+  discount?: { compensation: number } | null;
 }
 
 export interface CashBreakdown {
@@ -150,6 +152,8 @@ export interface CashBreakdown {
   owedFee: number;
   /** A shared ride's discount off the fare (cash rides). */
   discount: number;
+  /** The rider's promo / bonus discount the platform pays onto the balance (cash rides). */
+  bonus: number;
 }
 
 /**
@@ -162,16 +166,22 @@ export function cashBreakdown(ride: CashRide, liveWaiting?: number): CashBreakdo
   const waiting = liveWaiting ?? ride.fare.waiting;
   const fare = ride.paymentMethod === 'card' ? 0 : ride.fare.quoted;
   const discount = fare > 0 ? Math.max(0, ride.fare.poolDiscount ?? 0) : 0;
+  const bonus = Math.max(0, ride.discount?.compensation ?? 0);
   if (typeof ride.collectCash === 'number' && Number.isFinite(ride.collectCash)) {
     const total = Math.max(0, ride.collectCash + (waiting - ride.fare.waiting));
-    return { total, fare, waiting, owedFee, discount };
+    return { total, fare, waiting, owedFee, discount, bonus };
   }
   const base = cashToCollect(ride.paymentMethod, {
     ...ride.fare,
     waiting,
     total: liveWaiting === undefined ? ride.fare.total : null,
   });
-  return { total: base + owedFee, fare, waiting, owedFee, discount };
+  return { total: Math.max(0, base + owedFee - bonus), fare, waiting, owedFee, discount, bonus };
+}
+
+/** "Yo‘lovchi bonusi 1 400 so‘m — SFF balansingizga to‘laydi", or null without one. */
+export function bonusNote(bonus: number): string | null {
+  return bonus > 0 ? `Yo‘lovchi bonusi ${som(bonus)} — SFF balansingizga to‘laydi` : null;
 }
 
 /** "shundan 3 000 so‘m — …" under the big number, or null when nothing is owed. */
@@ -189,6 +199,7 @@ export function cashPartsText(cash: CashBreakdown): string | null {
   const parts: string[] = [];
   if (cash.fare > 0) parts.push(`Narx ${som(cash.fare)}`);
   if (cash.discount > 0) parts.push(`− hamroh chegirmasi ${som(cash.discount)}`);
+  if (cash.bonus > 0) parts.push(`− yo‘lovchi bonusi ${som(cash.bonus)}`);
   if (cash.waiting > 0) parts.push(`+ kutish ${som(cash.waiting)}`);
   if (cash.owedFee > 0) parts.push(`+ oldingi safar ${som(cash.owedFee)}`);
   if (parts.length < 2) return null;

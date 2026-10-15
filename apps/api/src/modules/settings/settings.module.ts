@@ -180,6 +180,47 @@ export const DEFAULT_FISCAL: FiscalRules = {
   vat_percent: 0,
 };
 
+/**
+ * Rider discounts (src/lib/promo.ts, src/modules/promos): the referral programme
+ * ("Do'stni taklif qil") and how ride credit is spent. Promo codes themselves are rows
+ * operators manage (admin/promos).
+ */
+export const PromoRules = z
+  .object({
+    referral_enabled: z.boolean(),
+    /** The invitee's welcome discount on their first ride(s). */
+    invitee_discount_percent: z.number().int().min(0).max(100),
+    invitee_max_discount: soum,
+    invitee_rides: z.number().int().min(1).max(10),
+    /** Ride credit the referrer gets after the invitee's first completed ride. */
+    referrer_bonus: soum,
+    /** Rewarded referrals per referrer per Tashkent month (0 = no limit). */
+    monthly_reward_cap: z.number().int().min(0).max(1000),
+    /** Ride credit pays at most this share of a fare. */
+    credit_max_percent: z.number().int().min(0).max(100),
+    /** Whatever the discounts, the rider pays at least this much for the trip. */
+    min_rider_pays: z.number().int().min(100).max(100_000),
+    /** The invitation's web page (for phones without the app): the code is appended. */
+    invite_url: z.url({ protocol: /^https$/ }).max(200),
+  })
+  .refine((r) => r.invitee_max_discount > 0 || r.invitee_discount_percent === 0, {
+    message: 'Chegirma foizi bo‘lsa, eng ko‘p summa ham bo‘lishi kerak',
+    path: ['invitee_max_discount'],
+  });
+export type PromoRules = z.infer<typeof PromoRules>;
+
+export const DEFAULT_PROMO: PromoRules = {
+  referral_enabled: true,
+  invitee_discount_percent: 50,
+  invitee_max_discount: 10_000,
+  invitee_rides: 1,
+  referrer_bonus: 10_000,
+  monthly_reward_cap: 10,
+  credit_max_percent: 50,
+  min_rider_pays: 1000,
+  invite_url: 'https://taxi.sff.uz/invite',
+};
+
 const RULES = {
   tariff: { key: 'tariff', schema: Tariff, fallback: DEFAULT_TARIFF },
   dispatch: { key: 'dispatch', schema: DispatchRules, fallback: DEFAULT_DISPATCH },
@@ -189,6 +230,7 @@ const RULES = {
   pool: { key: 'pool', schema: PoolRules, fallback: DEFAULT_POOL },
   booking: { key: 'booking', schema: BookingRules, fallback: DEFAULT_BOOKING },
   cargo: { key: 'cargo', schema: CargoRules, fallback: DEFAULT_CARGO },
+  promo: { key: 'promo', schema: PromoRules, fallback: DEFAULT_PROMO },
 } as const;
 type RuleName = keyof typeof RULES;
 type RuleValue<N extends RuleName> = z.infer<(typeof RULES)[N]['schema']>;
@@ -267,6 +309,10 @@ export class SettingsService {
 
   cargo(db?: Db) {
     return this.get('cargo', db);
+  }
+
+  promo(db?: Db) {
+    return this.get('promo', db);
   }
 }
 
@@ -357,6 +403,17 @@ export class SettingsController {
   @Put('cargo')
   setCargo(@Body(new ZodPipe(CargoRules)) body: CargoRules) {
     return this.settings.set('cargo', body);
+  }
+
+  /** Rider discounts: the referral programme and how ride credit is spent (src/lib/promo.ts). */
+  @Get('promo')
+  promo() {
+    return this.settings.promo();
+  }
+
+  @Put('promo')
+  setPromo(@Body(new ZodPipe(PromoRules)) body: PromoRules) {
+    return this.settings.set('promo', body);
   }
 }
 

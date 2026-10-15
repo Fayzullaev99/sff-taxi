@@ -15,6 +15,7 @@ import {
   useIsSignedIn,
   useSessionStatus,
 } from '../api/session';
+import { pendingInvite } from '../lib/pending-invite';
 import { PushManager } from '../notifications/PushManager';
 import { resetDraft } from '../trip/draft';
 import { clearLegacyPlaces, migrateLegacyPlaces } from '../trip/places-store';
@@ -65,6 +66,7 @@ export default function RootLayout() {
               <AfterStart>
                 <PlacesMigration />
                 <PushManager />
+                <PendingInvite />
               </AfterStart>
               <UpdateRequired />
               <RideNoticeBanner />
@@ -111,6 +113,23 @@ function SessionGuard() {
   return null;
 }
 
+/** An invitation link opened before the sign-in: offered again once signed in. */
+function PendingInvite() {
+  const signedIn = useIsSignedIn();
+  const segments = useSegments();
+  const onInvite = segments[0] === 'invite';
+  useEffect(() => {
+    if (!signedIn || onInvite) return;
+    void pendingInvite.get().then((code) => {
+      if (!code) return;
+      // the invite screen takes it from here (it forgets the kept code)
+      void pendingInvite.set(null);
+      router.push({ pathname: '/invite/[code]', params: { code } });
+    });
+  }, [signedIn, onInvite]);
+  return null;
+}
+
 /** Home and work kept on the phone by older versions move to the account, once. */
 function PlacesMigration() {
   const signedIn = useIsSignedIn();
@@ -146,6 +165,8 @@ function Screens() {
       <Stack.Screen name="scheduled" options={{ title: 'Oldindan buyurtmalar' }} />
       <Stack.Screen name="profile" options={{ title: 'Profil va sozlamalar' }} />
       <Stack.Screen name="places" options={{ title: 'Saqlangan manzillar' }} />
+      <Stack.Screen name="promos" options={{ title: 'Promokod va bonuslar' }} />
+      <Stack.Screen name="invite/[code]" options={{ title: 'Taklif' }} />
       <Stack.Screen name="support/index" options={{ title: 'Murojaatlarim' }} />
       <Stack.Screen name="support/new" options={{ title: 'Murojaat' }} />
       <Stack.Screen name="support/[id]" options={{ title: 'Murojaat' }} />

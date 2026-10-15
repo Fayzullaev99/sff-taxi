@@ -126,7 +126,9 @@ export type LedgerKind =
   /** The owed fees a driver collected in cash on top of a fare (debited: not theirs). */
   | 'cancel_fee_collected'
   /** A deposit the rider lost by cancelling late: the waiting driver's compensation. */
-  | 'deposit';
+  | 'deposit'
+  /** A cash ride's rider discount (promo, credit), paid by the platform to the driver. */
+  | 'promo_compensation';
 export type RideClassColumn = 'economy' | 'comfort';
 /** Cargo classes (src/lib/cargo.ts): small (Damas/Labo), medium (Gazel/Porter). */
 export type CargoClassColumn = 'cargo_s' | 'cargo_m';
@@ -819,6 +821,101 @@ export interface RiderHiddenPlacesTable {
   created_at: Timestamp;
 }
 
+export type PromoKind = 'percent' | 'fixed';
+
+export interface PromoCodesTable {
+  id: string;
+  /** Upper-case; riders type it in any case. */
+  code: string;
+  kind: PromoKind;
+  /** Percent (1-100) or so'm. */
+  value: number;
+  max_discount: number | null;
+  min_fare: Generated<number>;
+  valid_from: Timestamp | null;
+  valid_until: Timestamp | null;
+  usage_limit: number | null;
+  per_rider_limit: Generated<number>;
+  first_ride_only: Generated<boolean>;
+  /** Empty: every service / class. */
+  services: Generated<string[]>;
+  classes: Generated<string[]>;
+  city_id: string | null;
+  is_active: Generated<boolean>;
+  description: string | null;
+  created_by: string | null;
+  created_at: CreatedAt;
+  updated_at: Timestamp;
+}
+
+export interface RiderPromosTable {
+  user_id: string;
+  promo_id: string;
+  added_at: Generated<Date>;
+}
+
+export interface ReferralCodesTable {
+  user_id: string;
+  code: string;
+  created_at: CreatedAt;
+}
+
+export interface ReferralDevicesTable {
+  user_id: string;
+  device_id: string;
+  seen_at: Generated<Date>;
+}
+
+export type ReferralStatus = 'pending' | 'rewarded' | 'capped' | 'revoked';
+
+export interface ReferralsTable {
+  id: string;
+  referrer_id: string;
+  invitee_id: string;
+  code: string;
+  device_id: string | null;
+  status: Generated<ReferralStatus>;
+  reward_amount: Generated<number>;
+  reward_ride_id: string | null;
+  rewarded_at: Timestamp | null;
+  revoked_at: Timestamp | null;
+  revoked_by: string | null;
+  revoke_note: string | null;
+  created_at: CreatedAt;
+}
+
+export type RideDiscountStatus = 'reserved' | 'redeemed' | 'released';
+
+export interface RideDiscountsTable {
+  ride_id: string;
+  rider_id: string;
+  promo_id: string | null;
+  referral_id: string | null;
+  /** A promo code's or the referral welcome discount. */
+  promo_amount: Generated<number>;
+  /** Ride credit spent on the ride. */
+  credit_amount: Generated<number>;
+  status: Generated<RideDiscountStatus>;
+  created_at: CreatedAt;
+  redeemed_at: Timestamp | null;
+  released_at: Timestamp | null;
+}
+
+export type RiderCreditKind = 'referral_bonus' | 'ride' | 'ride_release' | 'revoke' | 'adjustment';
+
+export interface RiderCreditsTable {
+  id: string;
+  user_id: string;
+  kind: RiderCreditKind;
+  /** Signed so'm: credits positive, spending negative. */
+  amount: number;
+  ride_id: string | null;
+  referral_id: string | null;
+  note: string | null;
+  created_by: string | null;
+  created_at: CreatedAt;
+}
+
 export interface DB {
   users: UsersTable;
   admins: AdminsTable;
@@ -859,4 +956,11 @@ export interface DB {
   complaints: ComplaintsTable;
   complaint_messages: ComplaintMessagesTable;
   rider_hidden_places: RiderHiddenPlacesTable;
+  promo_codes: PromoCodesTable;
+  rider_promos: RiderPromosTable;
+  referral_codes: ReferralCodesTable;
+  referral_devices: ReferralDevicesTable;
+  referrals: ReferralsTable;
+  ride_discounts: RideDiscountsTable;
+  rider_credits: RiderCreditsTable;
 }

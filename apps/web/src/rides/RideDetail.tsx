@@ -39,6 +39,7 @@ import {
   time,
   timeSec,
 } from '../lib/format';
+import { discountText } from '../lib/promos';
 import {
   canAssign,
   canCancel,
@@ -503,6 +504,15 @@ export function RideDetail({
             <div>
               <dt>Hamroh chegirmasi</dt>
               <dd>−{som(r.fare.poolDiscount!)}</dd>
+            </div>
+          )}
+          {r.discount && r.discount.status !== 'released' && (
+            <div>
+              <dt>Yo‘lovchi chegirmasi (platforma to‘laydi)</dt>
+              <dd>
+                −{som(r.discount.total)}
+                <div className="muted small">{discountText(r.discount)}</div>
+              </dd>
             </div>
           )}
           {r.fare.pays !== undefined && r.fare.pays !== r.fare.quoted && (

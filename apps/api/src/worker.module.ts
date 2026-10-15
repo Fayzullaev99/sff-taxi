@@ -12,6 +12,7 @@ import { RedisModule } from './core/redis/redis.module.js';
 import { SmsModule } from './core/sms/sms.module.js';
 import { DispatchHandler } from './modules/dispatch/dispatch.handler.js';
 import { DispatchModule } from './modules/dispatch/dispatch.module.js';
+import { EngagementNotificationsHandler } from './modules/notifications/engagement-notifications.handler.js';
 import { IntercityNotificationsHandler } from './modules/notifications/intercity-notifications.handler.js';
 import { NotificationsHandler } from './modules/notifications/notifications.handler.js';
 import { NotificationsWorkerModule } from './modules/notifications/notifications.module.js';
@@ -63,6 +64,7 @@ import { WorkerRuntime } from './worker-runtime.js';
         RealtimePublisher,
         NotificationsHandler,
         IntercityNotificationsHandler,
+        EngagementNotificationsHandler,
         FiscalHandler,
         LicenceHandler,
         BlockedDriverHandler,
