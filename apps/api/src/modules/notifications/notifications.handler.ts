@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import { ENV, type Env } from '../../config/env.js';
 import { Database } from '../../core/db/database.js';
 import type { OutboxEvent, OutboxHandler } from '../../core/outbox/handler.js';
@@ -15,6 +16,8 @@ import { Notifier } from './notifier.js';
  *   top-up was paid, an appeal was answered;
  * - riders also: a card refund queued or made, an operator answered or closed a complaint;
  * - deliveries: the sender when the parcel is picked up, the recipient by SMS (car, driver);
+ * - rides ordered for someone else: the passenger by SMS (car, driver, the live share link,
+ *   the start code; arrival; a cancellation once a car was found);
  * - operators: an SMS for every SOS (the panel also shows it in realtime).
  */
 @Injectable()
@@ -163,6 +166,28 @@ export class NotificationsHandler implements OutboxHandler {
             text: sms.driverAssigned(ride.number, car, minutes, driver.phone),
           });
         }
+        if (ride.passenger_phone) {
+          const driver = await this.db.kysely
+            .selectFrom('users')
+            .select('phone')
+            .where('id', '=', ride.driver_id)
+            .executeTakeFirstOrThrow();
+          await this.notifier.sms({
+            key,
+            kind: 'passenger_assigned',
+            rideId,
+            userId: null,
+            phone: ride.passenger_phone,
+            text: sms.passengerAssigned(
+              ride.number,
+              car,
+              minutes,
+              driver.phone,
+              await this.shareUrl(ride.id),
+              ride.start_pin,
+            ),
+          });
+        }
         if (typeof previousDriverId === 'string') {
           await toDriver(previousDriverId, 'ride_taken_away', (l) =>
             push.rideTakenAway(l, ride.number),
@@ -180,6 +205,16 @@ export class NotificationsHandler implements OutboxHandler {
             rideId,
             userId: ride.rider_id,
             phone: ride.rider_phone,
+            text: sms.driverArrived(ride.number, car),
+          });
+        }
+        if (ride.passenger_phone) {
+          await this.notifier.sms({
+            key,
+            kind: 'passenger_arrived',
+            rideId,
+            userId: null,
+            phone: ride.passenger_phone,
             text: sms.driverArrived(ride.number, car),
           });
         }
@@ -234,6 +269,20 @@ export class NotificationsHandler implements OutboxHandler {
             });
           }
         }
+        // the passenger heard about the car: they hear it is off too (whoever cancelled)
+        if (ride.passenger_phone && ride.vehicle) {
+          await this.notifier.sms({
+            key,
+            kind: 'passenger_cancelled',
+            rideId,
+            userId: null,
+            phone: ride.passenger_phone,
+            text: sms.cancelled(
+              ride.number,
+              ride.cancelled_by === 'rider' ? null : ride.cancel_reason,
+            ),
+          });
+        }
         if (ride.driver_id && ride.cancelled_by !== 'driver') {
           await toDriver(ride.driver_id, 'rider_cancelled', (l) =>
             push.riderCancelled(l, ride.number),
@@ -241,6 +290,25 @@ export class NotificationsHandler implements OutboxHandler {
         }
         return;
     }
+  }
+
+  /**
+   * The ride's share link for its passenger: the token is made here when the rider has not
+   * shared the ride yet (safe to repeat: only an empty token is set).
+   */
+  private async shareUrl(rideId: string): Promise<string> {
+    await this.db.kysely
+      .updateTable('rides')
+      .set({ share_token: randomBytes(18).toString('base64url') })
+      .where('id', '=', rideId)
+      .where('share_token', 'is', null)
+      .execute();
+    const { share_token } = await this.db.kysely
+      .selectFrom('rides')
+      .select('share_token')
+      .where('id', '=', rideId)
+      .executeTakeFirstOrThrow();
+    return `${this.env.SHARE_BASE_URL.replace(/\/$/, '')}/t/${share_token}`;
   }
 
   private async offer(key: string, offerId: string) {

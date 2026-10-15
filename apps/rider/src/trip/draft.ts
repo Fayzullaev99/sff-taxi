@@ -55,6 +55,10 @@ export interface TripDraft {
   moveMap: { lat: number; lng: number; key: number } | null;
   /** Intermediate stops in order ("Oraliq manzil", up to MAX_STOPS), fixed with the order. */
   stops: TripPoint[];
+  /** "Boshqa odam uchun": someone else rides (taxi); their name and phone as typed. */
+  forOther: boolean;
+  passengerName: string;
+  passengerPhone: string;
 }
 
 /** Intermediate stops a ride may have (the API's MAX_STOPS). */
@@ -85,6 +89,9 @@ const INITIAL: TripDraft = {
   recipientPhone: '',
   moveMap: null,
   stops: [],
+  forOther: false,
+  passengerName: '',
+  passengerPhone: '',
 };
 
 let draft: TripDraft = INITIAL;
@@ -131,6 +138,9 @@ export function resetAfterOrder(): void {
     recipientPhone: '',
     moveMap: null,
     stops: [],
+    forOther: false,
+    passengerName: '',
+    passengerPhone: '',
   });
 }
 

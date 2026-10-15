@@ -437,6 +437,9 @@ export interface RidesTable {
   recipient_phone: string | null;
   /** Intermediate stops between the pickup and the drop-off, in order (at most 2). */
   stops: DefaultJson<RideStop[]>;
+  /** Ordered for someone else: who rides (the driver calls them, they get an SMS). */
+  passenger_name: string | null;
+  passenger_phone: string | null;
   requested_at: Generated<Date>;
   assigned_at: Timestamp | null;
   arrived_at: Timestamp | null;

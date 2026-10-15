@@ -57,7 +57,7 @@ import type { MapLayers, MarkerSpec } from '../map/adapter';
 import { GeoMap, useGeoConfig } from '../map/GeoMap';
 import { AddressSearch, addressLine, cityLayers, useDebounced, useReverse } from '../map/places';
 import { WaiveFeeDialog } from '../rides/WaiveFeeDialog';
-import { Badge, Button, Field, PageHeader, PhoneInput, Segmented } from '../ui/controls';
+import { Badge, Button, Field, PageHeader, PhoneInput, Segmented, Toggle } from '../ui/controls';
 import { ErrorBox, Loading, Spinner, useToast } from '../ui/feedback';
 
 /** The pickup, the destination, or an intermediate stop (0, 1). */
@@ -362,6 +362,10 @@ export default function PhoneOrder() {
   const [rideClass, setRideClass] = useState<RideClass>('economy');
   const [options, setOptions] = useState<RideOption[]>([]);
   const [comment, setComment] = useState('');
+  // the caller orders for someone else: they get the SMS with the car, the driver calls them
+  const [forOther, setForOther] = useState(false);
+  const [passengerName, setPassengerName] = useState('');
+  const [passengerPhone, setPassengerPhone] = useState('');
   // the seating rule: one in front, at most two in the back
   const [passengers, setPassengers] = useState(1);
   const [later, setLater] = useState(false);
@@ -534,6 +538,14 @@ export default function PhoneOrder() {
           class: rideClass,
           options,
           comment: comment.trim() || null,
+          ...(forOther && passengerOk
+            ? {
+                passenger: {
+                  name: passengerName.trim(),
+                  phone: normalizePhone(passengerPhone),
+                },
+              }
+            : {}),
           passengers,
           // the price read out to the caller is the price of the ride
           // a quote priced for later (scheduledFor) makes this a ride for later
@@ -561,6 +573,11 @@ export default function PhoneOrder() {
       }
     },
   });
+  // the passenger's phone: a valid Uzbek number that is not the caller's own
+  const passengerOk =
+    passengerName.trim().length > 0 &&
+    isUzPhone(passengerPhone) &&
+    normalizePhone(passengerPhone) !== normalized;
   const conflictRideId =
     order.error instanceof ApiError && order.error.status === 409
       ? ((order.error.body as { rideId?: string } | null)?.rideId ?? null)
@@ -572,6 +589,13 @@ export default function PhoneOrder() {
   if (!normalized) problems.push('Mijozning telefon raqamini kiriting');
   if (!pickup.point) problems.push('Olib ketish joyini belgilang');
   if (!dropoff.point) problems.push('Borish manzilini belgilang');
+  if (forOther && !passengerOk) {
+    problems.push(
+      passengerName.trim()
+        ? 'Yo‘lovchining telefonini to‘g‘ri kiriting (mijozning o‘z raqami emas)'
+        : 'Yo‘lovchining ismini yozing',
+    );
+  }
   if (!stopsReady) problems.push('Oraliq manzilni xaritada belgilang yoki olib tashlang');
   // an unfinished ride blocks a ride now, not one for later (nor the other way round)
   if (openRide && !later) {
@@ -607,6 +631,9 @@ export default function PhoneOrder() {
     setRideClass('economy');
     setOptions([]);
     setComment('');
+    setForOther(false);
+    setPassengerName('');
+    setPassengerPhone('');
     setPassengers(1);
     setLater(false);
     setLaterAt('');
@@ -841,6 +868,36 @@ export default function PhoneOrder() {
 
           <section className="card">
             <h2>Tarif va qo‘shimchalar</h2>
+            <Toggle
+              checked={forOther}
+              onChange={setForOther}
+              label="Boshqa odam uchun (yo‘lovchi boshqa, SMS unga ham boradi)"
+            />
+            {forOther && (
+              <div className="grid-2">
+                <Field label="Yo‘lovchining ismi">
+                  {(p) => (
+                    <input
+                      {...p}
+                      value={passengerName}
+                      maxLength={100}
+                      autoComplete="off"
+                      onChange={(e) => setPassengerName(e.target.value)}
+                    />
+                  )}
+                </Field>
+                <Field
+                  label="Yo‘lovchining telefoni"
+                  error={
+                    submitted && passengerPhone && !passengerOk
+                      ? 'O‘zbekiston raqami, mijozning o‘zinikidan boshqa'
+                      : null
+                  }
+                >
+                  {(p) => <PhoneInput {...p} value={passengerPhone} onChange={setPassengerPhone} />}
+                </Field>
+              </div>
+            )}
             <Segmented
               label="Tarif"
               value={rideClass}

@@ -383,6 +383,8 @@ export interface RideBase {
   };
   /** Intermediate stops in order (older APIs: absent). */
   stops?: RideStop[];
+  /** Ordered for someone else ("Boshqa odam uchun"): who rides (null: the rider). */
+  passenger?: { name: string | null; phone: string | null } | null;
   /** Wave 4 (docs/shared-rides.md): optional so older API builds still render. */
   service?: RideService;
   /** Cargo rides: loaders, the customer in the cab, the load (null otherwise). */

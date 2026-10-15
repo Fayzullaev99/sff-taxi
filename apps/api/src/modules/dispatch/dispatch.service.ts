@@ -576,6 +576,7 @@ export class DispatchService {
         'r.cargo',
         'r.parcel',
         'r.stops',
+        'r.passenger_name as passengerName',
         'o.detour_s as detourS',
         'o.pool_plan as poolPlan',
         'u.rider_rating_sum',
@@ -625,6 +626,8 @@ export class DispatchService {
           lat: s.lat,
           lng: s.lng,
         })),
+        // ordered for someone else: who rides (the phone comes once the ride is taken)
+        passengerName: r.passengerName,
         riderRating: Math.round(((r.rider_rating_sum + 24) / (r.rider_rating_count + 5)) * 10) / 10,
       },
     }));

@@ -5,6 +5,7 @@ import { useSupport } from '../api/support';
 import type { Ride } from '../api/types';
 import { canComplain } from '../lib/complaints';
 import { cancellationFeeNote, fareLines, OWED_FEE_LABEL, stopStateText } from '../lib/fare';
+import { passengerLine } from '../lib/passenger';
 import { POOL_DISCOUNT_LABEL } from '../lib/sharing';
 import { classLabel, isCargoClass, loadLine, SERVICE_NAMES, serviceTitle } from '../lib/services';
 import { driverGivenName, formatDateTime, formatMoney, placeLine } from '../lib/format';
@@ -118,6 +119,9 @@ export function RideSummary({ ride }: { ride: Ride }) {
           />
         ))}
         <KeyValue label="Qayerga" value={placeLine(ride.dropoff)} />
+        {ride.passenger ? (
+          <KeyValue label="Kim uchun" value={passengerLine(ride.passenger) ?? ''} />
+        ) : null}
         {ride.scheduledFor ? (
           <KeyValue label="Oldindan, vaqti" value={formatDateTime(ride.scheduledFor)} />
         ) : null}

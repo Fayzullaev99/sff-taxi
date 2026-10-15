@@ -520,6 +520,8 @@ export interface RideSummary {
   };
   /** Intermediate stops in order (older APIs: absent). */
   stops?: RideStop[];
+  /** Ordered for someone else ("Boshqa odam uchun"): who rides; null: the rider. */
+  passenger?: { name: string | null; phone: string | null } | null;
   /** taxi, cargo or delivery (older APIs: absent = taxi). */
   service?: RideService;
   /** A cargo ride's load. */
@@ -605,6 +607,15 @@ export interface OrderInput {
   recipient?: { name: string; phone: string } | null;
   /** The quote's intermediate stops in words, in order. */
   stops?: { address: string | null; landmark: string | null }[];
+  /** Ordered for someone else: who rides (the driver calls them, they get an SMS). */
+  passenger?: { name: string; phone: string } | null;
+}
+
+/** GET /rides/passengers: people the rider ordered for lately, newest first. */
+export interface RecentPassenger {
+  name: string;
+  phone: string;
+  lastRideAt: string;
 }
 
 export interface ShareLink {

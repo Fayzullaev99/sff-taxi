@@ -159,6 +159,8 @@ export interface OrderInput {
   fareMode?: 'car' | 'seat';
   /** The quote's intermediate stops in words, in order (the points are the quote's). */
   stops?: { address: string | null; landmark: string | null }[];
+  /** Ordered for someone else: who rides (taxi rides only). */
+  passenger?: { name: string; phone: string } | null;
 }
 
 export interface PhoneOrderInput {
@@ -177,6 +179,8 @@ export interface PhoneOrderInput {
   passengers?: number;
   /** Intermediate stops: the quote's points (coordinates optional then) with their words. */
   stops?: (Partial<Point> & { address: string | null; landmark: string | null })[];
+  /** The caller orders for someone else: who rides (they get the SMS with the car). */
+  passenger?: { name: string; phone: string } | null;
 }
 
 const placeText = (p: { address: string | null; landmark: string | null }) => ({
@@ -795,6 +799,7 @@ export class RidesService {
       .where('id', '=', user.userId)
       .executeTakeFirstOrThrow();
     const how = await this.rideTerms(quote, input, rider.gender);
+    const passenger = forOther(input.passenger, rider.phone, quote.service);
     const deposit = quote.scheduled_for
       ? depositAmount(how.fare.total, await this.settings.booking())
       : 0;
@@ -848,6 +853,7 @@ export class RidesService {
         parcel: how.parcel,
         recipient: how.recipient,
         stops: rideStops(quote.stops, input.stops),
+        passenger,
       });
     });
     return { created: true, ride: await this.riderView(user, id) };
@@ -1114,6 +1120,7 @@ export class RidesService {
       };
     }
     assertPassengers(input.class, input.passengers ?? 1);
+    const passenger = forOther(input.passenger, input.riderPhone, 'taxi');
     const id = await this.db.transaction(async (trx) => {
       if (input.clientRequestId) {
         await sql`select pg_advisory_xact_lock(hashtext(${operator.userId + input.clientRequestId}))`.execute(
@@ -1166,6 +1173,7 @@ export class RidesService {
         scheduledFor: priced.scheduledFor,
         passengers: input.passengers ?? 1,
         stops: phoneStops,
+        passenger,
       }).then((rideId) => ({ id: rideId, created: true }));
     });
     return { created: id.created, ride: await this.adminView(id.id) };
@@ -1399,6 +1407,8 @@ export class RidesService {
       recipient?: { name: string; phone: string } | null;
       /** Intermediate stops in order. */
       stops?: RideStop[];
+      /** Ordered for someone else: who rides. */
+      passenger?: { name: string; phone: string } | null;
     },
   ): Promise<string> {
     const id = uuidv7();
@@ -1455,6 +1465,8 @@ export class RidesService {
         recipient_name: r.recipient?.name ?? null,
         recipient_phone: r.recipient?.phone ?? null,
         stops: JSON.stringify(r.stops ?? []),
+        passenger_name: r.passenger?.name ?? null,
+        passenger_phone: r.passenger?.phone ?? null,
         status,
         updated_at: new Date(),
       })
@@ -1470,6 +1482,7 @@ export class RidesService {
       ...(r.fareMode === 'seat' ? { fareMode: 'seat' } : {}),
       ...(r.service && r.service !== 'taxi' ? { service: r.service } : {}),
       ...(r.stops?.length ? { stops: r.stops.length } : {}),
+      ...(r.passenger ? { forOther: true } : {}),
     });
     // fees owed from cancelled cash rides are paid with this cash fare (a separate line)
     if (r.paymentMethod === 'cash') await this.attachOwedFees(trx, r.riderId, id);
@@ -2567,6 +2580,8 @@ export class RidesService {
     return {
       ...base,
       delivery: base.delivery && !live ? { ...base.delivery, recipientPhone: null } : base.delivery,
+      // the passenger of a ride ordered for someone else: the driver calls them
+      passenger: base.passenger && !live ? { ...base.passenger, phone: null } : base.passenger,
       rider: await this.riderCard(ride, live),
       earnings: this.earnings(ride),
       // what the driver takes from the rider in cash: the fare after the shared discount and
@@ -2738,6 +2753,10 @@ export class RidesService {
       },
       /** Intermediate stops in order: where, and when the car got there and drove on. */
       stops: ride.stops,
+      /** Ordered for someone else: who rides (null: the rider rides). */
+      passenger: ride.passenger_phone
+        ? { name: ride.passenger_name, phone: ride.passenger_phone }
+        : null,
       service: ride.service,
       passengers: ride.passengers,
       shareable: ride.shareable,
@@ -2880,6 +2899,23 @@ export class RidesService {
     };
   }
 
+  /**
+   * The people the rider ordered for lately (one per phone, the newest name), newest first:
+   * the order screen offers them again.
+   */
+  async recentPassengers(user: AuthUser) {
+    const rows = await sql<{ name: string; phone: string; last_ride_at: Date }>`
+      select distinct on (passenger_phone)
+             passenger_name as name, passenger_phone as phone, requested_at as last_ride_at, id
+      from rides
+      where rider_id = ${user.userId} and passenger_phone is not null
+      order by passenger_phone, id desc`.execute(this.db.kysely);
+    return rows.rows
+      .sort((a, b) => b.last_ride_at.getTime() - a.last_ride_at.getTime())
+      .slice(0, 10)
+      .map((r) => ({ name: r.name, phone: r.phone, lastRideAt: r.last_ride_at }));
+  }
+
   async riderCurrent(user: AuthUser) {
     const open = await this.db.kysely
       .selectFrom('rides')
@@ -2967,6 +3003,7 @@ export class RidesService {
         q.where((eb) =>
           eb.or([
             eb('rider_phone', 'like', containsPattern(filter.q!)),
+            eb('passenger_phone', 'like', containsPattern(filter.q!)),
             ...(/^\d+$/.test(filter.q!) ? [eb('number', '=', Number(filter.q))] : []),
           ]),
         ),
@@ -3058,6 +3095,8 @@ const LIST_COLUMNS = [
   'recipient_name',
   'recipient_phone',
   'stops',
+  'passenger_name',
+  'passenger_phone',
   'requested_at',
   'assigned_at',
   'arrived_at',
@@ -3093,6 +3132,27 @@ function quotedFare(fares: unknown, rideClass: RideClass): Fare {
     );
   }
   return fare;
+}
+
+/**
+ * Who rides when ordered for someone else: taxi rides only (a parcel has its recipient, a
+ * load its customer), and never the orderer's own phone (an order for oneself).
+ */
+function forOther(
+  passenger: { name: string; phone: string } | null | undefined,
+  ordererPhone: string,
+  service: RideService,
+): { name: string; phone: string } | null {
+  if (!passenger) return null;
+  if (service !== 'taxi') {
+    throw new BadRequestException('Boshqa odam uchun buyurtma faqat taksi uchun');
+  }
+  if (passenger.phone === ordererPhone) {
+    throw new BadRequestException(
+      'Bu sizning raqamingiz: o‘zingiz uchun buyurtmada yo‘lovchini ko‘rsatmang',
+    );
+  }
+  return passenger;
 }
 
 /** People one ride of the class may carry: 3 (one in front, two in the back), a minivan 6. */

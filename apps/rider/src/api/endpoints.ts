@@ -23,6 +23,7 @@ import type {
   PushDeviceInput,
   Quote,
   RatingInput,
+  RecentPassenger,
   RecentPlace,
   Ride,
   RideHistoryPage,
@@ -125,6 +126,8 @@ export const endpoints = {
       },
     }),
   scheduledRides: () => api.request<RideSummary[]>('/v1/rides/scheduled'),
+  /** People the rider ordered for lately ("Boshqa odam uchun"). */
+  recentPassengers: () => api.request<RecentPassenger[]>('/v1/rides/passengers'),
   order: (input: OrderInput) =>
     api.requestWithStatus<Ride>('/v1/rides', { method: 'POST', body: input }),
   currentRide: () => api.request<{ ride: Ride | null }>('/v1/rides/current'),

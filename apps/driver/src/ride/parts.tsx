@@ -201,6 +201,36 @@ export const StopList = memo(function StopList(props: {
   );
 });
 
+/**
+ * A ride ordered for someone else: the passenger is who gets in — the driver calls them
+ * (the person who ordered tracks and pays; their card is below).
+ */
+export const PassengerCard = memo(function PassengerCard(props: {
+  passenger: NonNullable<DriverRide['passenger']>;
+  ordererName: string | null;
+}) {
+  const { passenger } = props;
+  return (
+    <Card>
+      <View style={styles.riderRow}>
+        <View style={{ flex: 1 }}>
+          <Muted>Yo‘lovchi (boshqa odam uchun buyurtma)</Muted>
+          <Title>{passenger.name ?? 'Yo‘lovchi'}</Title>
+          <Muted>Buyurtmachi: {props.ordererName ?? 'mijoz'}</Muted>
+        </View>
+        {passenger.phone ? (
+          <Button
+            title="Qo‘ng‘iroq"
+            icon="call"
+            variant="secondary"
+            onPress={() => call(passenger.phone!)}
+          />
+        ) : null}
+      </View>
+    </Card>
+  );
+});
+
 /** The rider: name, rating, a big call button, a no-show warning. */
 export const RiderCard = memo(function RiderCard(props: {
   rider: NonNullable<DriverRide['rider']>;

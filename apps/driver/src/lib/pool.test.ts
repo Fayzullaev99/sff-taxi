@@ -85,6 +85,9 @@ describe('texts', () => {
       offerBadges({ passengers: 2, shareable: true, womenOnly: true }).map((b) => b.label),
     ).toEqual(['2 kishi', 'Hamroh', 'Ayol haydovchi so‘ralgan']);
     expect(offerBadges({ passengers: 2, fareMode: 'seat' })[0]!.label).toBe('O‘rindiq, 2 kishi');
+    // ordered for someone else: the offer's name, or the ride's passenger
+    expect(offerBadges({ passengerName: 'Onam' })[0]!.label).toBe('Boshqa odam uchun: Onam');
+    expect(offerBadges({ passenger: { name: null } })[0]!.label).toBe('Boshqa odam uchun');
   });
 
   it('along the way', () => {

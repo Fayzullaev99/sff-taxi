@@ -262,6 +262,8 @@ export interface Offer {
     parcel?: ParcelDetails | null;
     /** Intermediate stops in order (the fare already includes them). */
     stops?: Place[];
+    /** Ordered for someone else: who rides (their phone comes with the accepted ride). */
+    passengerName?: string | null;
   };
 }
 
@@ -338,6 +340,11 @@ export interface DriverRide {
   service?: 'taxi' | 'cargo' | 'delivery';
   /** Intermediate stops in order (older APIs: absent). */
   stops?: RideStop[];
+  /**
+   * Ordered for someone else ("Boshqa odam uchun"): who rides — the driver calls them; the
+   * phone is null once the ride is over. Null: the rider rides.
+   */
+  passenger?: { name: string | null; phone: string | null } | null;
   /** Cargo rides: loaders, the customer riding along, the load (null otherwise). */
   cargo?: CargoDetails | null;
   /** Deliveries: the parcel and who receives it. */

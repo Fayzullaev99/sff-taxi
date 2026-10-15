@@ -182,6 +182,16 @@ export const sms = {
   /** The recipient of a parcel: who brings it and how to reach the driver. */
   parcelOnTheWay: (number: number, c: CarText, driverPhone: string) =>
     `SFF Taxi #${number}: sizga posilka yo‘lda, ${car(c)}. Haydovchi: ${driverPhone}`,
+  /** The passenger of a ride someone ordered for them: the car, the driver, the live link. */
+  passengerAssigned: (
+    number: number,
+    c: CarText,
+    minutes: number | null,
+    driverPhone: string,
+    url: string,
+    pin: string | null,
+  ) =>
+    `SFF Taxi #${number}: sizga ${car(c)}${minutes ? `, ~${minutes} daqiqada` : ''}. Haydovchi: ${driverPhone}.${pin ? ` Kod: ${pin}.` : ''} Kuzatish: ${url}`,
   cancelled: (number: number, reason: string | null) =>
     `SFF Taxi #${number}: buyurtma bekor qilindi${reason ? ` (${reason})` : ''}.`,
   sos: (number: number, role: 'rider' | 'driver', phone: string) =>

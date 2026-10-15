@@ -164,6 +164,18 @@ searching ──> driver_assigned ──> driver_arrived ──> in_progress ─
 - **Operators** order by phone for callers without the app (MA O1): the price is computed on the
   spot, the caller gets SMS updates with the car, plate and driver's number. An operator's quote
   with `scheduledFor` makes the phone order a ride for later (it may coexist with a ride now).
+- **For someone else** ("Boshqa odam uchun", `rides.passenger_name/phone`, migration 0024):
+  the rider (or an operator, for a caller) orders a taxi ride for another person — a name and
+  an Uzbek phone, never the orderer's own. The orderer keeps the ride: they track it, cancel
+  it and pay (a card ride is prepaid by them; cash is collected from the passenger as usual).
+  The driver sees the passenger's name in the offer and their phone once the ride is theirs
+  (like the rider's, only while the ride is on) and calls them. The passenger gets SMS from
+  the outbox: when a driver is assigned (car, plate, driver's phone, the start code if the
+  ride has one, and the ride's live share link, made then if the rider has not shared it),
+  when the driver arrives, and if the ride is cancelled after a car was found. Parcels have
+  their recipient and loads their customer, so it is refused there (a table check too).
+  `GET rides/passengers` lists recent passengers for the order screen; operators find rides
+  by the passenger's phone too.
 - **ETAs for the rider**: the car's road ETA to the pickup while it comes (`driverEta`,
   `driver.location.etaS`) and to the destination during the trip (`destinationEta`,
   `driver.location.destinationEtaS`), each one router call per ride per 15 s, cached in Redis.

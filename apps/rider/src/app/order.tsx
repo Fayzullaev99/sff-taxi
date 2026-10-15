@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, describeError } from '../api/client';
-import { useAppConfig, useQuote, useTariffAt } from '../api/queries';
+import { useAppConfig, useMe, useQuote, useTariffAt } from '../api/queries';
 import { useFeature } from '../api/support';
 import type { Quote, RideClass } from '../api/types';
 import {
@@ -24,6 +24,8 @@ import { PassengersRow, RouteModeChoice, SharingRows } from '../order/RideChoice
 import { orderChoices, routePrices, seatTotal, sharedFloor } from '../lib/sharing';
 import { RIDE_FREE_CANCEL_MINUTES, rideDeposit, rideDepositRules } from '../lib/deposit';
 import { ParcelFields, parcelErrors } from '../order/ParcelFields';
+import { PassengerFields } from '../order/PassengerFields';
+import { checkPassenger } from '../lib/passenger';
 import { useOrderSubmit } from '../order/useOrderSubmit';
 import { RouteCard } from '../order/RouteCard';
 import { ScheduleSheet } from '../ride/ScheduleSheet';
@@ -107,6 +109,12 @@ export default function OrderScreen() {
       : null;
   const maxParcelKg = q?.delivery?.maxWeightKg ?? 10;
   const parcel = delivery ? parcelErrors(draft, maxParcelKg) : null;
+  // "Boshqa odam uchun" (taxi rides): the passenger's name and phone, never the rider's own
+  const ownPhone = useMe().data?.phone ?? null;
+  const passenger =
+    !delivery && draft.forOther
+      ? checkPassenger(draft.passengerName, draft.passengerPhone, ownPhone)
+      : null;
   // rides for later are cash only (for now); shared rides too (a prepayment cannot be split)
   const cardAvailable = !later && !shared && (q?.paymentMethods.includes('card') ?? false);
   // the quote says which providers take this payment; /config and /tariffs for older APIs
@@ -130,6 +138,11 @@ export default function OrderScreen() {
     if (!pickup || !dropoff || busy) return;
     if (later && !schedulable(later, new Date())) {
       setError('Tanlangan vaqt juda yaqin qoldi. Boshqa vaqtni tanlang.');
+      return;
+    }
+    if (passenger && !passenger.ok) {
+      setTriedOrder(true);
+      setError(passenger.nameError ?? passenger.phoneError ?? null);
       return;
     }
     if (parcel && !parcel.ok) {
@@ -157,6 +170,7 @@ export default function OrderScreen() {
       pickup: { address: pickup.address, landmark: draft.landmark.trim() || null },
       dropoff: { address: dropoff.address, landmark: null },
       comment: draft.comment.trim() || null,
+      ...(passenger ? { passenger: { name: passenger.name, phone: passenger.phone! } } : {}),
       // the quote's stops in words (the points are the quote's)
       ...(current.stops?.length
         ? { stops: draft.stops.map((s) => ({ address: s.address, landmark: null })) }
@@ -365,6 +379,7 @@ export default function OrderScreen() {
                     rideClass={draft.rideClass}
                   />
                   <SharingRows quote={q} choices={choices} rideClass={draft.rideClass} />
+                  <PassengerFields draft={draft} ownPhone={ownPhone} showErrors={triedOrder} />
                 </>
               ) : null}
             </OrderOptions>

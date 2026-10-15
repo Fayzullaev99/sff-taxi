@@ -445,6 +445,13 @@ export function RideDetail({
           <p className="muted small">
             Reyting {rating(r.rider.rating)} · kelmay qolgan: {r.rider.noShows} marta
           </p>
+          {r.passenger && (
+            <p className="passenger-line">
+              <Badge tone="blue">Boshqa odam uchun</Badge> {r.passenger.name ?? 'Yo‘lovchi'}{' '}
+              {r.passenger.phone && <PhoneLink phone={r.passenger.phone} />}
+              <span className="muted small"> · haydovchi unga qo‘ng‘iroq qiladi, SMS oladi</span>
+            </p>
+          )}
         </section>
         <section className="detail-section">
           <h3>

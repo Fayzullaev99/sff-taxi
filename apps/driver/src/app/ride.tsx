@@ -19,6 +19,7 @@ import {
   arrivedAtOf,
   CancelPanel,
   CashCard,
+  PassengerCard,
   RiderCard,
   SosButton,
   StopList,
@@ -389,6 +390,10 @@ function ActiveRide(props: {
       <ServiceCard ride={shown} />
 
       <StopList stops={stops} ride={focus} />
+
+      {focus.passenger ? (
+        <PassengerCard passenger={focus.passenger} ordererName={focus.rider?.name ?? null} />
+      ) : null}
 
       {pool && poolRides.length ? (
         <PoolRidersCard rides={poolRides} focusId={focus.id} seats={pool.occupancy ?? null} />

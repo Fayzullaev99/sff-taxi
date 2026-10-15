@@ -44,6 +44,11 @@ const Options = z.array(z.enum(RIDE_OPTIONS)).max(4).default([]);
 const Comment = z.string().trim().min(1).max(500).nullable().default(null);
 
 const LoadText = z.string().trim().min(1).max(300).nullable().default(null);
+/** Who rides when ordering for someone else: a name and an Uzbek phone. */
+const Passenger = z
+  .object({ name: z.string().trim().min(1).max(100), phone: UzPhone })
+  .nullable()
+  .default(null);
 const QuoteBody = z.object({
   pickup: PointBody,
   dropoff: PointBody,
@@ -118,6 +123,8 @@ const OrderBody = z.object({
     .array(z.object({ address: Address, landmark: Landmark }))
     .max(MAX_STOPS)
     .optional(),
+  /** "Boshqa odam uchun": someone else rides; the rider tracks and pays. */
+  passenger: Passenger,
 });
 // coordinates may be left out when the operator's quote gives them
 const PhonePlace = z.object({
@@ -141,6 +148,8 @@ const PhoneOrderBody = z.object({
   passengers: z.number().int().min(1).max(6).default(1),
   /** Intermediate stops: with a quote its points (coordinates optional), else coordinates. */
   stops: z.array(PhonePlace).max(MAX_STOPS).optional(),
+  /** The caller orders for someone else (they get the SMS with the car). */
+  passenger: Passenger,
 });
 const LookupBody = z.object({ phone: UzPhone });
 const DayString = z.iso.date('Sana YYYY-MM-DD ko‘rinishida');
@@ -215,6 +224,12 @@ export class RidesController {
   @Get()
   history(@CurrentUser() user: AuthUser, @Query(new ZodPipe(Cursor)) q: z.output<typeof Cursor>) {
     return this.rides.riderHistory(user, q.cursor);
+  }
+
+  /** People the rider ordered for lately ("Boshqa odam uchun"), newest first. */
+  @Get('passengers')
+  passengers(@CurrentUser() user: AuthUser) {
+    return this.rides.recentPassengers(user);
   }
 
   /** The rider's rides for later, soonest first. */

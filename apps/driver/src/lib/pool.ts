@@ -116,6 +116,9 @@ export function offerBadges(ride: {
   shareable?: boolean;
   womenOnly?: boolean;
   fareMode?: string;
+  /** Ordered for someone else: the offer's name, or the ride's passenger. */
+  passengerName?: string | null;
+  passenger?: { name: string | null } | null;
 }): Badge[] {
   const out: Badge[] = [];
   const n = Math.max(1, Math.floor(num(ride.passengers, 1)));
@@ -123,6 +126,10 @@ export function offerBadges(ride: {
   else if (n > 1) out.push({ label: `${n} kishi`, tone: 'info' });
   if (ride.shareable) out.push({ label: 'Hamroh', tone: 'brand' });
   if (ride.womenOnly) out.push({ label: 'Ayol haydovchi so‘ralgan', tone: 'warning' });
+  const other = ride.passengerName ?? (ride.passenger ? (ride.passenger.name ?? '') : null);
+  if (other !== null && other !== undefined) {
+    out.push({ label: other ? `Boshqa odam uchun: ${other}` : 'Boshqa odam uchun', tone: 'info' });
+  }
   return out;
 }
 

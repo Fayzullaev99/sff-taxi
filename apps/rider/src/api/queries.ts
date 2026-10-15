@@ -73,6 +73,7 @@ export const keys = {
   ride: (id: string) => ['ride', id] as const,
   history: ['rides'] as const,
   scheduled: ['rides-scheduled'] as const,
+  passengers: ['rides-passengers'] as const,
   places: ['places'] as const,
   recentPlaces: ['places-recent'] as const,
   complaints: ['complaints'] as const,
@@ -292,6 +293,19 @@ export function useScheduledRides() {
     queryFn: endpoints.scheduledRides,
     enabled: signedIn,
     staleTime: 30_000,
+  });
+}
+
+/** People the rider ordered for lately; loaded once the "for someone else" switch is on. */
+export function useRecentPassengers(enabled: boolean) {
+  const signedIn = useIsSignedIn();
+  return useQuery({
+    queryKey: keys.passengers,
+    queryFn: endpoints.recentPassengers,
+    enabled: signedIn && enabled,
+    staleTime: 5 * 60_000,
+    // an older API without the list: the fields work without suggestions
+    retry: false,
   });
 }
 

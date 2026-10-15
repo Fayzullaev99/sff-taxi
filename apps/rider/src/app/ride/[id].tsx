@@ -22,6 +22,7 @@ import {
   waitingRuleText,
   waitingState,
 } from '../../lib/fare';
+import { passengerLine } from '../../lib/passenger';
 import {
   formatClock,
   formatDateTime,
@@ -603,6 +604,11 @@ function RouteBox({ ride }: { ride: Ride }) {
       <T variant="small" color={colors.textMuted} numberOfLines={1}>
         {placeLine(ride.dropoff)}
       </T>
+      {ride.passenger ? (
+        <T variant="smallStrong" numberOfLines={1}>
+          {passengerLine(ride.passenger)}
+        </T>
+      ) : null}
     </View>
   );
 }
