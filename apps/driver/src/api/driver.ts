@@ -24,6 +24,7 @@ import type {
   PreferencesBody,
   PublishedTariff,
   PublishTripBody,
+  RideClass,
   Topup,
   UploadView,
 } from './types';
@@ -131,7 +132,7 @@ export const uploads = {
 
 export const intercity = {
   points: () => api.get<IntercityPoint[]>('/v1/intercity/points'),
-  fare: (from: string, to: string, rideClass: 'economy' | 'comfort') =>
+  fare: (from: string, to: string, rideClass: RideClass) =>
     api.get<IntercityFare>(
       `/v1/driver/intercity/fares?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&class=${rideClass}`,
     ),

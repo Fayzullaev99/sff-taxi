@@ -20,6 +20,7 @@ import { UzPhone } from '../../core/auth/phone.js';
 import { TRIP_STATUSES } from '../../core/db/schema.js';
 import { RateLimit } from '../../core/http/rate-limit.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
+import { RIDE_CLASSES } from '../../lib/tariff.js';
 import { BillingModule } from '../billing/billing.module.js';
 import { GeoCoreModule } from '../geo/geo-core.module.js';
 import { PaymentsCoreModule } from '../payments/payments.module.js';
@@ -33,7 +34,7 @@ const Reason = z.string().trim().min(3).max(300);
 const FareQuery = z.object({
   from: PointRef,
   to: PointRef,
-  class: z.enum(['economy', 'comfort']).default('economy'),
+  class: z.enum(RIDE_CLASSES).default('economy'),
 });
 const SearchQuery = z.object({
   from: PointRef,

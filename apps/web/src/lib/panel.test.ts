@@ -383,6 +383,29 @@ describe('driver verification', () => {
       vehicle: { ...driver.vehicle!, class: 'comfort' as const, features: [], year: 2018 },
     };
     expect(failed(comfort)).toHaveLength(2);
+    // a minivan has 6-7 seats; a business car is a premium model, <= 3 years, rated 4.8+
+    const minivan = {
+      ...driver,
+      missingDocuments: [],
+      vehicle: { ...driver.vehicle!, class: 'minivan' as const, model: 'Orlando', seats: 6 },
+    };
+    expect(failed(minivan)).toEqual([]);
+    expect(failed({ ...minivan, vehicle: { ...minivan.vehicle, seats: 4 } })).toEqual([
+      'Miniven: 6–7 yo‘lovchi o‘rindig‘i',
+    ]);
+    const business = {
+      ...driver,
+      missingDocuments: [],
+      vehicle: { ...driver.vehicle!, class: 'business' as const, year: 2025 },
+    };
+    expect(failed(business)).toEqual([
+      'Biznes: premium model (Malibu, Tracker Premier, K5, Sonata…)',
+    ]);
+    const malibu = { ...business, vehicle: { ...business.vehicle, model: 'Malibu 2' } };
+    expect(failed(malibu)).toEqual([]);
+    expect(failed({ ...malibu, priority: { ...malibu.priority, stars: 4.5 } })).toEqual([
+      'Biznes: reyting kamida 4.8',
+    ]);
     const unchecked = {
       ...driver,
       missingDocuments: [],

@@ -74,13 +74,18 @@ await step(
 await step(
   'vehicles',
   `INSERT INTO vehicles (driver_id, make, model, colour, plate, year, seats, class, features,
-     cng_in_trunk, updated_at)
-   SELECT d.user_id, 'Chevrolet', (ARRAY['Cobalt', 'Nexia 3', 'Lacetti', 'Spark'])[1 + n % 4],
+     cng_in_trunk, body, updated_at)
+   SELECT d.user_id, 'Chevrolet',
+          CASE WHEN n % 50 = 0 THEN 'Malibu 2' WHEN n % 50 = 25 THEN 'Orlando'
+               ELSE (ARRAY['Cobalt', 'Nexia 3', 'Lacetti', 'Spark'])[1 + n % 4] END,
           (ARRAY['oq', 'qora', 'kulrang'])[1 + n % 3],
           '20' || lpad((n % 1000)::text, 3, '0') || chr(65 + (n / 1000) % 26) || chr(65 + (n / 26000) % 26) || 'A',
-          2015 + n % 10, 4, CASE WHEN n % 10 = 0 THEN 'comfort' ELSE 'economy' END,
+          CASE WHEN n % 50 IN (0, 25) THEN 2025 ELSE 2015 + n % 10 END,
+          CASE WHEN n % 50 = 25 THEN 6 ELSE 4 END,
+          CASE WHEN n % 50 = 0 THEN 'business' WHEN n % 50 = 25 THEN 'minivan'
+               WHEN n % 10 = 0 THEN 'comfort' ELSE 'economy' END,
           CASE WHEN n % 3 = 0 THEN '{ac,big_trunk}'::text[] ELSE '{ac}'::text[] END,
-          n % 3 <> 0, now()
+          n % 3 <> 0, CASE WHEN n % 50 = 25 THEN 'minivan' ELSE 'sedan' END, now()
    FROM (SELECT user_id, row_number() OVER (ORDER BY pinfl)::int n FROM drivers) d`,
 );
 await step(

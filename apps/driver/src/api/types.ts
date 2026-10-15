@@ -7,6 +7,22 @@ export interface CodeSent {
 
 export type DriverStatus = 'pending' | 'active' | 'rejected' | 'blocked';
 
+/** Taxi classes (apps/api src/lib/ride-classes.ts). */
+export type RideClass = 'economy' | 'comfort' | 'minivan' | 'business';
+
+/** `GET /v1/driver/me` → `classes`: the car's class and which rides it gets. */
+export interface DriverClasses {
+  own: RideClass;
+  /** Lower classes the car may take. */
+  lower: RideClass[];
+  /** The driver takes them (comfort: on by default; business and minivan: opt in). */
+  takesLower: boolean;
+  /** Ride classes offered to the driver now. */
+  rides: RideClass[];
+  /** Classes the car meets the rules of (an operator re-classes it after inspection). */
+  qualifiesFor: RideClass[];
+}
+
 export interface Account {
   id: string;
   phone: string;
@@ -23,7 +39,7 @@ export interface Vehicle {
   plateFormatted: string;
   year: number;
   seats: number;
-  class: 'economy' | 'comfort';
+  class: RideClass;
   features: string[];
   /** A CNG tank in the trunk: no luggage rides even with a big trunk. */
   cngInTrunk?: boolean;
@@ -106,6 +122,8 @@ export interface DriverMe {
   womenRidersOnly?: boolean;
   /** Shared rides and the heading filter (wave 4; absent on an older API). */
   pool?: DriverPool | null;
+  /** Taxi classes: the car's, the lower ones it takes (null for cargo cars, older APIs). */
+  classes?: DriverClasses | null;
 }
 
 export type Gender = 'female' | 'male';
@@ -154,6 +172,8 @@ export interface PreferencesBody {
   extraPassengers?: number;
   destination?: { lat: number; lng: number; address: string | null } | null;
   womenRidersOnly?: boolean;
+  /** A higher class's car takes lower classes' rides too. */
+  takesLowerClasses?: boolean;
 }
 
 /** One stop of a plan: riders' pickups and drop-offs, the driver's own destination. */
@@ -205,7 +225,7 @@ export interface Offer {
   ride: {
     id: string;
     number: number;
-    class: 'economy' | 'comfort' | 'cargo_s' | 'cargo_m';
+    class: RideClass | 'cargo_s' | 'cargo_m';
     kind: 'city' | 'intercity';
     pickup: Place;
     dropoff: Place;
@@ -272,7 +292,7 @@ export interface DriverRide {
   status: RideStatus;
   channel: string;
   kind: 'city' | 'intercity';
-  class: 'economy' | 'comfort' | 'cargo_s' | 'cargo_m';
+  class: RideClass | 'cargo_s' | 'cargo_m';
   cityId: string | null;
   pickup: Place;
   dropoff: Place;
@@ -466,7 +486,7 @@ export interface IntercityPoint {
 export interface IntercityFare {
   from: IntercityPoint;
   to: IntercityPoint;
-  class: 'economy' | 'comfort';
+  class: RideClass;
   distanceM: number;
   durationS: number | null;
   source: 'route' | 'tariff';
@@ -527,7 +547,7 @@ export interface DriverTrip {
   departureAt: string;
   meetingPoint: string | null;
   comment: string | null;
-  class: 'economy' | 'comfort';
+  class: RideClass;
   distanceM: number;
   seats: { total: number; free: number; frontOffered: boolean; frontFree: boolean };
   price: { rear: number; front: number };

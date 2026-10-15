@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   checkApplicant,
+  checkClassRating,
   checkVehicle,
   formatPlate,
   fullYears,
+  isBusinessModel,
   isUzPlate,
   isVanType,
   normalizePlate,
+  qualifyingClasses,
   tashkentDate,
 } from './driver-rules.js';
 import { priority } from './priority.js';
@@ -152,3 +155,83 @@ describe('priority score', () => {
     expect(great.score).toBeLessThanOrEqual(100);
   });
 });
+
+describe('minivan and business cars', () => {
+  const minivan = {
+    make: 'Chevrolet',
+    model: 'Orlando',
+    year: 2022,
+    seats: 6,
+    class: 'minivan' as const,
+    features: ['ac', 'big_trunk'],
+  };
+  const business = {
+    make: 'Chevrolet',
+    model: 'Malibu 2',
+    year: 2025,
+    seats: 4,
+    class: 'business' as const,
+    features: ['ac'],
+  };
+
+  it('takes a 6-7 seat minivan up to 8 years old with AC', () => {
+    expect(checkVehicle(minivan, TODAY)).toEqual([]);
+    expect(checkVehicle({ ...minivan, model: 'Carnival', make: 'Kia', seats: 7 }, TODAY)).toEqual(
+      [],
+    );
+    expect(checkVehicle({ ...minivan, seats: 4 }, TODAY)[0]?.path).toBe('vehicle.seats');
+    expect(checkVehicle({ ...minivan, seats: 8 }, TODAY)[0]?.path).toBe('vehicle.seats');
+    expect(checkVehicle({ ...minivan, year: 2017 }, TODAY).map((p) => p.message)).toEqual([
+      'Miniven uchun avtomobil 8 yildan eski bo‘lmasligi kerak',
+    ]);
+    expect(checkVehicle({ ...minivan, features: [] }, TODAY)[0]?.message).toBe(
+      'Miniven uchun konditsioner kerak',
+    );
+    // a 6-seat car is a minivan or nothing: economy keeps the sedan's 4 seats
+    expect(checkVehicle({ ...minivan, class: 'economy' }, TODAY)[0]?.path).toBe('vehicle.seats');
+  });
+
+  it('never makes a Damas a minivan taxi', () => {
+    expect(
+      checkVehicle({ ...minivan, make: 'Chevrolet', model: 'Damas', seats: 6 }, TODAY)[0]?.path,
+    ).toBe('vehicle.model');
+  });
+
+  it('takes a premium model up to 3 years old with AC as business', () => {
+    expect(checkVehicle(business, TODAY)).toEqual([]);
+    for (const [make, model] of [
+      ['Chevrolet', 'Tracker 2 Premier'],
+      ['Chevrolet', 'Tahoe'],
+      ['Kia', 'K5'],
+      ['Hyundai', 'Sonata'],
+      ['BYD', 'Han'],
+      ['Mercedes-Benz', 'E 200'],
+    ]) {
+      expect(isBusinessModel(make!, model!)).toBe(true);
+    }
+    expect(isBusinessModel('Chevrolet', 'Cobalt')).toBe(false);
+    expect(checkVehicle({ ...business, model: 'Cobalt' }, TODAY)[0]?.path).toBe('vehicle.class');
+    expect(checkVehicle({ ...business, year: 2022 }, TODAY)[0]?.message).toBe(
+      'Biznes uchun avtomobil 3 yildan eski bo‘lmasligi kerak',
+    );
+    expect(checkVehicle({ ...business, features: [] }, TODAY)).toHaveLength(1);
+  });
+
+  it('needs a 4.8 rating for business (a new driver starts there)', () => {
+    expect(checkClassRating('business', 4.8)).toEqual([]);
+    expect(checkClassRating('business', 4.7)[0]?.message).toContain('4.8');
+    expect(checkClassRating('comfort', 3)).toEqual([]);
+    expect(priority({ ...counts(0, 0, 0), ratingSum: 0, ratingCount: 0 }).stars).toBe(4.8);
+  });
+
+  it('lists the classes a car qualifies for', () => {
+    expect(qualifyingClasses(business, TODAY)).toEqual(['economy', 'comfort', 'business']);
+    expect(qualifyingClasses(minivan, TODAY)).toEqual(['minivan']);
+    expect(qualifyingClasses({ ...car, year: 2016, features: [] }, TODAY)).toEqual(['economy']);
+    expect(qualifyingClasses({ ...car, service: 'cargo' }, TODAY)).toEqual([]);
+  });
+});
+
+function counts(received: number, accepted: number, cancelled: number) {
+  return { offersReceived: received, offersAccepted: accepted, ridesCancelled: cancelled };
+}

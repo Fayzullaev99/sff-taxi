@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Database } from '../../core/db/database.js';
 import { distanceM } from '../../lib/distance.js';
 import { distanceToPolygonM, type Point } from '../../lib/geo.js';
-import type { RideClass } from '../../lib/tariff.js';
+import { RIDE_CLASSES, type RideClass } from '../../lib/tariff.js';
 import { GeoService } from './geo.service.js';
 
 /** Where fixed-price routes start and end: the towns (and Tashkent) with their zones. */
@@ -37,7 +37,7 @@ export const RouteFareBody = z
   .object({
     from: z.string().trim().min(1).max(60),
     to: z.string().trim().min(1).max(60),
-    class: z.enum(['economy', 'comfort']).default('economy'),
+    class: z.enum(RIDE_CLASSES).default('economy'),
     seatPrice: soum.nullable(),
     carPrice: soum.nullable(),
     isActive: z.boolean().default(true),

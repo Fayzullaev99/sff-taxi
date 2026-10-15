@@ -14,7 +14,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { cancelTerms, fareLines, quoteOwedFee, rideRules } from '../lib/fare';
+import { cancelTerms, fareLines, quoteClasses, quoteOwedFee, rideRules } from '../lib/fare';
 import { tashkentDay } from '../lib/format';
 import { bookingCancelTerms, bookingPrice, cancelRulesFrom } from '../lib/intercity';
 import { cardMoneyNote, checkoutLinks } from '../lib/payment';
@@ -256,7 +256,7 @@ describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
       method: 'POST',
       body: { pickup: GULISTON, dropoff: MID, options: ['child_seat'] },
     });
-    expect(withSeat.fares.economy.options.child_seat).toBeGreaterThan(0);
+    expect(withSeat.fares.economy!.options.child_seat).toBeGreaterThan(0);
     for (const fare of Object.values(withSeat.fares)) {
       expect(fareLines(fare).reduce((s, l) => s + l.amount, 0)).toBe(fare.total);
     }
@@ -266,20 +266,22 @@ describe.skipIf(!BASE)('live API smoke (rider flow)', () => {
       body: { pickup: GULISTON, dropoff: MID, options: [] },
     });
     expect(quote.kind).toBe('city');
+    // the classes switched on, with their names (minivan and business are off at launch)
+    expect(quoteClasses(quote).map((c) => c.id)).toEqual(['economy', 'comfort']);
     // wave 3: card providers on the quote; nothing owed from earlier cancellations
     expect(Array.isArray(quote.cardProviders)).toBe(true);
     expect(quoteOwedFee(quote.owedFee, 'cash')).toBeNull();
     // the free car next to the rider is on the class buttons
-    expect(quote.availability?.economy.cars).toBeGreaterThan(0);
-    expect(quote.availability?.economy.etaS).toBeGreaterThanOrEqual(0);
-    expect(quote.fares.comfort.total).toBeGreaterThan(quote.fares.economy.total);
-    expect(withSeat.fares.economy.total).toBeGreaterThan(quote.fares.economy.total);
+    expect(quote.availability?.economy!.cars).toBeGreaterThan(0);
+    expect(quote.availability?.economy!.etaS).toBeGreaterThanOrEqual(0);
+    expect(quote.fares.comfort!.total).toBeGreaterThan(quote.fares.economy!.total);
+    expect(withSeat.fares.economy!.total).toBeGreaterThan(quote.fares.economy!.total);
     const intercity = await rider.request<Quote>('/v1/rides/quote', {
       method: 'POST',
       body: { pickup: GULISTON, dropoff: TASHKENT, options: [] },
     });
     expect(intercity.kind).toBe('intercity');
-    expect(intercity.fares.economy.seat?.rear).toBeGreaterThan(0);
+    expect(intercity.fares.economy!.seat?.rear).toBeGreaterThan(0);
 
     const stream = await openStream(rider);
     try {

@@ -105,7 +105,12 @@ describe('shared rides, women drivers, fixed routes (wave 4)', () => {
     it('shows it in the quote and refuses more than three people', async () => {
       const rider = await signIn(app);
       const { quote: q } = await order(rider, GULISTON, at(0, 3000));
-      expect(q.seats).toEqual({ max: 3, front: 1, rearMax: 2 });
+      expect(q.seats).toEqual({
+        max: 3,
+        front: 1,
+        rearMax: 2,
+        byClass: { economy: 3, comfort: 3 },
+      });
       const again = await quote(rider, GULISTON, at(0, 3000));
       await api(app, rider.accessToken)
         .post('/v1/rides')

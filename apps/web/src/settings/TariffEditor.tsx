@@ -80,8 +80,25 @@ function ClassFields({
   const setBand = (i: number, patch: Partial<ClassTariff['bands'][number]>) =>
     onChange({ ...value, bands: bands.map((b, j) => (j === i ? { ...b, ...patch } : b)) });
   const bandError = errorAt(problems, `${p}.bands`);
+  const enabledError = errorAt(problems, `${p}.enabled`);
   return (
     <div className="class-tariff">
+      <div className="class-switch">
+        <Toggle
+          checked={value.enabled}
+          disabled={rideClass === 'economy'}
+          onChange={(enabled) => onChange({ ...value, enabled })}
+          label={`${CLASSES[rideClass]}: buyurtmaga ochiq`}
+        />
+        <p className="muted small">
+          {rideClass === 'economy'
+            ? 'Ekonom doim ochiq: hamroh bilan safar, posilka va telefon buyurtmalari undan boshlanadi.'
+            : value.enabled
+              ? 'Yo‘lovchilar bu sinfni narx ekranida ko‘radi va buyurtma qila oladi.'
+              : 'O‘chiq: narx ekranida ko‘rinmaydi, buyurtma qilib bo‘lmaydi. Mashinalar yetarli bo‘lganda yoqing.'}
+        </p>
+        {enabledError && <div className="field-error">{enabledError}</div>}
+      </div>
       <h3 className="subhead">Shahar ichida: masofa oraliqlari</h3>
       <table className="table compact bands">
         <thead>
@@ -210,7 +227,10 @@ export function TariffEditor({
             label="Sinf"
             value={rideClass}
             onChange={setRideClass}
-            options={RIDE_CLASSES.map((c) => ({ value: c, label: CLASSES[c] }))}
+            options={RIDE_CLASSES.map((c) => ({
+              value: c,
+              label: t.classes[c].enabled ? CLASSES[c] : `${CLASSES[c]} (o‘chiq)`,
+            }))}
           />
         </div>
         <ClassFields

@@ -13,6 +13,12 @@ export const RULES = {
   maxVehicleAgeYears: 15,
   maxComfortAgeYears: 5,
   maxSeats: 4,
+  /** Miniven: 6-7 passenger seats besides the driver, <= 8 years, AC. */
+  minMinivanSeats: 6,
+  maxMinivanSeats: 7,
+  maxMinivanAgeYears: 8,
+  /** Biznes: a premium model, <= 3 years, AC (and a 4.8 rating, checked by the API). */
+  maxBusinessAgeYears: 3,
   /** A cargo car's cab seats besides the driver: Damas/Labo 1, Gazel/Porter/Isuzu 2. */
   maxCargoCabSeats: 2,
   /** Cargo cars (not passenger taxis): at most 25 years old. */
@@ -22,6 +28,76 @@ export const RULES = {
   /** Up to this payload a cargo car serves small loads (cargo_s), above medium (cargo_m). */
   smallMaxPayloadKg: 800,
 } as const;
+
+/** Taxi classes and what each needs, as the application screen explains them. */
+export const VEHICLE_CLASSES = ['economy', 'comfort', 'minivan', 'business'] as const;
+export type VehicleClass = (typeof VEHICLE_CLASSES)[number];
+export const VEHICLE_CLASS_LABELS: Record<VehicleClass, string> = {
+  economy: 'Ekonom',
+  comfort: 'Komfort (≤5 yil, konditsioner)',
+  minivan: 'Miniven (6–7 o‘rindiq, ≤8 yil, konditsioner)',
+  business: 'Biznes (premium, ≤3 yil, konditsioner)',
+};
+
+/** The API's premium models for Biznes (apps/api src/lib/driver-rules.ts isBusinessModel). */
+export function isBusinessModel(make: string, model: string): boolean {
+  return (
+    /\b(mercedes|benz|bmw|lexus|audi|genesis|volvo|zeekr|lixiang|li auto)\b/i.test(make) ||
+    /\b(malibu|tracker|tahoe|traverse|equinox|k5|k8|k9|sonata|grandeur|santa ?fe|palisade|sorento|camry|han|seal|tang|song plus|tiggo 8|exeed|hongqi)\b/i.test(
+      `${make} ${model}`,
+    )
+  );
+}
+
+/**
+ * Why the car does not fit a taxi class (null: it fits): the class's age limit, AC, seats
+ * (a minivan 6-7, any other car at most 4) and, for business, a premium model.
+ */
+export function classProblem(
+  c: VehicleClass,
+  car: { make: string; model: string; year: number; seats: number; features: string[] },
+  today: string,
+): string | null {
+  const thisYear = Number(today.slice(0, 4));
+  const age = thisYear - car.year;
+  if (c === 'minivan') {
+    if (car.seats < RULES.minMinivanSeats || car.seats > RULES.maxMinivanSeats) {
+      return `Miniven uchun haydovchidan tashqari ${RULES.minMinivanSeats}–${RULES.maxMinivanSeats} o‘rindiq kerak`;
+    }
+  } else if (car.seats > RULES.maxSeats) {
+    return `${RULES.maxSeats} tadan ortiq o‘rindiqli avtomobil faqat Miniven bo‘ladi`;
+  }
+  if (c === 'economy') return null;
+  const rule = {
+    comfort: { label: 'Komfort', maxAge: RULES.maxComfortAgeYears },
+    minivan: { label: 'Miniven', maxAge: RULES.maxMinivanAgeYears },
+    business: { label: 'Biznes', maxAge: RULES.maxBusinessAgeYears },
+  }[c];
+  if (Number.isFinite(age) && age > rule.maxAge) {
+    return `${rule.label} uchun avtomobil ${rule.maxAge} yildan eski bo‘lmasligi kerak`;
+  }
+  if (!car.features.includes('ac')) return `${rule.label} uchun konditsioner kerak`;
+  if (c === 'business' && !isBusinessModel(car.make, car.model)) {
+    return 'Biznes uchun premium avtomobil kerak (Malibu, Tracker Premier, K5, Sonata va h.k.)';
+  }
+  return null;
+}
+
+/**
+ * The classes the car typed so far fits, in words under the class choice ("" until the year
+ * and seats are typed). Operators confirm the class at the inspection.
+ */
+export function classFitText(f: ApplicationForm, today = tashkentToday()): string {
+  const year = Number(f.year);
+  const seats = Number(f.seats);
+  if (!/^\d{4}$/.test(f.year.trim()) || !Number.isInteger(seats) || seats < 1) return '';
+  const car = { make: f.make, model: f.model, year, seats, features: f.features };
+  const fits = VEHICLE_CLASSES.filter((c) => classProblem(c, car, today) === null);
+  if (!fits.length)
+    return 'Avtomobil hech bir sinf talabiga mos emas: yil va o‘rindiqlarni tekshiring';
+  const names = { economy: 'Ekonom', comfort: 'Komfort', minivan: 'Miniven', business: 'Biznes' };
+  return `Avtomobilingiz mos sinflar: ${fits.map((c) => names[c]).join(', ')}. Biznes uchun reyting 4.8 dan past bo‘lmasligi kerak.`;
+}
 
 /** What the car works for: passenger rides and parcels, or cargo rides only. */
 export type CarService = 'taxi' | 'cargo';
@@ -89,7 +165,7 @@ export interface ApplicationForm {
   plate: string;
   year: string;
   seats: string;
-  vehicleClass: 'economy' | 'comfort';
+  vehicleClass: VehicleClass;
   features: VehicleFeature[];
   /**
    * The car runs on methane with the tank in the trunk (API `vehicle.cngInTrunk`): even a big
@@ -253,7 +329,11 @@ export function validateApplication(f: ApplicationForm, today: string): FormErro
       : `Avtomobil ${maxAge} yildan eski bo‘lmasligi kerak`;
   }
   const seats = Number(f.seats);
-  const maxSeats = cargo ? RULES.maxCargoCabSeats : RULES.maxSeats;
+  const maxSeats = cargo
+    ? RULES.maxCargoCabSeats
+    : f.vehicleClass === 'minivan'
+      ? RULES.maxMinivanSeats
+      : RULES.maxSeats;
   if (!Number.isInteger(seats) || seats < 1 || seats > maxSeats) {
     e.seats = cargo
       ? `Kabinada haydovchidan tashqari 1 yoki ${maxSeats} o‘rin`
@@ -263,12 +343,13 @@ export function validateApplication(f: ApplicationForm, today: string): FormErro
     Object.assign(e, cargoProblems(f));
     return e;
   }
-  if (f.vehicleClass === 'comfort') {
-    if (!e.year && thisYear - year > RULES.maxComfortAgeYears) {
-      e.vehicleClass = `Komfort uchun avtomobil ${RULES.maxComfortAgeYears} yildan eski bo‘lmasligi kerak`;
-    } else if (!f.features.includes('ac')) {
-      e.vehicleClass = 'Komfort uchun konditsioner kerak';
-    }
+  if (!e.year && !e.seats) {
+    const problem = classProblem(
+      f.vehicleClass,
+      { make: f.make, model: f.model, year, seats, features: f.features },
+      today,
+    );
+    if (problem) e.vehicleClass = problem;
   }
   return e;
 }
@@ -326,7 +407,7 @@ export interface ApplicationBody {
     plate: string;
     year: number;
     seats: number;
-    class: 'economy' | 'comfort';
+    class: VehicleClass;
     features: VehicleFeature[];
     cngInTrunk: boolean;
     /** Absent: a taxi (older APIs). */
@@ -416,7 +497,9 @@ export function formFromProfile(p: {
     plate: v?.plate ?? '',
     year: v ? String(v.year) : '',
     seats: v ? String(v.seats) : '4',
-    vehicleClass: v?.class === 'comfort' ? 'comfort' : 'economy',
+    vehicleClass: (VEHICLE_CLASSES as readonly string[]).includes(v?.class ?? '')
+      ? (v!.class as VehicleClass)
+      : 'economy',
     features,
     // most Cobalts/Nexias carry the tank in the trunk: on until the driver says otherwise
     cng: v ? (v.cngInTrunk ?? !features.includes('big_trunk')) : true,

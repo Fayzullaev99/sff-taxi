@@ -7,7 +7,7 @@ import {
 } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import { appConfig, auth, driver, intercity, uploads } from '../api/driver';
-import type { DriverMe } from '../api/types';
+import type { DriverMe, RideClass } from '../api/types';
 import { OFFICE_ADDRESS, SUPPORT_PHONE } from '../config';
 import { isApiError } from '../lib/api-client';
 import {
@@ -274,11 +274,7 @@ export function useIntercityPoints() {
   return useQuery({ queryKey: keys.points, queryFn: intercity.points, staleTime: 60 * 60_000 });
 }
 
-export function useIntercityFare(
-  from: string | null,
-  to: string | null,
-  rideClass: 'economy' | 'comfort',
-) {
+export function useIntercityFare(from: string | null, to: string | null, rideClass: RideClass) {
   return useQuery({
     queryKey: keys.fare(from ?? '', to ?? '', rideClass),
     queryFn: () => intercity.fare(from!, to!, rideClass),

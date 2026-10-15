@@ -1,5 +1,5 @@
 import { type AdminDriver, DOCUMENT_KINDS } from '../api/types';
-import { daysBetween, DOCUMENTS, fullYears, LICENCE_STATUS } from './format';
+import { CLASSES, daysBetween, DOCUMENTS, fullYears, LICENCE_STATUS } from './format';
 
 /**
  * Resolution 200 rules as the API checks them on approval (apps/api/src/lib/driver-rules.ts),
@@ -11,6 +11,28 @@ export const DRIVER_RULES = {
   maxVehicleAgeYears: 15,
   maxComfortAgeYears: 5,
   maxSeats: 4,
+  minMinivanSeats: 6,
+  maxMinivanSeats: 7,
+  maxMinivanAgeYears: 8,
+  maxBusinessAgeYears: 3,
+  minBusinessRating: 4.8,
+} as const;
+
+/** The API's premium models for Biznes (apps/api/src/lib/driver-rules.ts isBusinessModel). */
+export function isBusinessModel(make: string, model: string): boolean {
+  return (
+    /\b(mercedes|benz|bmw|lexus|audi|genesis|volvo|zeekr|lixiang|li auto)\b/i.test(make) ||
+    /\b(malibu|tracker|tahoe|traverse|equinox|k5|k8|k9|sonata|grandeur|santa ?fe|palisade|sorento|camry|han|seal|tang|song plus|tiggo 8|exeed|hongqi)\b/i.test(
+      `${make} ${model}`,
+    )
+  );
+}
+
+/** Age and AC rules per class beyond economy. */
+const CLASS_AGE = {
+  comfort: DRIVER_RULES.maxComfortAgeYears,
+  minivan: DRIVER_RULES.maxMinivanAgeYears,
+  business: DRIVER_RULES.maxBusinessAgeYears,
 } as const;
 
 export interface Check {
@@ -66,19 +88,41 @@ export function approvalChecks(d: AdminDriver, today: string): Check[] {
         label: `Avtomobil ${DRIVER_RULES.maxVehicleAgeYears} yildan eski emas`,
         detail: `${v.year} yil`,
       },
-      {
-        ok: v.seats >= 1 && v.seats <= DRIVER_RULES.maxSeats,
-        label: `Yo‘lovchi o‘rindiqlari ${DRIVER_RULES.maxSeats} tadan ko‘p emas`,
-        detail: `${v.seats} ta`,
-      },
+      v.class === 'minivan'
+        ? {
+            ok: v.seats >= DRIVER_RULES.minMinivanSeats && v.seats <= DRIVER_RULES.maxMinivanSeats,
+            label: `Miniven: ${DRIVER_RULES.minMinivanSeats}–${DRIVER_RULES.maxMinivanSeats} yo‘lovchi o‘rindig‘i`,
+            detail: `${v.seats} ta`,
+          }
+        : {
+            ok: v.seats >= 1 && v.seats <= DRIVER_RULES.maxSeats,
+            label: `Yo‘lovchi o‘rindiqlari ${DRIVER_RULES.maxSeats} tadan ko‘p emas`,
+            detail: `${v.seats} ta`,
+          },
     );
-    if (v.class === 'comfort') {
+    if (v.class !== 'economy' && v.service !== 'cargo') {
+      const name = CLASSES[v.class];
+      const maxAge = CLASS_AGE[v.class];
       checks.push(
         {
-          ok: year - v.year <= DRIVER_RULES.maxComfortAgeYears,
-          label: `Komfort: avtomobil ${DRIVER_RULES.maxComfortAgeYears} yildan eski emas`,
+          ok: year - v.year <= maxAge,
+          label: `${name}: avtomobil ${maxAge} yildan eski emas`,
         },
-        { ok: v.features.includes('ac'), label: 'Komfort: konditsioner bor' },
+        { ok: v.features.includes('ac'), label: `${name}: konditsioner bor` },
+      );
+    }
+    if (v.class === 'business' && v.service !== 'cargo') {
+      checks.push(
+        {
+          ok: isBusinessModel(v.make, v.model),
+          label: 'Biznes: premium model (Malibu, Tracker Premier, K5, Sonata…)',
+          detail: `${v.make} ${v.model}`,
+        },
+        {
+          ok: d.priority.stars >= DRIVER_RULES.minBusinessRating,
+          label: `Biznes: reyting kamida ${DRIVER_RULES.minBusinessRating}`,
+          detail: String(d.priority.stars),
+        },
       );
     }
   }

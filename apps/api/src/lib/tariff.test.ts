@@ -5,9 +5,14 @@ import {
   bandPrice,
   computeFare,
   DEFAULT_TARIFF,
+  DERIVED_CLASS_PERCENT,
+  deriveClassTariff,
+  enabledClasses,
   type FareInput,
   freeWaitingOver,
   isNight,
+  RIDE_CLASSES,
+  type RideClass,
   splitInsideOutside,
   Tariff,
   waitingFee,
@@ -164,5 +169,69 @@ describe('waiting', () => {
     expect(isNight(tashkent('2026-09-28T19:00'), evening)).toBe(true);
     expect(isNight(tashkent('2026-09-28T20:00'), evening)).toBe(false);
     expect(isNight(tashkent('2026-09-28T19:00'), { ...evening, to: '18:00' })).toBe(false);
+  });
+});
+
+describe('classes', () => {
+  /** A tariff document as stored before minivan and business existed (no `enabled` either). */
+  const stored = () => {
+    const { minivan: _m, business: _b, ...old } = DEFAULT_TARIFF.classes;
+    const strip = ({ enabled: _e, ...c }: typeof old.economy) => c;
+    return {
+      ...DEFAULT_TARIFF,
+      classes: { economy: strip(old.economy), comfort: strip(old.comfort) },
+    };
+  };
+
+  it('has four classes, minivan and business switched off at launch', () => {
+    expect(RIDE_CLASSES).toEqual(['economy', 'comfort', 'minivan', 'business']);
+    expect(enabledClasses(DEFAULT_TARIFF)).toEqual(['economy', 'comfort']);
+    expect(Tariff.parse(DEFAULT_TARIFF)).toEqual(DEFAULT_TARIFF);
+  });
+
+  it('prices minivan ~+40% and business ~+90% over economy', () => {
+    const at = (rideClass: RideClass) => fare({ rideClass }).total;
+    expect(at('economy')).toBe(7000);
+    expect(at('minivan')).toBe(9800);
+    expect(at('business')).toBe(13_300);
+    expect(at('minivan') / at('economy')).toBeCloseTo(1.4, 1);
+    expect(at('business') / at('economy')).toBeGreaterThanOrEqual(1.8);
+  });
+
+  it('reads a tariff stored before the new classes: they are derived from economy, off', () => {
+    const t = Tariff.parse(stored());
+    expect(t.classes.economy.enabled).toBe(true);
+    expect(t.classes.comfort.enabled).toBe(true);
+    expect(t.classes.minivan).toEqual(
+      deriveClassTariff(DEFAULT_TARIFF.classes.economy, DERIVED_CLASS_PERCENT.minivan),
+    );
+    expect(t.classes.minivan.enabled).toBe(false);
+    expect(t.classes.minivan.bands.map((b) => b.price)).toEqual([7000, 9800, 14_000]);
+    expect(t.classes.business.bands.map((b) => b.price)).toEqual([9500, 13_300, 19_000]);
+    expect(t.classes.business.intercity_min).toBe(47_500);
+    // the launch defaults are exactly what an old document derives
+    expect(t.classes.minivan).toEqual(DEFAULT_TARIFF.classes.minivan);
+    expect(t.classes.business).toEqual(DEFAULT_TARIFF.classes.business);
+    expect(enabledClasses(t)).toEqual(['economy', 'comfort']);
+  });
+
+  it('keeps a class operators switched on, and never lets economy be switched off', () => {
+    const on = Tariff.parse({
+      ...DEFAULT_TARIFF,
+      classes: {
+        ...DEFAULT_TARIFF.classes,
+        minivan: { ...DEFAULT_TARIFF.classes.minivan, enabled: true },
+        comfort: { ...DEFAULT_TARIFF.classes.comfort, enabled: false },
+      },
+    });
+    expect(enabledClasses(on)).toEqual(['economy', 'minivan']);
+    const noEconomy = Tariff.safeParse({
+      ...DEFAULT_TARIFF,
+      classes: {
+        ...DEFAULT_TARIFF.classes,
+        economy: { ...DEFAULT_TARIFF.classes.economy, enabled: false },
+      },
+    });
+    expect(noEconomy.success).toBe(false);
   });
 });

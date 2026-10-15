@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { mergeLiveDrivers } from '../lib/pool';
+import { withAllClasses } from '../lib/tariff';
 import { api, ApiError } from './client';
 import { hideDropped, pollInterval, useStreamState } from './realtime';
 import type {
@@ -227,7 +228,8 @@ export function useAppConfig() {
 export function useTariff() {
   return useQuery({
     queryKey: ['settings', 'tariff'],
-    queryFn: () => api<Tariff>('/v1/admin/settings/tariff'),
+    // every class, even from an API that predates minivan and business
+    queryFn: async () => withAllClasses(await api<Tariff>('/v1/admin/settings/tariff')),
   });
 }
 

@@ -1,5 +1,5 @@
 import { router, Stack } from 'expo-router';
-import { memo, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, describeError } from '../api/client';
@@ -8,15 +8,16 @@ import { useFeature } from '../api/support';
 import type { Quote, RideClass } from '../api/types';
 import {
   CLASS_LABELS,
-  CLASS_NOTES,
   OWED_FEE_LABEL,
+  orderableClass,
   quoteOwedFee,
   seatShareText,
 } from '../lib/fare';
 import { formatDateTime, formatDistance, formatMoney } from '../lib/format';
 import { cardLabel } from '../lib/payment';
-import { availabilityShort, availabilityText } from '../lib/ride-state';
+import { availabilityText } from '../lib/ride-state';
 import { schedulable, SCHEDULE_DISPATCH_BEFORE_MIN } from '../lib/schedule';
+import { ClassCards } from '../order/ClassCards';
 import { OrderOptions } from '../order/OrderOptions';
 import { PassengersRow, RouteModeChoice, SharingRows } from '../order/RideChoices';
 import { orderChoices, routePrices, seatTotal, sharedFloor } from '../lib/sharing';
@@ -31,14 +32,12 @@ import { ErrorView, Skeleton } from '../ui/states';
 import { colors, radius, space } from '../ui/theme';
 import { KeyboardAvoider } from '../ui/KeyboardAvoider';
 
-const CLASSES: RideClass[] = ['economy', 'comfort'];
-
 /** Stable, so the memoised class cards re-render only when their quote or choice changes. */
 const selectClass = (rideClass: RideClass) => updateDraft({ rideClass });
 
 /**
- * Tariff choice: fixed prices of both classes for this route (quoted by the API, no
- * surge), options, the landmark and a comment for the driver, the payment method, then
+ * Tariff choice: fixed prices of every class switched on for this route (quoted by the
+ * API, no surge; a horizontal row of class cards), options, the landmark and a comment for the driver, the payment method, then
  * the order — with one clientRequestId per attempt, so retries never order twice.
  */
 export default function OrderScreen() {
@@ -113,6 +112,12 @@ export default function OrderScreen() {
   // fees owed from earlier cancelled cash rides: a cash ride collects them (a line apart)
   const owed = quoteOwedFee(q?.owedFee, draft.paymentMethod);
   const toPay = tripPrice !== null ? tripPrice + (owed?.collectedNow ? owed.amount : 0) : null;
+  // a class switched off since (or never offered here) falls back to one the quote prices
+  useEffect(() => {
+    if (q && !q.fares[draft.rideClass]) {
+      updateDraft({ rideClass: orderableClass(q, draft.rideClass) });
+    }
+  }, [q, draft.rideClass]);
   useEffect(() => {
     if (q && draft.paymentMethod === 'card' && !cardAvailable) {
       updateDraft({ paymentMethod: 'cash' });
@@ -269,17 +274,7 @@ export default function OrderScreen() {
               />
             ) : null}
 
-            <View style={styles.gap} accessibilityRole="radiogroup">
-              {CLASSES.map((c) => (
-                <ClassCard
-                  key={c}
-                  rideClass={c}
-                  quote={q}
-                  selected={draft.rideClass === c}
-                  onSelect={selectClass}
-                />
-              ))}
-            </View>
+            <ClassCards quote={q} selected={draft.rideClass} onSelect={selectClass} />
             {fare && choices ? (
               <RouteModeChoice
                 quote={q}
@@ -350,8 +345,12 @@ export default function OrderScreen() {
             <OrderOptions selected={draft.options} prices={optionPrices} onToggle={toggleOption}>
               {q && wave4 && choices ? (
                 <>
-                  <PassengersRow quote={q} passengers={choices.passengers} />
-                  <SharingRows quote={q} choices={choices} />
+                  <PassengersRow
+                    quote={q}
+                    passengers={choices.passengers}
+                    rideClass={draft.rideClass}
+                  />
+                  <SharingRows quote={q} choices={choices} rideClass={draft.rideClass} />
                 </>
               ) : null}
             </OrderOptions>
@@ -511,69 +510,6 @@ function footerNote(n: {
   return n.availability ?? 'Narx o‘zgarmaydi';
 }
 
-const ClassCard = memo(function ClassCard({
-  rideClass,
-  quote,
-  selected,
-  onSelect,
-}: {
-  rideClass: RideClass;
-  quote: Quote;
-  selected: boolean;
-  onSelect: (rideClass: RideClass) => void;
-}) {
-  const fare = quote.fares[rideClass];
-  const availability = availabilityText(quote.availability?.[rideClass]);
-  const short = availabilityShort(quote.availability?.[rideClass]);
-  const noCar = quote.availability?.[rideClass]?.etaS === null;
-  // a fixed route seat price (Yangiyer → Guliston 10 000) is the seat price to show
-  const routeSeat = routePrices(quote, rideClass)?.seat ?? null;
-  return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ checked: selected }}
-      accessibilityLabel={`${CLASS_LABELS[rideClass]}, ${formatMoney(fare.total)}, narx o‘zgarmaydi${availability ? `. ${availability}` : ''}`}
-      onPress={() => onSelect(rideClass)}
-      style={[styles.classCard, selected ? styles.classCardOn : null]}
-    >
-      <View style={[styles.classIcon, selected ? { backgroundColor: colors.brand } : null]}>
-        <Icon name={rideClass === 'comfort' ? 'car-sport' : 'car'} size={24} color={colors.ink} />
-      </View>
-      <View style={styles.flex}>
-        <T variant="h3">{CLASS_LABELS[rideClass]}</T>
-        <T variant="small" color={colors.textMuted} numberOfLines={2}>
-          {CLASS_NOTES[rideClass]}
-        </T>
-        {short ? (
-          <T
-            variant="smallStrong"
-            color={noCar ? colors.warning : colors.success}
-            numberOfLines={1}
-          >
-            {short}
-          </T>
-        ) : null}
-      </View>
-      <View style={styles.priceCol}>
-        <T variant="price">{formatMoney(fare.total)}</T>
-        {routeSeat ? (
-          <T variant="caption" color={colors.textMuted}>
-            o‘rindiq {formatMoney(routeSeat)}
-          </T>
-        ) : fare.seat ? (
-          <T variant="caption" color={colors.textMuted}>
-            o‘rindiq {formatMoney(fare.seat.rear)}
-          </T>
-        ) : (
-          <T variant="caption" color={colors.textMuted}>
-            aniq narx
-          </T>
-        )}
-      </View>
-    </Pressable>
-  );
-});
-
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   flex: { flex: 1, minWidth: 0 },
@@ -615,27 +551,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: space(3),
   },
-  classCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space(3),
-    padding: space(3.5),
-    borderRadius: radius.lg,
-    borderWidth: 2,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
-    minHeight: 76,
-  },
-  classCardOn: { borderColor: colors.ink, backgroundColor: colors.brandSoft },
-  classIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  priceCol: { alignItems: 'flex-end', maxWidth: '45%' },
   section: { marginTop: space(3) },
   owed: { gap: space(1.5), backgroundColor: colors.warningSoft },
   owedRow: { flexDirection: 'row', alignItems: 'center', gap: space(2) },

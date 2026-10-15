@@ -5,6 +5,7 @@
  */
 import type {
   Fare,
+  Quote,
   RideClass,
   RideOption,
   RideRulesView,
@@ -45,12 +46,74 @@ export function waitingRuleText(rules: RideRules): string {
 export const CLASS_LABELS: Record<RideClass, string> = {
   economy: 'Ekonom',
   comfort: 'Komfort',
+  minivan: 'Miniven',
+  business: 'Biznes',
 };
 
 export const CLASS_NOTES: Record<RideClass, string> = {
   economy: 'Cobalt, Nexia, Lacetti',
   comfort: 'Yangi va keng mashinalar',
+  minivan: 'Orlando, Captiva 7, Carnival',
+  business: 'Malibu 2, Tracker Premier, K5',
 };
+
+/** The taxi classes in display order. */
+export const RIDE_CLASSES: readonly RideClass[] = ['economy', 'comfort', 'minivan', 'business'];
+
+/** People one ride of the class carries when the quote does not say: a minivan 6, others 3. */
+const DEFAULT_MAX_PASSENGERS: Record<RideClass, number> = {
+  economy: 3,
+  comfort: 3,
+  minivan: 6,
+  business: 3,
+};
+
+export interface ClassChoice {
+  id: RideClass;
+  label: string;
+  /** The card's second line: car examples and how many people. */
+  note: string;
+  maxPassengers: number;
+}
+
+/**
+ * The classes the rider can order on this quote, in order: what the API says (only the
+ * classes switched on are priced), else the priced ones with the app's own names.
+ */
+export function quoteClasses(quote: Pick<Quote, 'fares' | 'classes'>): ClassChoice[] {
+  const listed = quote.classes?.filter((c) => quote.fares[c.id]);
+  const items = listed?.length
+    ? listed.map((c) => ({ id: c.id, label: c.label, examples: c.examples, max: c.maxPassengers }))
+    : RIDE_CLASSES.filter((c) => quote.fares[c]).map((c) => ({
+        id: c,
+        label: CLASS_LABELS[c],
+        examples: CLASS_NOTES[c],
+        max: DEFAULT_MAX_PASSENGERS[c],
+      }));
+  return items.map((c) => ({
+    id: c.id,
+    label: c.label,
+    note: `${c.examples} · ${c.max} kishigacha`,
+    maxPassengers: c.max,
+  }));
+}
+
+/** The class to keep selected: the rider's if the quote offers it, else the first offered. */
+export function orderableClass(
+  quote: Pick<Quote, 'fares' | 'classes'>,
+  wanted: RideClass,
+): RideClass {
+  if (quote.fares[wanted]) return wanted;
+  return quoteClasses(quote)[0]?.id ?? 'economy';
+}
+
+/** People one ride of the class may carry (the quote's number, else the app's default). */
+export function classMaxPassengers(
+  quote: Pick<Quote, 'seats'> | null | undefined,
+  rideClass: RideClass,
+): number {
+  return quote?.seats?.byClass?.[rideClass] ?? DEFAULT_MAX_PASSENGERS[rideClass];
+}
 
 export const OPTION_LABELS: Record<RideOption, string> = {
   child_seat: 'Bolalar o‘rindig‘i',

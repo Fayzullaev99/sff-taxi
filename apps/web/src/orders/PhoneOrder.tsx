@@ -27,7 +27,7 @@ import type {
   RideClass,
   RideOption,
 } from '../api/types';
-import { RIDE_OPTIONS } from '../api/types';
+import { RIDE_CLASSES, RIDE_OPTIONS } from '../api/types';
 import {
   CLASSES,
   date,
@@ -50,7 +50,7 @@ import {
   SCHEDULE_MIN_MINUTES,
   scheduleProblem,
 } from '../lib/rides';
-import { MAX_PASSENGERS, seatingText } from '../lib/pool';
+import { MAX_PASSENGERS, maxPassengersOf, seatingText } from '../lib/pool';
 import type { MapLayers, MarkerSpec } from '../map/adapter';
 import { GeoMap, useGeoConfig } from '../map/GeoMap';
 import { AddressSearch, addressLine, cityLayers, useDebounced, useReverse } from '../map/places';
@@ -452,6 +452,17 @@ export default function PhoneOrder() {
     refetchInterval: 8 * 60_000,
   });
   const fare = quote.data?.fares[rideClass] ?? null;
+  // the classes priced here (switched-off ones are not); economy and comfort until priced
+  const classes: RideClass[] = quote.data
+    ? RIDE_CLASSES.filter((c) => quote.data.fares[c])
+    : ['economy', 'comfort'];
+  const maxPassengers = maxPassengersOf(rideClass);
+  useEffect(() => {
+    if (quote.data && !quote.data.fares[rideClass]) setRideClass('economy');
+  }, [quote.data, rideClass]);
+  useEffect(() => {
+    if (passengers > maxPassengers) setPassengers(maxPassengers);
+  }, [passengers, maxPassengers]);
 
   const order = useMutation({
     mutationFn: () =>
@@ -738,29 +749,24 @@ export default function PhoneOrder() {
               label="Tarif"
               value={rideClass}
               onChange={setRideClass}
-              options={[
-                {
-                  value: 'economy',
-                  label: `Ekonom${quote.data ? ` · ${som(quote.data.fares.economy.total)}` : ''}`,
-                },
-                {
-                  value: 'comfort',
-                  label: `Komfort${quote.data ? ` · ${som(quote.data.fares.comfort.total)}` : ''}`,
-                },
-              ]}
+              options={classes.map((c) => {
+                const total = quote.data?.fares[c]?.total;
+                return { value: c, label: `${CLASSES[c]}${total ? ` · ${som(total)}` : ''}` };
+              })}
             />
             <Segmented
               label="Yo‘lovchilar soni"
               value={String(passengers)}
               onChange={(v) => setPassengers(Number(v))}
-              options={Array.from({ length: MAX_PASSENGERS }, (_, i) => ({
+              options={Array.from({ length: maxPassengers }, (_, i) => ({
                 value: String(i + 1),
                 label: `${i + 1} kishi`,
               }))}
             />
             <p className="muted small">
-              {seatingText(passengers)}. Bir mashinada ko‘pi bilan {MAX_PASSENGERS} yo‘lovchi: oldda
-              1, orqada 2; ko‘proq bo‘lsa — ikkinchi buyurtma.
+              {rideClass === 'minivan'
+                ? `Minivenda ko‘pi bilan ${maxPassengers} yo‘lovchi va katta yuk.`
+                : `${seatingText(passengers)}. Bir mashinada ko‘pi bilan ${MAX_PASSENGERS} yo‘lovchi: oldda 1, orqada 2; ko‘proq bo‘lsa — Miniven yoki ikkinchi buyurtma.`}
             </p>
             <div className="toggles" role="group" aria-label="Qo‘shimchalar">
               {RIDE_OPTIONS.map((o) => (

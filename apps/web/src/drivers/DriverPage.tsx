@@ -20,6 +20,7 @@ import {
   type CargoClass,
   type DriverDecision,
   type DriverDocument,
+  RIDE_CLASSES,
   type RideClass,
   VEHICLE_FEATURES,
   type VehicleFeature,
@@ -207,6 +208,22 @@ function DecisionDialog({
   );
 }
 
+/**
+ * Under the class selector: whether the car meets the class's rules (the API refuses
+ * otherwise) and which rides the driver gets now.
+ */
+function classHint(driver: AdminDriver, rideClass: RideClass): string {
+  const c = driver.classes;
+  if (!c) return '';
+  const fits = c.qualifiesFor.includes(rideClass)
+    ? `Avtomobil ${CLASSES[rideClass]} talablariga mos.`
+    : `Avtomobil ${CLASSES[rideClass]} talablariga mos emas (yosh, o‘rindiq, model yoki konditsioner).`;
+  const gets = `Hozir oladigan buyurtmalari: ${c.rides.map((r) => CLASSES[r]).join(', ')}${
+    c.lower.length && !c.takesLower ? ' (pastroq sinflarni haydovchi o‘chirgan)' : ''
+  }.`;
+  return `${fits} ${gets}`;
+}
+
 function VehicleEditor({ driver }: { driver: AdminDriver }) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -268,15 +285,17 @@ function VehicleEditor({ driver }: { driver: AdminDriver }) {
           />
         </>
       )}
-      <Segmented
-        label="Avtomobil sinfi"
-        value={rideClass}
-        onChange={setRideClass}
-        options={[
-          { value: 'economy', label: CLASSES.economy },
-          { value: 'comfort', label: CLASSES.comfort },
-        ]}
-      />
+      {!cargoCar && (
+        <>
+          <Segmented
+            label="Avtomobil sinfi"
+            value={rideClass}
+            onChange={setRideClass}
+            options={RIDE_CLASSES.map((c) => ({ value: c, label: CLASSES[c] }))}
+          />
+          <p className="muted small">{classHint(driver, rideClass)}</p>
+        </>
+      )}
       <div className="toggles" role="group" aria-label="Imkoniyatlar">
         {VEHICLE_FEATURES.map((f) => (
           <label key={f} className="check">

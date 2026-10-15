@@ -98,7 +98,7 @@ export type GeoResolve =
 
 // Tariffs and quotes -------------------------------------------------------------------
 
-export type RideClass = 'economy' | 'comfort';
+export type RideClass = 'economy' | 'comfort' | 'minivan' | 'business';
 /** Cargo cars by payload: small (Damas/Labo, up to 700 kg) and medium (Gazel/Porter). */
 export type CargoClass = 'cargo_s' | 'cargo_m';
 /** Any ride's class: a taxi class (taxi, delivery) or a cargo class. */
@@ -218,14 +218,17 @@ export interface Quote {
   durationS: number | null;
   routeSource: string;
   options: RideOption[];
-  fares: Record<RideClass, Fare>;
+  /** The classes switched on where the ride starts (switched-off ones are not priced). */
+  fares: Partial<Record<RideClass, Fare>>;
+  /** The orderable classes in display order with their names (older APIs: absent). */
+  classes?: QuoteClass[];
   paymentMethods: PaymentMethod[];
   waiting: WaitingRule;
   cancellationFee: number;
   /** A ride for later (priced for its own time), else null. */
   scheduledFor: string | null;
   /** The nearest free car per class by road; null for a ride for later. */
-  availability: Record<RideClass, ClassAvailability> | null;
+  availability: Partial<Record<RideClass, ClassAvailability>> | null;
   /** Which providers a card payment goes through (Payme, Click); older APIs: absent. */
   cardProviders?: CardProvider[];
   /**
@@ -234,7 +237,13 @@ export interface Quote {
    */
   owedFee?: OwedFeeLine | null;
   /** The seating rule (wave 4): at most 3 people, 1 in front, 2 in the back. */
-  seats?: { max: number; front: number; rearMax: number };
+  seats?: {
+    max: number;
+    front: number;
+    rearMax: number;
+    /** People per class: a minivan carries up to 6. */
+    byClass?: Partial<Record<RideClass, number>>;
+  };
   /** A fixed price between these towns applies, else null. */
   route?: QuoteRoute | null;
   /** "Hamroh bilan": the discount and cars already going that way. */
@@ -250,6 +259,16 @@ export interface Quote {
   service?: 'taxi' | 'delivery';
   /** A delivery quote: the parcel's rules; the order needs the recipient. */
   delivery?: DeliveryRules | null;
+}
+
+/** An orderable taxi class as the quote describes it. */
+export interface QuoteClass {
+  id: RideClass;
+  label: string;
+  description: string;
+  /** Car examples: "Orlando, Captiva 7, Kia Carnival". */
+  examples: string;
+  maxPassengers: number;
 }
 
 /** A ride for later is booked once part of its price is paid by card (null: deposits off). */

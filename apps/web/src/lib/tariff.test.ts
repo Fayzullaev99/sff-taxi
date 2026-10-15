@@ -7,6 +7,7 @@ import {
   isNightMinute,
   isNightNow,
   validateTariff,
+  withAllClasses,
 } from './tariff';
 
 const city = (over: Partial<Parameters<typeof calcFare>[0]> = {}) =>
@@ -109,5 +110,38 @@ describe('tariff validation', () => {
     const far = structuredClone(DEFAULT_TARIFF);
     far.classes.economy.bands = [{ up_to_m: 150_000, price: 5000 }];
     expect(validateTariff(far).map((p) => p.path)).toContain('classes.economy.bands.0.up_to_m');
+  });
+});
+
+describe('classes in the tariff', () => {
+  it('prices every class, minivan and business off at launch', () => {
+    expect(city({ rideClass: 'minivan' }).total).toBe(9800);
+    expect(city({ rideClass: 'business' }).total).toBe(13_300);
+    expect(DEFAULT_TARIFF.classes.minivan.enabled).toBe(false);
+    expect(DEFAULT_TARIFF.classes.business.enabled).toBe(false);
+    expect(validateTariff(DEFAULT_TARIFF)).toEqual([]);
+  });
+
+  it('never lets economy be switched off and checks every class', () => {
+    const t: Tariff = {
+      ...DEFAULT_TARIFF,
+      classes: {
+        ...DEFAULT_TARIFF.classes,
+        economy: { ...DEFAULT_TARIFF.classes.economy, enabled: false },
+        business: { ...DEFAULT_TARIFF.classes.business, beyond_per_km: NaN },
+      },
+    };
+    expect(validateTariff(t).map((p) => p.path)).toEqual([
+      'classes.economy.enabled',
+      'classes.business.beyond_per_km',
+    ]);
+  });
+
+  it('fills the classes an older document lacks, like the API (switched off)', () => {
+    const { minivan: _m, business: _b, ...old } = DEFAULT_TARIFF.classes;
+    const t = withAllClasses({ ...DEFAULT_TARIFF, classes: old as Tariff['classes'] });
+    expect(t.classes.minivan).toEqual(DEFAULT_TARIFF.classes.minivan);
+    expect(t.classes.business).toEqual(DEFAULT_TARIFF.classes.business);
+    expect(t.classes.economy.enabled).toBe(true);
   });
 });

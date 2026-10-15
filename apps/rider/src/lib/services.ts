@@ -31,7 +31,12 @@ export const CARGO_CLASS_NOTES: Record<CargoClass, string> = {
   cargo_m: 'Gazel, Porter, Isuzu',
 };
 
-const TAXI_CLASS_LABELS: Record<string, string> = { economy: 'Ekonom', comfort: 'Komfort' };
+const TAXI_CLASS_LABELS: Record<string, string> = {
+  economy: 'Ekonom',
+  comfort: 'Komfort',
+  minivan: 'Miniven',
+  business: 'Biznes',
+};
 
 export function isCargoClass(c: string): c is CargoClass {
   return c === 'cargo_s' || c === 'cargo_m';

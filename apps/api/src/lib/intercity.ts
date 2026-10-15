@@ -21,7 +21,7 @@ export function wholeCarFare(roadM: number, tariff: Tariff, rideClass: RideClass
 
 /**
  * The reference seat prices of a route: the operators' route price if there is one (for
- * economy; comfort pays the tariff's comfort/economy ratio on top), else the tariff's share.
+ * economy; another class pays its tariff's ratio to economy on top), else the tariff's share.
  */
 export function referenceSeatPrices(
   roadM: number,
@@ -31,7 +31,8 @@ export function referenceSeatPrices(
 ): SeatPrices {
   if (routePrice) {
     if (rideClass === 'economy') return routePrice;
-    const ratio = tariff.classes.comfort.intercity_per_km / tariff.classes.economy.intercity_per_km;
+    const ratio =
+      tariff.classes[rideClass].intercity_per_km / tariff.classes.economy.intercity_per_km;
     return {
       rear: roundUp100(routePrice.rear * ratio),
       front: roundUp100(routePrice.front * ratio),

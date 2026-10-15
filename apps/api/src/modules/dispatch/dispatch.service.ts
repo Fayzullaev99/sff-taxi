@@ -9,8 +9,10 @@ import { type CargoClass, carClassesFor } from '../../lib/cargo.js';
 import { etaSeconds, type Point } from '../../lib/geo.js';
 import type { PlanStop } from '../../lib/pool.js';
 import { priority } from '../../lib/priority.js';
+import type { RideClass } from '../../lib/tariff.js';
 import { RoutingService } from '../geo/routing.service.js';
 import { PoolService } from '../rides/pool.service.js';
+import { takesClassSql } from '../rides/class-filter.js';
 import { RidesService } from '../rides/rides.service.js';
 import {
   type BillingRules,
@@ -419,7 +421,9 @@ export class DispatchService {
       .where('d.user_id', '!=', ride.rider_id)
       .$if(Boolean(onlyIds), (q) => q.where('d.user_id', 'in', onlyIds!))
       .where(straight, '<=', radiusM)
-      .$if(ride.class === 'comfort', (q) => q.where('v.class', '=', 'comfort'))
+      // a ride of a class goes to cars of that class, or of a higher class whose driver takes
+      // lower classes (src/lib/ride-classes.ts)
+      .$if(ride.service !== 'cargo', (q) => q.where(takesClassSql(ride.class as RideClass)))
       // cargo rides go to cargo cars whose class fits (a medium car takes small loads);
       // taxi rides and deliveries (a parcel in a taxi car) never to a cargo car
       .$if(ride.service === 'cargo', (q) =>

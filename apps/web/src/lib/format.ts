@@ -199,6 +199,8 @@ export const RIDE_STATUS_TONE: Record<RideStatus, Tone> = {
 export const CLASSES: Record<AnyRideClass, string> = {
   economy: 'Ekonom',
   comfort: 'Komfort',
+  minivan: 'Miniven',
+  business: 'Biznes',
   cargo_s: 'Kichik yuk (Damas/Labo)',
   cargo_m: 'O‘rta yuk (Gazel/Porter)',
 };

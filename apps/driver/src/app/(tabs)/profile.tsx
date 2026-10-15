@@ -38,6 +38,7 @@ import {
   Title,
 } from '../../ui/components';
 import { haptics } from '../../ui/haptics';
+import { ClassesCard } from '../../home/classes-card';
 import { WomenRidersCard } from '../../home/women-riders-card';
 import { isCargoCar } from '../../lib/service';
 import { CARGO_CLASS_LABELS } from '../../lib/service';
@@ -180,6 +181,7 @@ export default function Profile() {
         />
       </Card>
 
+      {isCargoCar(d) ? null : <ClassesCard me={d} />}
       {isCargoCar(d) ? null : <WomenRidersCard me={d} />}
 
       <Card>

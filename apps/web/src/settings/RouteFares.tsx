@@ -3,7 +3,13 @@ import { Pencil, Plus, Power, Save, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useIntercityPoints, useRouteFares } from '../api/queries';
-import type { IntercityPoint, RideClass, RouteFare, RouteFareBody } from '../api/types';
+import {
+  type IntercityPoint,
+  RIDE_CLASSES,
+  type RideClass,
+  type RouteFare,
+  type RouteFareBody,
+} from '../api/types';
 import { CLASSES, dateTime, som } from '../lib/format';
 import { routeFareBody, type RouteFareDraft, routeFareProblems } from '../lib/pool';
 import { Badge, Button, Field, MoneyInput, PageHeader, Segmented, Toggle } from '../ui/controls';
@@ -178,10 +184,7 @@ export default function RouteFares() {
             label="Tarif"
             value={d.class}
             onChange={(c) => editing === null && set({ class: c })}
-            options={[
-              { value: 'economy', label: CLASSES.economy },
-              { value: 'comfort', label: CLASSES.comfort },
-            ]}
+            options={RIDE_CLASSES.map((c) => ({ value: c, label: CLASSES[c] }))}
           />
           <div className="grid-2">
             <div>

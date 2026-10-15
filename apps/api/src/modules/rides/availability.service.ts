@@ -4,6 +4,7 @@ import { Database } from '../../core/db/database.js';
 import { ACTIVE_RIDE_STATUSES } from '../../core/db/schema.js';
 import { CARGO_CLASSES, type CargoClass, carClassesFor } from '../../lib/cargo.js';
 import { etaSeconds, type Point } from '../../lib/geo.js';
+import { carTakes } from '../../lib/ride-classes.js';
 import { RIDE_CLASSES, type RideClass } from '../../lib/tariff.js';
 import { RoutingService } from '../geo/routing.service.js';
 import { SettingsService } from '../settings/settings.module.js';
@@ -31,13 +32,18 @@ export class AvailabilityService {
     private readonly settings: SettingsService,
   ) {}
 
-  async near(pickup: Point, riderId: string): Promise<Record<RideClass, ClassAvailability>> {
+  /** Per class riders may order (the tariff's enabled classes). */
+  async near(
+    pickup: Point,
+    riderId: string,
+    classes: readonly RideClass[] = RIDE_CLASSES,
+  ): Promise<Partial<Record<RideClass, ClassAvailability>>> {
     const rows = await this.freeCars(pickup, riderId, false);
-    const out = {} as Record<RideClass, ClassAvailability>;
-    for (const rideClass of RIDE_CLASSES) {
-      // a comfort car can take an economy ride, not the other way round
+    const out: Partial<Record<RideClass, ClassAvailability>> = {};
+    for (const rideClass of classes) {
+      // the class's own cars, and higher classes' cars whose drivers take lower classes
       out[rideClass] = await this.nearest(
-        rows.filter((r) => rideClass === 'economy' || r.class === 'comfort'),
+        rows.filter((r) => carTakes(r.class, rideClass, r.takes_lower_classes)),
         pickup,
       );
     }
@@ -78,7 +84,14 @@ export class AvailabilityService {
       this.db.kysely
         .selectFrom('drivers as d')
         .innerJoin('vehicles as v', 'v.driver_id', 'd.user_id')
-        .select(['d.lat', 'd.lng', 'v.class', 'v.cargo_class', straight.as('straight')])
+        .select([
+          'd.lat',
+          'd.lng',
+          'v.class',
+          'v.cargo_class',
+          'd.takes_lower_classes',
+          straight.as('straight'),
+        ])
         // a cargo car never takes taxi rides, a taxi car never cargo
         .where('v.cargo_class', cargo ? 'is not' : 'is', null)
         .where('d.is_online', '=', true)

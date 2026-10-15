@@ -11,6 +11,7 @@ import type {
   LiveDriverState,
   RideStatus,
 } from '../api/types';
+import { RIDE_CLASSES } from '../api/types';
 import {
   ago,
   CARGO_CLASS,
@@ -354,8 +355,7 @@ export default function LiveDispatch() {
           onChange={(rideClass) => setFilters((f) => ({ ...f, rideClass }))}
           options={[
             { value: 'all', label: 'Hammasi' },
-            { value: 'economy', label: 'Ekonom' },
-            { value: 'comfort', label: 'Komfort' },
+            ...RIDE_CLASSES.map((c) => ({ value: c, label: CLASSES[c] })),
           ]}
         />
         <Segmented

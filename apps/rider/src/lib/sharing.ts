@@ -24,10 +24,21 @@ export const MAX_PASSENGERS = 3;
 const minutes = (s: number) => formatMinutes(Math.max(1, Math.ceil(s / 60)));
 
 /** At most 3 people (the quote's own limit when it says a lower one), at least 1. */
-export function clampPassengers(n: number, quote?: Pick<Quote, 'seats'> | null): number {
-  const max = Math.min(MAX_PASSENGERS, quote?.seats?.max ?? MAX_PASSENGERS);
+export function clampPassengers(
+  n: number,
+  quote?: Pick<Quote, 'seats'> | null,
+  rideClass?: RideClass,
+): number {
+  // a minivan carries up to 6 (the quote says per class); any other car the seating rule
+  const max =
+    rideClass === 'minivan'
+      ? (quote?.seats?.byClass?.minivan ?? 6)
+      : Math.min(MAX_PASSENGERS, quote?.seats?.max ?? MAX_PASSENGERS);
   return Math.max(1, Math.min(max, Math.round(n)));
 }
+
+/** Shared rides and route seats are sold in these classes only. */
+export const POOL_CLASSES: readonly RideClass[] = ['economy', 'comfort'];
 
 /** Free seats of a car by place: the front one and the back ones. */
 export function freeSeats(car: SeatLayout): { front: number; rear: number } {
@@ -142,10 +153,13 @@ export function orderChoices(
   rideClass: RideClass,
 ): RideChoices {
   const prices = routePrices(quote, rideClass);
-  const fareMode: FareMode = choices.fareMode === 'seat' && prices?.seat ? 'seat' : 'car';
-  const shareable = fareMode === 'seat' || (choices.shareable && quote.pool?.available === true);
+  const poolClass = POOL_CLASSES.includes(rideClass);
+  const fareMode: FareMode =
+    choices.fareMode === 'seat' && prices?.seat && poolClass ? 'seat' : 'car';
+  const shareable =
+    fareMode === 'seat' || (choices.shareable && poolClass && quote.pool?.available === true);
   return {
-    passengers: clampPassengers(choices.passengers, quote),
+    passengers: clampPassengers(choices.passengers, quote, rideClass),
     shareable,
     womenOnly: choices.womenOnly && quote.womenOnly?.available === true,
     fareMode,

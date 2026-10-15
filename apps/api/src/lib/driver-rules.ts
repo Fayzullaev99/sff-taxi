@@ -1,3 +1,5 @@
+import type { RideClass } from './tariff.js';
+
 /**
  * Who may drive and in what car: Cabinet Resolution No. 200 (02.04.2025), cl. 10 and the
  * vehicle rules, as summarised in docs/market-analysis.md §4. Pure functions; the drivers
@@ -12,8 +14,21 @@ export const DRIVER_RULES = {
   maxVehicleAgeYears: 15,
   /** SFF Comfort: at most 5 years old, with air conditioning (market analysis §6.3) */
   maxComfortAgeYears: 5,
-  /** at most 4 passenger seats besides the driver */
+  /** at most 4 passenger seats besides the driver (a minivan: see below) */
   maxSeats: 4,
+  /**
+   * SFF Miniven: 6-7 passenger seats besides the driver (Orlando, Captiva 7, Carnival), at
+   * most 8 years old, AC; it carries up to 6 people (src/lib/ride-classes.ts). Resolution 200's
+   * 4-seat limit is read as the sedan taxi's; minivans are M1 cars (up to 8 seats) and the
+   * class stays off until the regulator's reading is confirmed (docs/architecture.md §7).
+   */
+  minMinivanSeats: 6,
+  maxMinivanSeats: 7,
+  maxMinivanAgeYears: 8,
+  /** SFF Biznes: a premium model (BUSINESS_MODELS), at most 3 years old, AC ... */
+  maxBusinessAgeYears: 3,
+  /** ... and a driver rated at least this (average stars with the priority score's prior). */
+  minBusinessRating: 4.8,
   /**
    * cargo cars: the cab's seats besides the driver (Damas/Labo 1, Gazel/Porter/Isuzu 2); the
    * customer may ride along, one order at a time (riderRides)
@@ -82,6 +97,19 @@ export function isVanType(make: string, model: string): boolean {
   return /\b(damas|labo)\b/i.test(`${make} ${model}`);
 }
 
+/**
+ * Premium cars for SFF Biznes: these makes with any model, or the listed models (the
+ * premium trims of mass makes: a Tracker 2 Premier, not a Cobalt).
+ */
+const BUSINESS_MAKES = /\b(mercedes|benz|bmw|lexus|audi|genesis|volvo|zeekr|lixiang|li auto)\b/i;
+const BUSINESS_MODELS =
+  /\b(malibu|tracker|tahoe|traverse|equinox|k5|k8|k9|sonata|grandeur|santa ?fe|palisade|sorento|camry|han|seal|tang|song plus|tiggo 8|exeed|hongqi)\b/i;
+
+/** Whether a car is a premium model fit for SFF Biznes. */
+export function isBusinessModel(make: string, model: string): boolean {
+  return BUSINESS_MAKES.test(make) || BUSINESS_MODELS.test(`${make} ${model}`);
+}
+
 /** Today's date in Tashkent (UTC+5, no DST) as YYYY-MM-DD. */
 export function tashkentDate(now: Date): string {
   return new Date(now.getTime() + 5 * 3600_000).toISOString().slice(0, 10);
@@ -108,7 +136,7 @@ export interface VehicleFacts {
   model: string;
   year: number;
   seats: number;
-  class: 'economy' | 'comfort';
+  class: RideClass;
   features: string[];
   /** What the car works for: a passenger taxi (Resolution 200) or cargo. Default taxi. */
   service?: 'taxi' | 'cargo';
@@ -182,24 +210,80 @@ export function checkVehicle(
       message: `Avtomobil ${DRIVER_RULES.maxVehicleAgeYears} yildan eski bo‘lmasligi kerak`,
     });
   }
-  if (v.seats < 1 || v.seats > DRIVER_RULES.maxSeats) {
+  if (v.class === 'minivan') {
+    if (v.seats < DRIVER_RULES.minMinivanSeats || v.seats > DRIVER_RULES.maxMinivanSeats) {
+      problems.push({
+        path: 'vehicle.seats',
+        message: `Miniven uchun haydovchidan tashqari ${DRIVER_RULES.minMinivanSeats}–${DRIVER_RULES.maxMinivanSeats} o‘rindiq kerak`,
+      });
+    }
+  } else if (v.seats < 1 || v.seats > DRIVER_RULES.maxSeats) {
     problems.push({
       path: 'vehicle.seats',
       message: `Yo‘lovchi o‘rindiqlari ${DRIVER_RULES.maxSeats} tadan ko‘p bo‘lmasligi kerak`,
     });
   }
-  if (v.class === 'comfort') {
-    if (year - v.year > DRIVER_RULES.maxComfortAgeYears) {
+  problems.push(...checkClass(v, year));
+  return problems;
+}
+
+const CLASS_RULES = {
+  comfort: { label: 'Komfort', maxAge: DRIVER_RULES.maxComfortAgeYears },
+  minivan: { label: 'Miniven', maxAge: DRIVER_RULES.maxMinivanAgeYears },
+  business: { label: 'Biznes', maxAge: DRIVER_RULES.maxBusinessAgeYears },
+} as const;
+
+/**
+ * What the car's class asks beyond a taxi's rules: comfort, minivan and business cars have
+ * an age limit and AC; a business car is a premium model with a sedan or SUV body.
+ */
+function checkClass(v: VehicleFacts, year: number): RuleProblem[] {
+  if (v.class === 'economy') return [];
+  const rule = CLASS_RULES[v.class];
+  const problems: RuleProblem[] = [];
+  if (year - v.year > rule.maxAge) {
+    problems.push({
+      path: 'vehicle.class',
+      message: `${rule.label} uchun avtomobil ${rule.maxAge} yildan eski bo‘lmasligi kerak`,
+    });
+  }
+  if (!v.features.includes('ac')) {
+    problems.push({ path: 'vehicle.class', message: `${rule.label} uchun konditsioner kerak` });
+  }
+  if (v.class === 'business') {
+    if (!isBusinessModel(v.make, v.model)) {
       problems.push({
         path: 'vehicle.class',
-        message: `Komfort uchun avtomobil ${DRIVER_RULES.maxComfortAgeYears} yildan eski bo‘lmasligi kerak`,
+        message:
+          'Biznes uchun premium avtomobil kerak (Malibu, Tracker Premier, K5, Sonata va h.k.)',
       });
-    }
-    if (!v.features.includes('ac')) {
-      problems.push({ path: 'vehicle.class', message: 'Komfort uchun konditsioner kerak' });
+    } else if (v.body === 'hatchback' || v.body === 'minivan') {
+      problems.push({ path: 'vehicle.class', message: 'Biznes uchun sedan yoki krossover kerak' });
     }
   }
   return problems;
+}
+
+/**
+ * The driver's standing a class asks: SFF Biznes needs a rating of at least 4.8 (`stars`:
+ * the priority score's rating, so a new driver starts at 4.8 and keeps it until rated lower).
+ */
+export function checkClassRating(rideClass: RideClass, stars: number): RuleProblem[] {
+  return rideClass === 'business' && stars < DRIVER_RULES.minBusinessRating
+    ? [
+        {
+          path: 'vehicle.class',
+          message: `Biznes uchun haydovchi reytingi kamida ${DRIVER_RULES.minBusinessRating} bo‘lishi kerak`,
+        },
+      ]
+    : [];
+}
+
+/** The taxi classes a car meets the rules of (cargo cars: none). */
+export function qualifyingClasses(v: VehicleFacts, today: string): RideClass[] {
+  if (v.service === 'cargo') return [];
+  const classes: RideClass[] = ['economy', 'comfort', 'minivan', 'business'];
+  return classes.filter((c) => checkVehicle({ ...v, class: c }, today).length === 0);
 }
 
 /**

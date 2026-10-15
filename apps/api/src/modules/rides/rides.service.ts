@@ -56,7 +56,15 @@ import {
 import { depositAmount } from '../../lib/deposit.js';
 import { MAX_PASSENGERS, REAR_SEATS_MAX } from '../../lib/pool.js';
 import {
+  CLASS_INFO,
+  carCanServe,
+  classLabel,
+  maxPassengers,
+  POOL_CLASSES,
+} from '../../lib/ride-classes.js';
+import {
   computeFare,
+  enabledClasses,
   type Fare,
   fixedFare,
   freeWaitingOver,
@@ -246,8 +254,8 @@ export class RidesService {
       scheduledFor ?? now,
     );
     if (delivery) {
-      for (const rideClass of RIDE_CLASSES) {
-        priced.fares[rideClass] = deliveryFare(priced.fares[rideClass], delivery.percent);
+      for (const rideClass of priced.classes) {
+        priced.fares[rideClass] = deliveryFare(priced.fares[rideClass]!, delivery.percent);
       }
     }
     const id = uuidv7();
@@ -303,7 +311,7 @@ export class RidesService {
     // the rider's owed fees, free cars, cars on the way and women drivers: independent reads
     const [owedFee, availability, poolCars, womenDrivers] = await Promise.all([
       opts.forRider ? this.owedFeeLine(user.userId) : null,
-      scheduledFor ? null : this.availability.near(input.pickup, user.userId),
+      scheduledFor ? null : this.availability.near(input.pickup, user.userId, priced.classes),
       poolRules.enabled && !scheduledFor
         ? this.pool.preview({
             riderId: user.userId,
@@ -311,7 +319,7 @@ export class RidesService {
             pickup: input.pickup,
             dropoff: input.dropoff,
             kind: priced.kind,
-            fare: priced.fares.economy.total,
+            fare: priced.fares.economy!.total,
             distanceM: priced.route.distanceM,
             tariff: priced.tariff,
           })
@@ -332,6 +340,8 @@ export class RidesService {
       routeSource: priced.route.source,
       options: [...new Set(input.options)],
       fares: priced.fares,
+      // the classes riders may order here (switched-off classes are not priced), in order
+      classes: classCatalog(priced.classes),
       deposit: deposit && deposit.amount > 0 ? deposit : null,
       // rides for later are cash only (a card ride is prepaid before dispatch)
       paymentMethods: scheduledFor
@@ -345,7 +355,13 @@ export class RidesService {
       // the nearest free car per class, by road: "~4 min" on the class buttons
       availability,
       // the seating rule: one in front, at most two in the back
-      seats: { max: MAX_PASSENGERS, front: 1, rearMax: REAR_SEATS_MAX },
+      seats: {
+        max: MAX_PASSENGERS,
+        front: 1,
+        rearMax: REAR_SEATS_MAX,
+        // a minivan ride carries up to 6
+        byClass: Object.fromEntries(priced.classes.map((c) => [c, maxPassengers(c)])),
+      },
       // a fixed price between towns: per seat in a shared car, or the whole car
       route: priced.fixedRoute
         ? {
@@ -483,11 +499,14 @@ export class RidesService {
       routeSource: priced.route.source,
       options: [],
       fares: priced.fares,
+      classes: classCatalog(priced.classes),
       ...this.paymentOptions(q.scheduledFor),
       owedFee: q.forRider ? await this.owedFeeLine(user.userId) : null,
       waiting: priced.tariff.waiting,
       cancellationFee: priced.tariff.cancellation_fee,
-      availability: q.scheduledFor ? null : await this.availability.near(q.pickup, user.userId),
+      availability: q.scheduledFor
+        ? null
+        : await this.availability.near(q.pickup, user.userId, priced.classes),
       route: null,
       pool: RidesService.NO_POOL,
       womenOnly: null,
@@ -665,8 +684,10 @@ export class RidesService {
       throw new BadRequestException('Olib ketish va borish manzillari juda yaqin');
     }
     const roadRoute = await this.routing.route(pickup, dropoff);
+    // switched-off classes are not priced: riders never see them
+    const classes = enabledClasses(service.tariff);
     const fares = Object.fromEntries(
-      RIDE_CLASSES.map((rideClass) => [
+      classes.map((rideClass) => [
         rideClass,
         computeFare(
           {
@@ -681,12 +702,12 @@ export class RidesService {
           service.tariff,
         ),
       ]),
-    ) as Record<RideClass, Fare>;
+    ) as Partial<Record<RideClass, Fare>>;
     // a fixed whole-car price replaces the distance price of its class
-    for (const rideClass of RIDE_CLASSES) {
+    for (const rideClass of classes) {
       const p = route?.prices[rideClass];
       if (p?.car) {
-        fares[rideClass] = fixedFare(fares[rideClass], {
+        fares[rideClass] = fixedFare(fares[rideClass]!, {
           routeFareId: p.id,
           mode: 'car',
           price: p.car,
@@ -699,7 +720,8 @@ export class RidesService {
       tariff: service.tariff,
       route: roadRoute,
       fares,
-      kind: fares.economy.kind,
+      classes,
+      kind: fares.economy!.kind,
       fixedRoute: route,
     };
   }
@@ -823,21 +845,17 @@ export class RidesService {
   }> {
     if (quote.service !== 'taxi') return this.serviceTerms(quote, input);
     if (!isTaxiClass(input.class)) {
-      throw new BadRequestException('Taksi uchun economy yoki comfort sinfini tanlang');
+      throw new BadRequestException('Taksi sinfini tanlang: Ekonom, Komfort, Miniven yoki Biznes');
     }
+    let fare = quotedFare(quote.fares, input.class);
     const passengers = input.passengers ?? 1;
-    if (!Number.isInteger(passengers) || passengers < 1 || passengers > MAX_PASSENGERS) {
-      throw new BadRequestException(
-        msg(
-          'Bir mashinada {0} tadan ortiq yo‘lovchi bo‘lmaydi (oldinda 1, orqada 2)',
-          MAX_PASSENGERS,
-        ),
-      );
-    }
+    assertPassengers(input.class, passengers);
     const fareMode = input.fareMode ?? 'car';
     // a seat is a place in a shared car
     const shareable = fareMode === 'seat' || Boolean(input.shareable);
-    let fare = (quote.fares as Record<RideClass, Fare>)[input.class];
+    if (shareable && !POOL_CLASSES.includes(input.class)) {
+      throw new BadRequestException('Hamroh bilan safar faqat Ekonom va Komfort sinflarida');
+    }
     if (shareable) {
       const rules = await this.settings.pool();
       if (!rules.enabled) throw new BadRequestException('Hamroh bilan safar hozircha o‘chirilgan');
@@ -942,12 +960,12 @@ export class RidesService {
       };
     }
     if (!isTaxiClass(input.class)) {
-      throw new BadRequestException('Yetkazib berish uchun economy yoki comfort sinfini tanlang');
+      throw new BadRequestException('Yetkazib berish uchun taksi sinfini tanlang');
     }
     if (!input.recipient) {
       throw new BadRequestException('Qabul qiluvchining ismi va telefon raqamini kiriting');
     }
-    const fare = (quote.fares as Record<RideClass, Fare>)[input.class];
+    const fare = quotedFare(quote.fares, input.class);
     const quoted = (quote.cargo ?? { description: null, weightKg: null }) as ParcelDetails;
     const parcel: ParcelDetails = {
       description: input.parcel?.description ?? quoted.description,
@@ -1015,7 +1033,7 @@ export class RidesService {
         options: quote.options as RideOption[],
         distanceM: quote.distance_m,
         durationS: quote.duration_s,
-        fare: (quote.fares as unknown as Record<RideClass, Fare>)[input.class],
+        fare: quotedFare(quote.fares, input.class),
         tariff: quote.tariff,
         quoteId: quote.id,
         scheduledFor: quote.scheduled_for,
@@ -1034,12 +1052,13 @@ export class RidesService {
         options: input.options,
         distanceM: p.route.distanceM,
         durationS: p.route.durationS === null ? null : Math.round(p.route.durationS),
-        fare: p.fares[input.class],
+        fare: quotedFare(p.fares, input.class),
         tariff: p.tariff,
         quoteId: null,
         scheduledFor: null,
       };
     }
+    assertPassengers(input.class, input.passengers ?? 1);
     const id = await this.db.transaction(async (trx) => {
       if (input.clientRequestId) {
         await sql`select pg_advisory_xact_lock(hashtext(${operator.userId + input.clientRequestId}))`.execute(
@@ -1474,6 +1493,13 @@ export class RidesService {
         ride.service === 'cargo'
           ? 'Bu haydovchining mashinasi bu yukka mos emas'
           : 'Yuk mashinasi yo‘lovchi va posilka buyurtmalarini olmaydi',
+      );
+    }
+    // a taxi ride needs a car of its class or a higher one (an operator may assign a car whose
+    // driver does not take lower classes; offers follow the driver's choice)
+    if (ride.service !== 'cargo' && !carCanServe(driver.class, ride.class as RideClass)) {
+      throw new ConflictException(
+        msg('Bu mashina «{0}» buyurtmasiga mos emas', classLabel(ride.class)),
       );
     }
     if (driverId === ride.rider_id)
@@ -2908,6 +2934,39 @@ function labelEvent<E extends { type: string; data: Record<string, unknown> }>(e
           : reasonLabel(RELEASE_REASONS, text(e.data.reason))
         : null;
   return label ? { ...e, reasonLabel: label } : e;
+}
+
+/**
+ * The quoted fare of a class: a class switched off (or added) since is not in the quote and
+ * cannot be ordered with it.
+ */
+function quotedFare(fares: unknown, rideClass: RideClass): Fare {
+  const fare = (fares as Partial<Record<RideClass, Fare>>)[rideClass];
+  if (!fare) {
+    throw new BadRequestException(
+      msg('«{0}» sinfi hozircha ishlamaydi: boshqa sinfni tanlang', classLabel(rideClass)),
+    );
+  }
+  return fare;
+}
+
+/** People one ride of the class may carry: 3 (one in front, two in the back), a minivan 6. */
+function assertPassengers(rideClass: RideClass, passengers: number): void {
+  const max = maxPassengers(rideClass);
+  if (Number.isInteger(passengers) && passengers >= 1 && passengers <= max) return;
+  throw new BadRequestException(
+    rideClass === 'minivan'
+      ? msg('Minivenda {0} tadan ortiq yo‘lovchi bo‘lmaydi', max)
+      : msg(
+          'Bir mashinada {0} tadan ortiq yo‘lovchi bo‘lmaydi (oldinda 1, orqada 2): ko‘p kishi uchun Minivenni tanlang',
+          max,
+        ),
+  );
+}
+
+/** What the apps show of each orderable class: name, a line, car examples, people. */
+function classCatalog(classes: readonly RideClass[]) {
+  return classes.map((c) => ({ id: c, ...CLASS_INFO[c] }));
 }
 
 /** Event types riders see in their ride's timeline. */

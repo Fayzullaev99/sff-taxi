@@ -5,6 +5,7 @@ import type { PoolCar, Quote, RideClass, SeatLayout } from '../api/types';
 import { formatMoney } from '../lib/format';
 import {
   clampPassengers,
+  POOL_CLASSES,
   poolCarsFor,
   poolCarsHeadline,
   poolCarText,
@@ -114,22 +115,32 @@ function ModeCard({
   );
 }
 
-/** How many people ride: 1–3 (one in front, at most two in the back). */
-export function PassengersRow({ quote, passengers }: { quote: Quote; passengers: number }) {
-  const max = clampPassengers(99, quote);
+/** How many people ride: 1–3 (one in front, at most two in the back), a minivan up to 6. */
+export function PassengersRow({
+  quote,
+  passengers,
+  rideClass,
+}: {
+  quote: Quote;
+  passengers: number;
+  rideClass: RideClass;
+}) {
+  const max = clampPassengers(99, quote, rideClass);
   return (
     <View style={styles.people}>
       <View style={styles.flex}>
         <T variant="bodyStrong">Yo‘lovchilar</T>
         <T variant="small" color={colors.textMuted}>
-          Ko‘pi bilan {max} kishi: oldinda 1, orqada ko‘pi bilan 2
+          {rideClass === 'minivan'
+            ? `Minivenda ko‘pi bilan ${max} kishi va katta yuk`
+            : `Ko‘pi bilan ${max} kishi: oldinda 1, orqada ko‘pi bilan 2. Ko‘proq bo‘lsa — Miniven`}
         </T>
       </View>
       <Stepper
         value={passengers}
         min={1}
         max={max}
-        onChange={(n) => updateDraft({ passengers: clampPassengers(n, quote) })}
+        onChange={(n) => updateDraft({ passengers: clampPassengers(n, quote, rideClass) })}
       />
     </View>
   );
@@ -139,8 +150,17 @@ export function PassengersRow({ quote, passengers }: { quote: Quote; passengers:
  * "Hamroh bilan" and "Ayol haydovchi" rows for the order sheet's preferences. Hidden when
  * the API does not offer them (an older API: no fields).
  */
-export function SharingRows({ quote, choices }: { quote: Quote; choices: ChoicesState }) {
-  const pool = quote.pool;
+export function SharingRows({
+  quote,
+  choices,
+  rideClass,
+}: {
+  quote: Quote;
+  choices: ChoicesState;
+  rideClass: RideClass;
+}) {
+  // shared rides are economy and comfort only
+  const pool = POOL_CLASSES.includes(rideClass) ? quote.pool : undefined;
   const women = quote.womenOnly;
   const cars = poolCarsFor(pool?.cars, choices.passengers);
   return (

@@ -11,7 +11,7 @@ import { tashkentClock } from './hours.js';
  * are charged per km for the whole car, with a per-seat share shown for reference.
  */
 
-export const RIDE_CLASSES = ['economy', 'comfort'] as const;
+export const RIDE_CLASSES = ['economy', 'comfort', 'minivan', 'business'] as const;
 export type RideClass = (typeof RIDE_CLASSES)[number];
 export const RIDE_OPTIONS = ['child_seat', 'luggage', 'pets', 'ac'] as const;
 export type RideOption = (typeof RIDE_OPTIONS)[number];
@@ -27,6 +27,8 @@ const Band = z.object({
 });
 
 export const ClassTariff = z.object({
+  /** Operators switch a class on and off (a class without enough cars stays off). */
+  enabled: z.boolean().default(true),
   bands: z
     .array(Band)
     .min(1)
@@ -47,8 +49,47 @@ export const ClassTariff = z.object({
 });
 export type ClassTariff = z.infer<typeof ClassTariff>;
 
+/**
+ * The classes added after launch, priced as a percentage of economy when a stored tariff
+ * (the global setting, a city's own, a ride's snapshot) was saved before they existed:
+ * such a tariff keeps working, with the new classes switched off until operators set them.
+ */
+export const DERIVED_CLASS_PERCENT = { minivan: 140, business: 190 } as const;
+
+/** A class's tariff as `percent` of another's, in whole 100 so'm, switched off. */
+export function deriveClassTariff(from: ClassTariff, percent: number): ClassTariff {
+  const scale = (n: number) => roundUp100((n * percent) / 100);
+  return {
+    enabled: false,
+    bands: from.bands.map((b) => ({ up_to_m: b.up_to_m, price: scale(b.price) })),
+    beyond_per_km: scale(from.beyond_per_km),
+    outside_per_km: scale(from.outside_per_km),
+    intercity_per_km: scale(from.intercity_per_km),
+    intercity_min: scale(from.intercity_min),
+  };
+}
+
+const Classes = z
+  .object({
+    economy: ClassTariff,
+    comfort: ClassTariff,
+    minivan: ClassTariff.optional(),
+    business: ClassTariff.optional(),
+  })
+  .transform((c) => ({
+    ...c,
+    minivan: c.minivan ?? deriveClassTariff(c.economy, DERIVED_CLASS_PERCENT.minivan),
+    business: c.business ?? deriveClassTariff(c.economy, DERIVED_CLASS_PERCENT.business),
+  }))
+  // pooling, deliveries and phone orders start from economy: it is never switched off
+  .refine((c) => c.economy.enabled, {
+    message: 'Ekonom sinfini o‘chirib bo‘lmaydi',
+    path: ['economy', 'enabled'],
+  });
+
 export const Tariff = z.object({
-  classes: z.object({ economy: ClassTariff, comfort: ClassTariff }),
+  /** Each class's prices and switch; minivan and business may be missing in old documents. */
+  classes: Classes,
   /** A fixed add-on at night (Tashkent time), never a multiplier that changes with demand. */
   night: z.object({ percent: z.number().int().min(0).max(100), from: HHMM, to: HHMM }),
   /** After the driver arrives: free minutes, then per started minute. */
@@ -73,6 +114,7 @@ export type Tariff = z.infer<typeof Tariff>;
 export const DEFAULT_TARIFF: Tariff = {
   classes: {
     economy: {
+      enabled: true,
       bands: [
         { up_to_m: 2000, price: 5000 },
         { up_to_m: 4000, price: 7000 },
@@ -85,6 +127,7 @@ export const DEFAULT_TARIFF: Tariff = {
     },
     // about +25%, like Yandex Comfort over Start
     comfort: {
+      enabled: true,
       bands: [
         { up_to_m: 2000, price: 6300 },
         { up_to_m: 4000, price: 8800 },
@@ -94,6 +137,32 @@ export const DEFAULT_TARIFF: Tariff = {
       outside_per_km: 1900,
       intercity_per_km: 2100,
       intercity_min: 31_000,
+    },
+    // about +40%: 6-7 seats, room for big luggage; off until Guliston has enough minivans
+    minivan: {
+      enabled: false,
+      bands: [
+        { up_to_m: 2000, price: 7000 },
+        { up_to_m: 4000, price: 9800 },
+        { up_to_m: 7000, price: 14_000 },
+      ],
+      beyond_per_km: 1300,
+      outside_per_km: 2100,
+      intercity_per_km: 2400,
+      intercity_min: 35_000,
+    },
+    // about +90%: premium cars <= 3 years old (Yandex Business over Start); off at launch
+    business: {
+      enabled: false,
+      bands: [
+        { up_to_m: 2000, price: 9500 },
+        { up_to_m: 4000, price: 13_300 },
+        { up_to_m: 7000, price: 19_000 },
+      ],
+      beyond_per_km: 1800,
+      outside_per_km: 2900,
+      intercity_per_km: 3300,
+      intercity_min: 47_500,
     },
   },
   night: { percent: 20, from: '23:00', to: '06:00' },
@@ -166,6 +235,11 @@ export function fixedFare(fare: Fare, fixed: FixedPrice): Fare {
     seat: null,
     fixed,
   };
+}
+
+/** The classes riders may order under this tariff, in display order. */
+export function enabledClasses(tariff: Tariff): RideClass[] {
+  return RIDE_CLASSES.filter((c) => tariff.classes[c].enabled);
 }
 
 function minuteOf(hhmm: string): number {

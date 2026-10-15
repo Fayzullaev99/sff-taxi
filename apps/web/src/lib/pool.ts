@@ -18,6 +18,13 @@ import { SERVICE_TONE, SERVICES, type Tone } from './format';
 export const FRONT_SEATS = 1;
 export const REAR_SEATS_MAX = 2;
 export const MAX_PASSENGERS = FRONT_SEATS + REAR_SEATS_MAX;
+/** A minivan ride carries up to 6 people (apps/api/src/lib/ride-classes.ts). */
+export const MINIVAN_MAX_PASSENGERS = 6;
+
+/** People one ride of the class may carry. */
+export function maxPassengersOf(rideClass: string): number {
+  return rideClass === 'minivan' ? MINIVAN_MAX_PASSENGERS : MAX_PASSENGERS;
+}
 
 /** "3 kishi (1 old, 2 orqa)": where a party of `n` sits. */
 export function seatingText(n: number): string {

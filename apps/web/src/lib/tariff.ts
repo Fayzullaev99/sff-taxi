@@ -1,4 +1,11 @@
-import type { ClassTariff, RideClass, RideKind, RideOption, Tariff } from '../api/types';
+import {
+  type ClassTariff,
+  RIDE_CLASSES,
+  type RideClass,
+  type RideKind,
+  type RideOption,
+  type Tariff,
+} from '../api/types';
 
 /**
  * The fare rules of apps/api/src/lib/tariff.ts, for the editor's live calculator. The API
@@ -101,7 +108,9 @@ const isInt = (v: unknown, min: number, max: number) =>
 export function validateTariff(t: Tariff): Problem[] {
   const out: Problem[] = [];
   const add = (path: string, message: string) => out.push({ path, message });
-  for (const c of ['economy', 'comfort'] as const) {
+  if (!t.classes.economy.enabled)
+    add('classes.economy.enabled', 'Ekonom sinfini o‘chirib bo‘lmaydi');
+  for (const c of RIDE_CLASSES) {
     const k = t.classes[c];
     const p = `classes.${c}`;
     if (k.bands.length < 1 || k.bands.length > 10) add(`${p}.bands`, '1 tadan 10 tagacha oraliq');
@@ -142,10 +151,42 @@ export function validateTariff(t: Tariff): Problem[] {
   return out;
 }
 
+/**
+ * A class's tariff as a percentage of another's, switched off: what the API derives for
+ * minivan (140%) and business (190%) when a stored tariff predates them.
+ */
+export function deriveClassTariff(from: ClassTariff, percent: number): ClassTariff {
+  const scale = (n: number) => roundUp100((n * percent) / 100);
+  return {
+    enabled: false,
+    bands: from.bands.map((b) => ({ up_to_m: b.up_to_m, price: scale(b.price) })),
+    beyond_per_km: scale(from.beyond_per_km),
+    outside_per_km: scale(from.outside_per_km),
+    intercity_per_km: scale(from.intercity_per_km),
+    intercity_min: scale(from.intercity_min),
+  };
+}
+
+/** A tariff with every class (an older API's document lacks minivan and business). */
+export function withAllClasses(t: Tariff): Tariff {
+  const c = t.classes as Partial<Tariff['classes']> & Pick<Tariff['classes'], 'economy'>;
+  const on = (k: ClassTariff | undefined) => (k ? { ...k, enabled: k.enabled ?? true } : k);
+  return {
+    ...t,
+    classes: {
+      economy: on(c.economy)!,
+      comfort: on(c.comfort) ?? deriveClassTariff(c.economy, 125),
+      minivan: on(c.minivan) ?? deriveClassTariff(c.economy, 140),
+      business: on(c.business) ?? deriveClassTariff(c.economy, 190),
+    },
+  };
+}
+
 /** The launch tariff (the API's DEFAULT_TARIFF), used to start a city's own tariff. */
 export const DEFAULT_TARIFF: Tariff = {
   classes: {
     economy: {
+      enabled: true,
       bands: [
         { up_to_m: 2000, price: 5000 },
         { up_to_m: 4000, price: 7000 },
@@ -157,6 +198,7 @@ export const DEFAULT_TARIFF: Tariff = {
       intercity_min: 25_000,
     },
     comfort: {
+      enabled: true,
       bands: [
         { up_to_m: 2000, price: 6300 },
         { up_to_m: 4000, price: 8800 },
@@ -166,6 +208,30 @@ export const DEFAULT_TARIFF: Tariff = {
       outside_per_km: 1900,
       intercity_per_km: 2100,
       intercity_min: 31_000,
+    },
+    minivan: {
+      enabled: false,
+      bands: [
+        { up_to_m: 2000, price: 7000 },
+        { up_to_m: 4000, price: 9800 },
+        { up_to_m: 7000, price: 14_000 },
+      ],
+      beyond_per_km: 1300,
+      outside_per_km: 2100,
+      intercity_per_km: 2400,
+      intercity_min: 35_000,
+    },
+    business: {
+      enabled: false,
+      bands: [
+        { up_to_m: 2000, price: 9500 },
+        { up_to_m: 4000, price: 13_300 },
+        { up_to_m: 7000, price: 19_000 },
+      ],
+      beyond_per_km: 1800,
+      outside_per_km: 2900,
+      intercity_per_km: 3300,
+      intercity_min: 47_500,
     },
   },
   night: { percent: 20, from: '23:00', to: '06:00' },

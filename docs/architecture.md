@@ -66,17 +66,19 @@ Prices are **fixed at quote time and never surge** — the core brand promise ("
 o'zgarmaydi", MA §6.2), also a regulatory comfort after the Competition Committee's warning to
 Yandex about price dynamics (MA §1.9). The engine is `src/lib/tariff.ts` (pure, unit-tested).
 
-| Part         | Rule                                                            | Default                                                             |
-| ------------ | --------------------------------------------------------------- | ------------------------------------------------------------------- |
-| In-city      | distance bands by road km                                       | ≤2 km 5 000; ≤4 km 7 000; ≤7 km 10 000; then +900/km                |
-| Suburb       | the part of the route outside the city polygon, per started km  | 1 500/km                                                            |
-| Intercity    | road distance ≥ 20 km: whole car per started km, minimum        | 1 700/km, min 25 000                                                |
-| Seat share   | intercity, per seat (reference price for the coming trip board) | 30%, front +10%                                                     |
-| Comfort      | own bands (~+25%, like Yandex Comfort over Start)               | 6 300 / 8 800 / 12 500, +1 100/km, 1 900/km out, 2 100/km intercity |
-| Night        | 23:00–06:00 Tashkent, fixed add-on                              | +20%                                                                |
-| Waiting      | after arrival: free minutes, then per started minute            | 2 min free, 500/min                                                 |
-| Options      | flat; also filter which cars get the ride                       | child seat 2 000, luggage 2 000, pets 3 000, AC 0                   |
-| Cancellation | rider cancels after arrival + free waiting, or no-show          | 3 000 (to the driver)                                               |
+| Part         | Rule                                                            | Default                                                              |
+| ------------ | --------------------------------------------------------------- | -------------------------------------------------------------------- |
+| In-city      | distance bands by road km                                       | ≤2 km 5 000; ≤4 km 7 000; ≤7 km 10 000; then +900/km                 |
+| Suburb       | the part of the route outside the city polygon, per started km  | 1 500/km                                                             |
+| Intercity    | road distance ≥ 20 km: whole car per started km, minimum        | 1 700/km, min 25 000                                                 |
+| Seat share   | intercity, per seat (reference price for the coming trip board) | 30%, front +10%                                                      |
+| Comfort      | own bands (~+25%, like Yandex Comfort over Start)               | 6 300 / 8 800 / 12 500, +1 100/km, 1 900/km out, 2 100/km intercity  |
+| Minivan      | own bands (~+40%): 6-7 seats, up to 6 people, big luggage       | 7 000 / 9 800 / 14 000, +1 300/km, 2 100/km out, 2 400/km intercity  |
+| Business     | own bands (~+90%): premium cars ≤ 3 years, drivers rated 4.8+   | 9 500 / 13 300 / 19 000, +1 800/km, 2 900/km out, 3 300/km intercity |
+| Night        | 23:00–06:00 Tashkent, fixed add-on                              | +20%                                                                 |
+| Waiting      | after arrival: free minutes, then per started minute            | 2 min free, 500/min                                                  |
+| Options      | flat; also filter which cars get the ride                       | child seat 2 000, luggage 2 000, pets 3 000, AC 0                    |
+| Cancellation | rider cancels after arrival + free waiting, or no-show          | 3 000 (to the driver)                                                |
 
 - The suburb part is estimated as the straight-line distance of each end from the polygon,
   stretched by the route's own detour ratio. It needs no road geometry and is explainable.
@@ -85,6 +87,17 @@ Yandex about price dynamics (MA §1.9). The engine is `src/lib/tariff.ts` (pure,
   waiting and cancellation rules even if operators change the tariff meanwhile. Quotes live
   10 minutes.
 - The global tariff is a validated setting; a city can override it entirely (`cities.tariff`).
+- **Classes** (`src/lib/tariff.ts`, `src/lib/ride-classes.ts`): Ekonom, Komfort, Miniven,
+  Biznes, each with its own block and an operator's switch (`classes.<class>.enabled`;
+  economy can never be switched off: pooling, parcels and phone orders start from it).
+  Miniven and Biznes launch **off** in Guliston until enough cars qualify. A switched-off
+  class is not priced, so it never appears on the order screens, and ordering it (an old
+  quote, a forged request) is a 400 with the class's name. Tariff documents stored before
+  the new classes (the setting, a city's own, every ride's snapshot) keep working: the
+  missing blocks are derived from economy (140%, 190%) and switched off — the launch
+  defaults are exactly those numbers, so nothing needs migrating. A minivan ride carries
+  up to 6 people (a table check and the seating trigger, migration 0020); shared rides
+  ("Hamroh bilan") and route seats are economy and comfort only.
 - Rounding: totals up to 100 so'm (cash).
 
 Deviations from the analysis, by decision: free waiting is 2 minutes (the analysis suggested 3;
@@ -159,7 +172,11 @@ searching ──> driver_assigned ──> driver_arrived ──> in_progress ─
 
 **Who is eligible**: online, active, a GPS fix younger than 2 minutes, balance at or above the
 minimum, no active ride, no other pending offer, not the rider themself, not a driver who
-dropped this ride, a comfort car for comfort rides, the car features the options need (luggage:
+dropped this ride, a car of the ride's class or of a higher class whose driver takes lower
+classes (`src/lib/ride-classes.ts`: a comfort car takes economy rides unless its driver
+turned it off; a business car comfort and economy, a minivan economy and comfort, both only
+when the driver opts in — `PUT driver/preferences { takesLowerClasses }`; operators may assign
+any car able to serve the class), the car features the options need (luggage:
 a big trunk **without** the CNG tank in it, `vehicles.cng_in_trunk`), a verified licence card.
 
 **Priority score** (0–100, `src/lib/priority.ts`), shown to drivers with its parts, like Yandex's
@@ -184,14 +201,15 @@ timeout) with simulated time and a fake OSRM that makes the nearest driver the s
 
 ## 7. Drivers and regulation (MA §4)
 
-| Rule (Res. 200 and related)                                             | Implementation                                                                                    |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Self-employed with a passenger-transport **licence card**               | card number and expiry required; no shift with an expired card; document photo required           |
-| Age 21+, category B, 3+ years of experience (cl. 10)                    | checked on application and again on approval (`src/lib/driver-rules.ts`)                          |
-| ≤ 4 passenger seats, city taxi ≤ 15 years old, no van type (Damas/Labo) | checked on application and approval; seats also a DB check                                        |
-| Aggregator serves only licensed carriers, joint liability               | operators approve only complete, valid applications; blocking ends the shift and withdraws offers |
-| 1% turnover tax withheld by the aggregator (PP-247)                     | `tax_withholdings` row per ride with PINFL, month report, remittance record                       |
-| Personal data of UZ citizens stored in UZ                               | deployment requirement (UZ data centre) — see next steps                                          |
+| Rule (Res. 200 and related)                                                                                  | Implementation                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| Self-employed with a passenger-transport **licence card**                                                    | card number and expiry required; no shift with an expired card; document photo required                                         |
+| Age 21+, category B, 3+ years of experience (cl. 10)                                                         | checked on application and again on approval (`src/lib/driver-rules.ts`)                                                        |
+| ≤ 4 passenger seats, city taxi ≤ 15 years old, no van type (Damas/Labo)                                      | checked on application and approval; seats also a DB check                                                                      |
+| SFF classes: Komfort ≤ 5 y + AC; Miniven 6–7 seats ≤ 8 y + AC; Biznes premium model ≤ 3 y + AC, rating ≥ 4.8 | `src/lib/driver-rules.ts` on application, approval and re-classing; the minivan's 6–7 seats are read as an M1 car's (see below) |
+| Aggregator serves only licensed carriers, joint liability                                                    | operators approve only complete, valid applications; blocking ends the shift and withdraws offers                               |
+| 1% turnover tax withheld by the aggregator (PP-247)                                                          | `tax_withholdings` row per ride with PINFL, month report, remittance record                                                     |
+| Personal data of UZ citizens stored in UZ                                                                    | deployment requirement (UZ data centre) — see next steps                                                                        |
 
 Statuses: `pending → active | rejected`, `active ⇄ blocked`, `rejected → pending` on
 re-application. Every decision carries a reason the driver sees, in `driver_status_changes` —
@@ -206,6 +224,11 @@ C above 3.5 t), and they get cargo rides only — see [shared-rides.md §8](shar
 online need a verified card. **Electronic fiscal receipts** for every completed ride and seat
 go through the `FiscalProvider` adapter ('none' today: prepared and kept, sent later), retried
 through the outbox. Both: [fiscal-and-licence.md](fiscal-and-licence.md).
+
+**Minivans and Resolution 200**: the 4-seat limit above is read as the sedan taxi's; a
+minivan (Chevrolet Orlando, Captiva 7, Kia Carnival) is an M1 passenger car with up to 8
+seats. That reading must be confirmed with the regulator before Miniven is switched on; the
+class stays off at launch and an operator approves every minivan after an inspection.
 
 Plates are validated in both current formats (`20 A 123 BC`, `20 123 ABC`) with real region
 codes; licence numbers as two letters + seven digits. The licence card number format is not

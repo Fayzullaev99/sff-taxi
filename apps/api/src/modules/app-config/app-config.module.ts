@@ -3,11 +3,22 @@ import { ENV, type Env } from '../../config/env.js';
 import { Public } from '../../core/auth/auth-context.js';
 import { RateLimit } from '../../core/http/rate-limit.js';
 import { MAX_REAR_SEATS, MAX_TRIP_SEATS } from '../../lib/intercity.js';
+import { DRIVER_RULES } from '../../lib/driver-rules.js';
 import { DECLINE_REASONS, DRIVER_CANCEL_REASONS } from '../../lib/reasons.js';
+import { CLASS_INFO, LOWER_CLASSES, takesLower } from '../../lib/ride-classes.js';
+import { RIDE_CLASSES, type RideClass } from '../../lib/tariff.js';
 import { TRIP_SPACING_HOURS } from '../intercity/intercity.service.js';
 import { enabledProviders, TOPUP_MAX, TOPUP_MIN } from '../payments/payment-config.js';
 import { SettingsService } from '../settings/settings.module.js';
 import { storageConfig } from '../uploads/object-storage.js';
+
+/** What a car needs for each class, in the driver's words. */
+const CLASS_RULE_TEXT: Record<RideClass, string> = {
+  economy: `${DRIVER_RULES.maxVehicleAgeYears} yildan eski bo‘lmagan, ${DRIVER_RULES.maxSeats} tagacha o‘rindiq`,
+  comfort: `${DRIVER_RULES.maxComfortAgeYears} yildan eski bo‘lmagan, konditsionerli`,
+  minivan: `${DRIVER_RULES.minMinivanSeats}–${DRIVER_RULES.maxMinivanSeats} o‘rindiq, ${DRIVER_RULES.maxMinivanAgeYears} yildan eski bo‘lmagan, konditsionerli`,
+  business: `Premium model, ${DRIVER_RULES.maxBusinessAgeYears} yildan eski bo‘lmagan, konditsionerli, reyting ${DRIVER_RULES.minBusinessRating}+`,
+};
 
 @Injectable()
 export class AppConfigService {
@@ -123,6 +134,19 @@ export class AppConfigService {
         // riders between other towns the trip passes may book a seat for their part
         alongRouteMaxKm: intercity.along_route_max_km,
       },
+      // taxi classes: names, which lower classes each car may take, whether riders can order
+      // it now (the global tariff), and what a car needs for it (src/lib/driver-rules.ts)
+      classes: RIDE_CLASSES.map((c) => ({
+        id: c,
+        label: CLASS_INFO[c].label,
+        description: CLASS_INFO[c].description,
+        examples: CLASS_INFO[c].examples,
+        maxPassengers: CLASS_INFO[c].maxPassengers,
+        lower: LOWER_CLASSES[c],
+        takesLowerByDefault: takesLower(c, null),
+        enabled: tariff.classes[c].enabled,
+        rules: CLASS_RULE_TEXT[c],
+      })),
       declineReasons: DECLINE_REASONS,
       cancelReasons: DRIVER_CANCEL_REASONS,
       topups: { min: TOPUP_MIN, max: TOPUP_MAX, providers: enabledProviders(this.env) },

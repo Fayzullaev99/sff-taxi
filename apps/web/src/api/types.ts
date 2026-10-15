@@ -99,7 +99,7 @@ export interface AdminCity {
 
 // Tariffs and settings ---------------------------------------------------------------------
 
-export const RIDE_CLASSES = ['economy', 'comfort'] as const;
+export const RIDE_CLASSES = ['economy', 'comfort', 'minivan', 'business'] as const;
 export type RideClass = (typeof RIDE_CLASSES)[number];
 /** Cargo classes: cargo_s Damas/Labo (up to 800 kg payload), cargo_m Gazel/Porter (1.5 t). */
 export const CARGO_CLASSES = ['cargo_s', 'cargo_m'] as const;
@@ -120,6 +120,8 @@ export interface Band {
 }
 
 export interface ClassTariff {
+  /** Riders may order the class (economy is always on). */
+  enabled: boolean;
   bands: Band[];
   beyond_per_km: number;
   outside_per_km: number;
@@ -274,7 +276,8 @@ export interface Quote {
   durationS: number | null;
   routeSource: string;
   options: RideOption[];
-  fares: Record<RideClass, Fare>;
+  /** The classes switched on where the ride starts (switched-off ones are not priced). */
+  fares: Partial<Record<RideClass, Fare>>;
   paymentMethods: string[];
   /** Card providers a card payment can go through (Payme, Click). */
   cardProviders?: string[];
@@ -674,6 +677,20 @@ export interface AdminDriver {
   womenRidersOnly?: boolean;
   /** Shared rides: the mode, people in the car without the app, where the driver heads. */
   pool?: DriverPool;
+  /** Taxi classes (null for cargo cars and older APIs). */
+  classes?: DriverClasses | null;
+}
+
+/** The car's taxi class, the lower classes it may take and the classes it qualifies for. */
+export interface DriverClasses {
+  own: RideClass;
+  lower: RideClass[];
+  /** The driver takes the lower classes' rides (comfort: on by default). */
+  takesLower: boolean;
+  /** Ride classes the driver gets offers of. */
+  rides: RideClass[];
+  /** Classes the car meets the rules of. */
+  qualifiesFor: RideClass[];
 }
 
 export type Gender = 'female' | 'male';

@@ -74,7 +74,7 @@ const QuoteBody = z.object({
 });
 const OrderBody = z.object({
   quoteId: z.uuid(),
-  /** economy/comfort (taxi, delivery) or cargo_s/cargo_m (a cargo quote). */
+  /** A taxi class (taxi, delivery) or cargo_s/cargo_m (a cargo quote). */
   class: z.enum([...RIDE_CLASSES, ...CARGO_CLASSES]),
   /** Cargo: the load described more precisely than in the quote (the price stays). */
   cargo: z
@@ -99,8 +99,8 @@ const OrderBody = z.object({
   dropoff: PlaceText,
   comment: Comment,
   clientRequestId: z.uuid(),
-  /** People riding: one in front, at most two in the back. */
-  passengers: z.number().int().min(1).max(3).default(1),
+  /** People riding: one in front, at most two in the back (a minivan: up to 6). */
+  passengers: z.number().int().min(1).max(6).default(1),
   /** "Hamroh bilan": riders going the same way may share the car (cash, a discount). */
   shareable: z.boolean().default(false),
   /** A woman driver only (riders who declared themselves women). */
@@ -127,7 +127,7 @@ const PhoneOrderBody = z.object({
   quoteId: z.uuid().nullable().default(null),
   /** The panel's idempotency key: a repeated request returns the same ride (200). */
   clientRequestId: z.uuid().nullable().default(null),
-  passengers: z.number().int().min(1).max(3).default(1),
+  passengers: z.number().int().min(1).max(6).default(1),
 });
 const LookupBody = z.object({ phone: UzPhone });
 const DayString = z.iso.date('Sana YYYY-MM-DD ko‘rinishida');

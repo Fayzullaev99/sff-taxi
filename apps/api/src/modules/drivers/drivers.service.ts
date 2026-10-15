@@ -24,15 +24,24 @@ import { emit } from '../../core/outbox/outbox.js';
 import { type CargoClass, cargoClassOf, type VehicleBody } from '../../lib/cargo.js';
 import {
   checkApplicant,
+  checkClassRating,
   checkVehicle,
   formatPlate,
+  qualifyingClasses,
   type RuleProblem,
   tashkentDate,
   type VehicleFacts,
 } from '../../lib/driver-rules.js';
 import { distanceM } from '../../lib/distance.js';
-import { carCapacity, seatLayout } from '../../lib/pool.js';
+import { seatLayout } from '../../lib/pool.js';
 import { priority } from '../../lib/priority.js';
+import {
+  carCapacityFor,
+  LOWER_CLASSES,
+  rideClassesForCar,
+  takesLower,
+} from '../../lib/ride-classes.js';
+import type { RideClass } from '../../lib/tariff.js';
 import { DriverTrackService } from '../geo/driver-track.service.js';
 import { PickupEtaService } from '../geo/pickup-eta.service.js';
 import { RealtimeBus } from '../realtime/realtime.publisher.js';
@@ -60,7 +69,7 @@ export interface ApplicationInput {
     plate: string;
     year: number;
     seats: number;
-    class: 'economy' | 'comfort';
+    class: RideClass;
     features: VehicleFeature[];
     cngInTrunk: boolean;
     /** taxi (Resolution 200) or cargo (a van, pickup or truck: cargo rides only). */
@@ -81,6 +90,8 @@ export interface DriverPreferences {
   destination?: { lat: number; lng: number; address: string | null } | null;
   /** Verified women drivers: women riders only. */
   womenRidersOnly?: boolean;
+  /** A higher class's car takes lower classes' rides too (src/lib/ride-classes.ts). */
+  takesLowerClasses?: boolean;
 }
 
 export interface LocationFix {
@@ -202,7 +213,7 @@ export class DriversService {
         class: cargo ? ('economy' as const) : v.class,
         features: [...new Set(v.features)],
         cng_in_trunk: v.cngInTrunk,
-        body: v.body ?? (cargo ? 'van' : 'sedan'),
+        body: v.body ?? (cargo ? 'van' : v.class === 'minivan' ? 'minivan' : 'sedan'),
         payload_kg: v.payloadKg ?? null,
         gross_kg: v.grossKg ?? null,
         // the class follows the payload: up to 800 kg small, above medium
@@ -357,7 +368,9 @@ export class DriversService {
           'd.extra_passengers',
           'd.destination',
           'd.pool_enabled',
+          'd.takes_lower_classes',
           'v.seats',
+          'v.class',
         ])
         .where('d.user_id', '=', user.userId)
         .forUpdate('d')
@@ -382,11 +395,16 @@ export class DriversService {
         .where('driver_id', '=', user.userId)
         .where('status', 'in', [...ACTIVE_RIDE_STATUSES])
         .executeTakeFirstOrThrow();
-      const cap = carCapacity(d.seats ?? 4);
+      const cap = carCapacityFor(d.class ?? 'economy', d.seats ?? 4);
       if (Number(riders.n) + extra > cap) {
         throw new ConflictException(
-          `Mashinada ${cap} tadan ortiq yo‘lovchi bo‘lmaydi (oldinda 1, orqada 2)`,
+          d.class === 'minivan'
+            ? `Minivenda ${cap} tadan ortiq yo‘lovchi bo‘lmaydi`
+            : `Mashinada ${cap} tadan ortiq yo‘lovchi bo‘lmaydi (oldinda 1, orqada 2)`,
         );
+      }
+      if (input.takesLowerClasses !== undefined && !LOWER_CLASSES[d.class ?? 'economy'].length) {
+        throw new BadRequestException('Bu sinfdan pastroq sinf yo‘q');
       }
       await trx
         .updateTable('drivers')
@@ -394,6 +412,9 @@ export class DriversService {
           ...(input.poolEnabled !== undefined ? { pool_enabled: input.poolEnabled } : {}),
           ...(input.womenRidersOnly !== undefined
             ? { women_riders_only: input.womenRidersOnly }
+            : {}),
+          ...(input.takesLowerClasses !== undefined
+            ? { takes_lower_classes: input.takesLowerClasses }
             : {}),
           extra_passengers: extra,
           ...(input.destination !== undefined
@@ -421,7 +442,11 @@ export class DriversService {
         .where('user_id', '=', user.userId)
         .execute();
       // offers made under the old settings may no longer fit: they are withdrawn
-      if (input.destination !== undefined || extra !== d.extra_passengers) {
+      const lowerChanged =
+        input.takesLowerClasses !== undefined &&
+        d.class !== null &&
+        takesLower(d.class, input.takesLowerClasses) !== takesLower(d.class, d.takes_lower_classes);
+      if (input.destination !== undefined || extra !== d.extra_passengers || lowerChanged) {
         await this.withdrawOffers(trx, user.userId);
       }
     });
@@ -766,7 +791,7 @@ export class DriversService {
   async updateVehicle(
     driverId: string,
     input: {
-      class?: 'economy' | 'comfort';
+      class?: RideClass;
       features?: VehicleFeature[];
       cngInTrunk?: boolean;
       /** Cargo cars: the payload measured at the inspection, and the class it serves. */
@@ -783,28 +808,52 @@ export class DriversService {
     if (!v.cargo_class && (input.payloadKg !== undefined || input.cargoClass !== undefined)) {
       throw new BadRequestException('Bu taksi avtomobili: yuk sinfi berilmaydi');
     }
+    const nextClass = input.class ?? v.class;
     const next = {
       ...v,
-      class: input.class ?? v.class,
+      class: nextClass,
+      // a taxi car's minivan body follows its class (moved out of minivan, it is a sedan)
+      body: v.cargo_class
+        ? v.body
+        : nextClass === 'minivan'
+          ? ('minivan' as const)
+          : v.body === 'minivan'
+            ? ('sedan' as const)
+            : v.body,
       features: input.features ?? v.features,
       payload_kg: input.payloadKg ?? v.payload_kg,
       cargo_class: input.cargoClass ?? v.cargo_class,
     };
     const d = await this.db.kysely
       .selectFrom('drivers')
-      .select('licence_categories')
+      .select([
+        'licence_categories',
+        'offers_received',
+        'offers_accepted',
+        'rides_cancelled',
+        'rating_sum',
+        'rating_count',
+      ])
       .where('user_id', '=', driverId)
       .executeTakeFirstOrThrow();
-    const problems = checkVehicle(
-      vehicleFacts(next),
-      tashkentDate(new Date()),
-      d.licence_categories,
-    );
+    const stars = priority({
+      offersReceived: d.offers_received,
+      offersAccepted: d.offers_accepted,
+      ridesCancelled: d.rides_cancelled,
+      ratingSum: d.rating_sum,
+      ratingCount: d.rating_count,
+    }).stars;
+    const problems = [
+      ...checkVehicle(vehicleFacts(next), tashkentDate(new Date()), d.licence_categories),
+      // a driver moved up to business needs the rating (one already there keeps the class)
+      ...(v.cargo_class || nextClass === v.class ? [] : checkClassRating(nextClass, stars)),
+    ];
     if (problems.length) throw invalid(problems);
     await this.db.kysely
       .updateTable('vehicles')
       .set({
         class: next.class,
+        body: next.body,
         features: [...new Set(next.features)],
         cng_in_trunk: input.cngInTrunk ?? v.cng_in_trunk,
         payload_kg: next.payload_kg,
@@ -1026,6 +1075,18 @@ export class DriversService {
       },
       photoUrl: readUrl(d.photo_upload_id),
       vehicle: v ? { ...vehicleView(v), photoUrl: readUrl(v.photo_upload_id) } : null,
+      // taxi classes: the car's, whether it takes lower ones, the rides it gets offers of, and
+      // the classes the car meets the rules of (operators re-class it after an inspection)
+      classes:
+        v && !v.cargo_class
+          ? {
+              own: v.class,
+              lower: LOWER_CLASSES[v.class],
+              takesLower: takesLower(v.class, d.takes_lower_classes),
+              rides: rideClassesForCar(v.class, d.takes_lower_classes),
+              qualifiesFor: qualifyingClasses(vehicleFacts(v), tashkentDate(new Date())),
+            }
+          : null,
       documents: docs.map(({ upload_id, url, content_type, ...doc }) => ({
         ...doc,
         uploadId: upload_id,

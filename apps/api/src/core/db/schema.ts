@@ -127,7 +127,7 @@ export type LedgerKind =
   | 'cancel_fee_collected'
   /** A deposit the rider lost by cancelling late: the waiting driver's compensation. */
   | 'deposit';
-export type RideClassColumn = 'economy' | 'comfort';
+export type RideClassColumn = 'economy' | 'comfort' | 'minivan' | 'business';
 /** Cargo classes (src/lib/cargo.ts): small (Damas/Labo), medium (Gazel/Porter). */
 export type CargoClassColumn = 'cargo_s' | 'cargo_m';
 export type VehicleBodyColumn = 'sedan' | 'hatchback' | 'minivan' | 'van' | 'pickup' | 'truck';
@@ -196,6 +196,8 @@ export interface DriversTable {
   destination_lat: number | null;
   destination_lng: number | null;
   destination_set_at: Timestamp | null;
+  /** Takes lower classes' rides; null = the car class's default (src/lib/ride-classes.ts). */
+  takes_lower_classes: boolean | null;
   created_at: CreatedAt;
   updated_at: Timestamp;
 }
@@ -393,7 +395,7 @@ export interface RidesTable {
   /** Owed fees of earlier rides this ride collects in cash on top of its fare. */
   owed_fee: Generated<number>;
   service: Generated<RideService>;
-  /** People riding (1-3: one in front, at most two in the back). */
+  /** People riding (1-3: one in front, at most two in the back; a minivan up to 6). */
   passengers: Generated<number>;
   /** The rider agreed to share the car with riders going the same way. */
   shareable: Generated<boolean>;

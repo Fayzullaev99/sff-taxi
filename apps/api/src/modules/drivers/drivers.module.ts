@@ -18,6 +18,7 @@ import { DOCUMENT_KINDS, DRIVER_STATUSES, VEHICLE_FEATURES } from '../../core/db
 import { ZodPipe } from '../../core/http/zod.pipe.js';
 import { isUzPlate, normalizeLicenceNumber, normalizePlate } from '../../lib/driver-rules.js';
 import { CARGO_CLASSES, VEHICLE_BODIES } from '../../lib/cargo.js';
+import { RIDE_CLASSES } from '../../lib/tariff.js';
 import { BillingModule } from '../billing/billing.module.js';
 import { GeoCoreModule } from '../geo/geo-core.module.js';
 import { RealtimeBus } from '../realtime/realtime.publisher.js';
@@ -39,7 +40,7 @@ const VehicleBody = z.object({
     .refine(isUzPlate, 'Davlat raqami noto‘g‘ri, masalan 20 A 123 BC yoki 20 123 ABC'),
   year: z.number().int().min(1990).max(2100),
   seats: z.number().int().min(1).max(8),
-  class: z.enum(['economy', 'comfort']).default('economy'),
+  class: z.enum(RIDE_CLASSES).default('economy'),
   features: z.array(Feature).max(4).default([]),
   /** A CNG tank in the trunk (many Cobalts/Nexias): no luggage rides even with a big trunk. */
   cngInTrunk: z.boolean().default(false),
@@ -112,6 +113,8 @@ const PreferencesBody = z
       })
       .nullable(),
     womenRidersOnly: z.boolean(),
+    /** A higher class's car takes lower classes' rides too (comfort: on by default). */
+    takesLowerClasses: z.boolean(),
   })
   .partial();
 const GenderBody = z.object({ gender: z.enum(['female', 'male']) });
@@ -131,7 +134,7 @@ const DecisionBody = z.object({
 });
 const VehiclePatch = z
   .object({
-    class: z.enum(['economy', 'comfort']),
+    class: z.enum(RIDE_CLASSES),
     features: z.array(Feature).max(4),
     cngInTrunk: z.boolean(),
     /** Cargo cars only. */

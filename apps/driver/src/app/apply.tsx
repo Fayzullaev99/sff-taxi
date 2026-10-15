@@ -20,10 +20,13 @@ import {
   CARGO_BODY_LABELS,
   CARGO_CARS,
   cargoClassText,
+  classFitText,
   STEP_FIELDS,
   tashkentToday,
   toApplicationBody,
   validateApplication,
+  VEHICLE_CLASS_LABELS,
+  VEHICLE_CLASSES,
   VEHICLE_FEATURES,
   type VehicleFeature,
 } from '../lib/application';
@@ -415,13 +418,22 @@ export default function Apply() {
               <View style={{ gap: space.xs }}>
                 <Text style={styles.label}>Sinf</Text>
                 <Choice
-                  options={[
-                    { value: 'economy' as const, label: 'Ekonom' },
-                    { value: 'comfort' as const, label: 'Komfort (≤5 yil, konditsioner)' },
-                  ]}
+                  options={VEHICLE_CLASSES.map((c) => ({
+                    value: c,
+                    label: VEHICLE_CLASS_LABELS[c],
+                  }))}
                   selected={[form.vehicleClass]}
-                  onToggle={(v) => set('vehicleClass', v)}
+                  onToggle={(v) => {
+                    set('vehicleClass', v);
+                    // a minivan has 6-7 seats; back from a minivan, a sedan's 4
+                    if (v === 'minivan' && Number(form.seats) < RULES.minMinivanSeats) {
+                      set('seats', String(RULES.minMinivanSeats));
+                    } else if (v !== 'minivan' && Number(form.seats) > RULES.maxSeats) {
+                      set('seats', String(RULES.maxSeats));
+                    }
+                  }}
                 />
+                <Muted>{classFitText(form)}</Muted>
                 {shown.vehicleClass ? <Text style={styles.error}>{shown.vehicleClass}</Text> : null}
               </View>
               <ToggleRow

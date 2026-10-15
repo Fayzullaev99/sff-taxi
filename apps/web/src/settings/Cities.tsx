@@ -5,7 +5,7 @@ import { api, errorText } from '../api/client';
 import { useCities, useTariff } from '../api/queries';
 import type { AdminCity, LatLng, Tariff } from '../api/types';
 import { formatBoundary, parseBoundary, pointInPolygon, ringsPoints } from '../lib/geo';
-import { DEFAULT_TARIFF, validateTariff } from '../lib/tariff';
+import { DEFAULT_TARIFF, validateTariff, withAllClasses } from '../lib/tariff';
 import type { MapLayers } from '../map/adapter';
 import { GeoMap, useGeoConfig } from '../map/GeoMap';
 import { Badge, Button, Field, NumberInput, PageHeader, Toggle } from '../ui/controls';
@@ -25,7 +25,9 @@ function CityDialog({ city, onClose }: { city: AdminCity; onClose: () => void })
   const original = useMemo(() => formatBoundary(city.boundary), [city.boundary]);
   const [boundaryText, setBoundaryText] = useState(original);
   const [ownTariff, setOwnTariff] = useState(city.tariff !== null);
-  const [tariff, setTariff] = useState<Tariff>(city.tariff ?? global.data ?? DEFAULT_TARIFF);
+  const [tariff, setTariff] = useState<Tariff>(
+    city.tariff ? withAllClasses(city.tariff) : (global.data ?? DEFAULT_TARIFF),
+  );
   const [submitted, setSubmitted] = useState(false);
 
   const parsed = parseBoundary(boundaryText);
