@@ -40,6 +40,19 @@ export type RealtimeEvent =
   | { type: 'topup.updated'; intentId: string; status: 'paid'; amount: number }
   /** An operator answered the driver's appeal. */
   | { type: 'appeal.updated'; appealId: string; driverId: string; status: 'resolved' }
+  /** A ride chat message, to the rider and the ride's driver (both may read it). */
+  | {
+      type: 'chat.message';
+      rideId: string;
+      messageId: string;
+      authorRole: 'rider' | 'driver';
+      text: string;
+      at: string;
+    }
+  /** One side read the other's chat messages (read receipts). */
+  | { type: 'chat.read'; rideId: string; readerRole: 'rider' | 'driver' }
+  /** A tip was recorded (cash) or paid (card): the driver's line and balance, the rider's screen. */
+  | { type: 'tip.updated'; rideId: string; status: string; amount: number }
   | {
       /** Operators' live map: every online driver's last position, every few seconds. */
       type: 'drivers.positions';
@@ -220,6 +233,62 @@ export class RealtimePublisher implements OutboxHandler {
       case 'ride.changed':
       case 'ride.status_changed':
         return this.rideUpdated(String(p.rideId), p.previousDriverId);
+      case 'ride.message': {
+        // the message as stored (the driver it was written to: a replaced driver hears nothing)
+        const m = await this.db.kysely
+          .selectFrom('ride_messages as m')
+          .innerJoin('rides as r', 'r.id', 'm.ride_id')
+          .select([
+            'm.id',
+            'm.ride_id',
+            'm.driver_id',
+            'm.author_role',
+            'm.text',
+            'm.created_at',
+            'r.rider_id',
+          ])
+          .where('m.id', '=', String(p.messageId))
+          .executeTakeFirst();
+        if (!m) return;
+        return this.bus.publish({
+          to: { userIds: [m.rider_id, m.driver_id] },
+          event: {
+            type: 'chat.message',
+            rideId: m.ride_id,
+            messageId: m.id,
+            authorRole: m.author_role,
+            text: m.text,
+            at: m.created_at.toISOString(),
+          },
+        });
+      }
+      case 'ride.tip_changed': {
+        const ride = await this.db.kysely
+          .selectFrom('rides')
+          .select(['rider_id'])
+          .where('id', '=', String(p.rideId))
+          .executeTakeFirst();
+        if (!ride) return;
+        return this.bus.publish({
+          to: { userIds: [String(p.driverId), ride.rider_id], admins: true },
+          event: {
+            type: 'tip.updated',
+            rideId: String(p.rideId),
+            status: String(p.status),
+            amount: Number(p.amount),
+          },
+        });
+      }
+      case 'ride.messages_read':
+        if (typeof p.authorId !== 'string') return;
+        return this.bus.publish({
+          to: { userIds: [p.authorId] },
+          event: {
+            type: 'chat.read',
+            rideId: String(p.rideId),
+            readerRole: p.readerRole === 'driver' ? 'driver' : 'rider',
+          },
+        });
       case 'complaint.changed':
         return this.bus.publish({
           to: { userIds: [String(p.riderId)], admins: true },

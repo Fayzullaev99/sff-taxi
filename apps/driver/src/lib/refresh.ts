@@ -56,6 +56,8 @@ export type PushTarget =
   | { kind: 'topup'; intentId: string | null }
   /** `appeal_resolved`: the appeals screen. */
   | { kind: 'appeal'; appealId: string | null }
+  /** `chat`: the rider wrote in the ride chat. */
+  | { kind: 'chat'; rideId: string }
   | { kind: 'home' };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -85,6 +87,12 @@ export function pushTarget(data: unknown): PushTarget | null {
   }
   if (d.kind === 'topup_paid') return { kind: 'topup', intentId: uuid(d.intentId) };
   if (d.kind === 'appeal_resolved') return { kind: 'appeal', appealId: uuid(d.appealId) };
+  // a tip on a finished ride: the money is on home and in the money tab
+  if (d.kind === 'tip') return { kind: 'home' };
+  if (d.kind === 'chat') {
+    const rideId = uuid(d.rideId);
+    return rideId ? { kind: 'chat', rideId } : null;
+  }
   if (typeof d.rideId === 'string' && UUID.test(d.rideId)) {
     return { kind: 'ride', rideId: d.rideId.toLowerCase() };
   }

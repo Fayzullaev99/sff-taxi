@@ -26,6 +26,8 @@ import { RIDE_FREE_CANCEL_MINUTES, rideDeposit, rideDepositRules } from '../lib/
 import { ParcelFields, parcelErrors } from '../order/ParcelFields';
 import { PassengerFields } from '../order/PassengerFields';
 import { checkPassenger } from '../lib/passenger';
+import { classDiscount, orderDiscount } from '../lib/promo';
+import { PromoRow } from '../order/PromoRow';
 import { useOrderSubmit } from '../order/useOrderSubmit';
 import { RouteCard } from '../order/RouteCard';
 import { ScheduleSheet } from '../ride/ScheduleSheet';
@@ -66,6 +68,7 @@ export default function OrderScreen() {
   const order = useOrderSubmit(() => void quote.refetch());
   const { busy, error, setError, leaving } = order;
   const [pickingTime, setPickingTime] = useState(false);
+  const [useCredit, setUseCredit] = useState(true);
 
   // nothing to price (the app was restored here): back to the map
   useEffect(() => {
@@ -119,9 +122,14 @@ export default function OrderScreen() {
   const cardAvailable = !later && !shared && (q?.paymentMethods.includes('card') ?? false);
   // the quote says which providers take this payment; /config and /tariffs for older APIs
   const providers = q?.cardProviders ?? config?.cardProviders ?? tariff.data?.cardProviders ?? null;
+  // the rider's promo code (or invitation) and ride credit: rides now, not shared
+  const discountOpts = { later: Boolean(later), shared, useCredit };
+  const discount = classDiscount(q?.discounts, draft.rideClass, discountOpts);
+  const discountTotal = discount?.total ?? 0;
   // fees owed from earlier cancelled cash rides: a cash ride collects them (a line apart)
   const owed = quoteOwedFee(q?.owedFee, draft.paymentMethod);
-  const toPay = tripPrice !== null ? tripPrice + (owed?.collectedNow ? owed.amount : 0) : null;
+  const toPay =
+    tripPrice !== null ? tripPrice - discountTotal + (owed?.collectedNow ? owed.amount : 0) : null;
   // a class switched off since (or never offered here) falls back to one the quote prices
   useEffect(() => {
     if (q && !q.fares[draft.rideClass]) {
@@ -192,6 +200,8 @@ export default function OrderScreen() {
             fareMode: terms.fareMode,
           }
         : {}),
+      // exactly the discount the quote showed for this class (none: older APIs ignore it)
+      ...(discount && discount.total > 0 && !terms.shareable ? orderDiscount(discount) : {}),
     };
     await order.submit(input);
   };
@@ -302,7 +312,12 @@ export default function OrderScreen() {
               />
             ) : null}
 
-            <ClassCards quote={q} selected={draft.rideClass} onSelect={selectClass} />
+            <ClassCards
+              quote={q}
+              selected={draft.rideClass}
+              onSelect={selectClass}
+              discountOf={(c) => classDiscount(q.discounts, c, discountOpts)?.total ?? 0}
+            />
             {fare && choices ? (
               <RouteModeChoice
                 quote={q}
@@ -311,6 +326,19 @@ export default function OrderScreen() {
                 carTotal={fare.total}
               />
             ) : null}
+            <PromoRow
+              discount={discount}
+              creditBalance={q.discounts?.creditBalance ?? 0}
+              useCredit={useCredit}
+              onUseCredit={setUseCredit}
+              unavailable={
+                later
+                  ? 'Promokod va bonus oldindan buyurtmaga qo‘llanmaydi.'
+                  : shared
+                    ? 'Promokod va bonus hamroh bilan safarga qo‘llanmaydi.'
+                    : null
+              }
+            />
             {fare && fare.night > 0 && !seatPrice ? (
               <T variant="small" color={colors.textMuted}>
                 Tungi vaqt: narxga {formatMoney(fare.night)} qo‘shilgan (oldindan ma’lum,
@@ -441,8 +469,8 @@ export default function OrderScreen() {
         ) : null}
         {draft.paymentMethod === 'card' && cardAvailable ? (
           <T variant="small" color={colors.textMuted}>
-            Buyurtmadan keyin {formatMoney(tripPrice ?? 0)}ni 10 daqiqa ichida to‘laysiz, shundan
-            so‘ng haydovchi qidiriladi. Bekor qilsangiz, pul to‘liq qaytariladi.
+            Buyurtmadan keyin {formatMoney((tripPrice ?? 0) - discountTotal)}ni 10 daqiqa ichida
+            to‘laysiz, shundan so‘ng haydovchi qidiriladi. Bekor qilsangiz, pul to‘liq qaytariladi.
           </T>
         ) : null}
         {later && !deposit ? (

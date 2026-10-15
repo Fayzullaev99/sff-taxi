@@ -36,7 +36,7 @@ export function intentTotals(
       INTENT_STATUSES.map((s) => [s, { count: 0, amount: 0 }]),
     ) as PurposeTotals['byStatus'],
   });
-  const out = { ride: empty(), topup: empty(), booking: empty() };
+  const out = { ride: empty(), topup: empty(), booking: empty(), tip: empty() };
   for (const r of rows) {
     const t = out[r.purpose];
     if (!t || !(r.status in t.byStatus)) continue;

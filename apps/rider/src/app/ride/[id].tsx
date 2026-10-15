@@ -37,11 +37,13 @@ import { useNow } from '../../lib/hooks';
 import { freeCancelUntil } from '../../lib/deposit';
 import { loadLine, serviceTitle } from '../../lib/services';
 import { discountLine, occupancyText, pinDigits, ridePrice } from '../../lib/sharing';
+import { discountSentence, rideDiscountLines } from '../../lib/promo';
 import { SeatIcons } from '../../order/RideChoices';
 import { shareText } from '../../lib/links';
 import { newerEta, pickupEta, type RideScreen, rideScreen } from '../../lib/ride-state';
 import { searchStartsAt } from '../../lib/schedule';
 import { CancelSheet } from '../../ride/CancelSheet';
+import { ChatButton } from '../../ride/ChatButton';
 import { PaymentPanel } from '../../ride/PaymentPanel';
 import { RideSummary } from '../../ride/RideSummary';
 import { KeyboardAvoider } from '../../ui/KeyboardAvoider';
@@ -306,6 +308,8 @@ function LiveRide({
 
           {screen.showDriver ? <DriverCard driver={ride.driver} vehicle={ride.vehicle} /> : null}
 
+          {screen.showDriver && ride.driver ? <ChatButton rideId={ride.id} /> : null}
+
           {screen.showDriver && ride.car && (ride.shareable || ride.car.riders > 1) ? (
             <View style={styles.occupancy} accessible>
               <SeatIcons car={ride.car} />
@@ -485,10 +489,12 @@ function FareLine({ ride }: { ride: Ride }) {
   // a shared ride: the quoted price is the ceiling, co-riders lower it (live)
   const price = ridePrice(ride.fare);
   const cashRide = ride.paymentMethod === 'cash';
+  // a promo code (or invitation) and ride credit: paid by the platform
+  const promoLines = rideDiscountLines(ride.fare);
   return (
     <View style={styles.owed}>
       <View style={styles.priceRow}>
-        {price.discount > 0 ? (
+        {price.discount > 0 || promoLines.length ? (
           <T variant="smallStrong" color={colors.textMuted} style={styles.struck}>
             {formatMoney(price.quoted)}
           </T>
@@ -498,6 +504,11 @@ function FareLine({ ride }: { ride: Ride }) {
           {price.discount > 0 ? 'hamroh bilan arzonroq' : 'narx o‘zgarmaydi'}
         </T>
       </View>
+      {promoLines.length ? (
+        <T variant="small" color={colors.success}>
+          {discountSentence(promoLines)}
+        </T>
+      ) : null}
       {price.discount > 0 ? (
         <T variant="small" color={colors.success}>
           {discountLine(price.discount)}

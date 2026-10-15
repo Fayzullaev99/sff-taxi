@@ -181,21 +181,29 @@ export class RideChargesService {
   /** Earnings of a driver between two instants: what riders paid and what was deducted. */
   async earnings(driverId: string, from: Date, to: Date) {
     const row = await this.db.kysely
-      .selectFrom('rides')
+      .selectFrom('rides as r')
+      // the rider's discount (promo, credit): paid by the platform, not in the driver's cash
+      .leftJoin('ride_discounts as d', (j) =>
+        j.onRef('d.ride_id', '=', 'r.id').on('d.status', '=', 'redeemed'),
+      )
       .select([
         sql<string>`count(*)`.as('rides'),
-        sql<string>`coalesce(sum(fare_total), 0)`.as('fares'),
-        sql<string>`coalesce(sum(commission), 0)`.as('commission'),
-        sql<string>`coalesce(sum(tax), 0)`.as('tax'),
+        sql<string>`coalesce(sum(r.fare_total), 0)`.as('fares'),
+        sql<string>`coalesce(sum(r.commission), 0)`.as('commission'),
+        sql<string>`coalesce(sum(r.tax), 0)`.as('tax'),
         // card rides were prepaid; only their paid waiting is collected in cash
-        sql<string>`coalesce(sum(case when payment_method = 'cash' then fare_total else waiting_fee end), 0)`.as(
+        sql<string>`coalesce(sum(case when r.payment_method = 'cash' then r.fare_total - coalesce(d.promo_amount + d.credit_amount, 0) else r.waiting_fee end), 0)`.as(
           'cash',
         ),
+        // credited to the balance for cash rides' discounts (bonus kompensatsiya)
+        sql<string>`coalesce(sum(case when r.payment_method = 'cash' or r.payment_status = 'refunded' then d.promo_amount + d.credit_amount end), 0)`.as(
+          'promoCompensation',
+        ),
       ])
-      .where('driver_id', '=', driverId)
-      .where('status', '=', 'completed')
-      .where('completed_at', '>=', from)
-      .where('completed_at', '<', to)
+      .where('r.driver_id', '=', driverId)
+      .where('r.status', '=', 'completed')
+      .where('r.completed_at', '>=', from)
+      .where('r.completed_at', '<', to)
       .executeTakeFirstOrThrow();
     // intercity seats are paid in cash to the driver, but for a deposit paid by card
     const seats = await this.db.kysely
@@ -213,6 +221,21 @@ export class RideChargesService {
       .where('b.completed_at', '>=', from)
       .where('b.completed_at', '<', to)
       .executeTakeFirstOrThrow();
+    // tips: card ones are on the balance, cash ones the riders said they handed over
+    const tips = await this.db.kysely
+      .selectFrom('ride_tips')
+      .select([
+        sql<string>`coalesce(sum(amount) filter (where method = 'card' and status = 'paid'), 0)`.as(
+          'card',
+        ),
+        sql<string>`coalesce(sum(amount) filter (where method = 'cash' and status = 'recorded'), 0)`.as(
+          'cash',
+        ),
+      ])
+      .where('driver_id', '=', driverId)
+      .where(sql<Date>`coalesce(paid_at, created_at)`, '>=', from)
+      .where(sql<Date>`coalesce(paid_at, created_at)`, '<', to)
+      .executeTakeFirstOrThrow();
     const fares = Number(row.fares) + Number(seats.fares);
     const commission = Number(row.commission) + Number(seats.commission);
     const tax = Number(row.tax) + Number(seats.tax);
@@ -223,6 +246,11 @@ export class RideChargesService {
       intercityBookings: Number(seats.bookings),
       fares,
       cash: Number(row.cash) + Number(seats.cash),
+      /** Riders' discounts the platform paid onto the balance (cash rides). */
+      promoCompensation: Number(row.promoCompensation),
+      /** Card tips credited whole to the balance; cash tips riders recorded (not in `net`). */
+      tipsCard: Number(tips.card),
+      tipsCash: Number(tips.cash),
       commission,
       tax,
       net: fares - commission - tax,

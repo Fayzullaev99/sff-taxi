@@ -27,6 +27,7 @@ const Ratings = lazy(() => import('./support/Ratings'));
 const Appeals = lazy(() => import('./drivers/Appeals'));
 const Fiscal = lazy(() => import('./operations/Fiscal'));
 const Outbox = lazy(() => import('./operations/Outbox'));
+const Promos = lazy(() => import('./promos/Promos'));
 
 export function App() {
   const signedIn = useSignedIn();
@@ -74,6 +75,7 @@ export function App() {
           <Route path="/fiscal" element={<Fiscal />} />
           <Route path="/outbox" element={<Outbox />} />
           <Route path="/taxes" element={<Taxes />} />
+          <Route path="/promos" element={<Promos />} />
           <Route path="/tariffs" element={<Tariffs />} />
           <Route path="/cities" element={<Cities />} />
           <Route path="/routes" element={<RouteFares />} />

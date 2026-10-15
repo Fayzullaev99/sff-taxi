@@ -25,10 +25,17 @@ export interface ReceiptPayload {
     price: number;
     vatPercent: number;
     vat: number;
+    /**
+     * Tiyin of the price the platform paid for the rider: a promo code or invitation discount
+     * (the OFD's "discount") and ride credit (the OFD's "other": bonuses). The price stays the
+     * full fare, the driver's turnover (the platform compensates the driver).
+     */
+    discount: number;
+    other: number;
     /** The supplier the platform sells for: the self-employed driver. */
     commissionInfo: { pinfl: string };
   }[];
-  /** Tiyin paid in cash (to the driver) and by card (to the platform). */
+  /** Tiyin paid in cash (to the driver) and by card (to the platform): price - discount - other. */
   receivedCash: number;
   receivedCard: number;
   /** For the rider's copy. */
@@ -44,6 +51,9 @@ export interface ReceiptInput {
   total: number;
   /** so'm of `total` paid by card (prepaid card rides); the rest was cash. */
   card: number;
+  /** so'm of `total` the platform paid for the rider: a promo (or invitation) discount, credit. */
+  discount?: number;
+  credit?: number;
   driverPinfl: string;
   riderPhone: string | null;
   from: string | null;
@@ -91,10 +101,12 @@ export function buildReceiptPayload(i: ReceiptInput): ReceiptPayload {
         price: totalTiyin,
         vatPercent: i.rules.vat_percent,
         vat,
+        discount: (i.discount ?? 0) * 100,
+        other: (i.credit ?? 0) * 100,
         commissionInfo: { pinfl: i.driverPinfl },
       },
     ],
-    receivedCash: (i.total - i.card) * 100,
+    receivedCash: (i.total - i.card - (i.discount ?? 0) - (i.credit ?? 0)) * 100,
     receivedCard: i.card * 100,
     extra: { phone: i.riderPhone, from: i.from, to: i.to },
   };

@@ -28,6 +28,7 @@ import { GeoCoreModule } from '../geo/geo-core.module.js';
 import { GeoService } from '../geo/geo.service.js';
 import { PaymentsCoreModule } from '../payments/payments.module.js';
 import { PaymentsService } from '../payments/payments.service.js';
+import { PromosCoreModule } from '../promos/promos.module.js';
 import { AvailabilityService } from './availability.service.js';
 import { PoolService } from './pool.service.js';
 import { DRIVER_CANCEL_REASONS, type DriverCancelReason, RidesService } from './rides.service.js';
@@ -125,6 +126,10 @@ const OrderBody = z.object({
     .optional(),
   /** "Boshqa odam uchun": someone else rides; the rider tracks and pays. */
   passenger: Passenger,
+  /** The discount the quote offered for the class (`discounts.classes[class].promo.id`). */
+  promoId: z.uuid().nullable().default(null),
+  /** Spend ride credit (bonus) on this ride, as the quote showed. */
+  useCredit: z.boolean().default(false),
 });
 // coordinates may be left out when the operator's quote gives them
 const PhonePlace = z.object({
@@ -481,7 +486,7 @@ export class AdminDriverRidesController {
 }
 
 @Module({
-  imports: [GeoCoreModule, BillingModule, PaymentsCoreModule, FiscalCoreModule],
+  imports: [GeoCoreModule, BillingModule, PaymentsCoreModule, FiscalCoreModule, PromosCoreModule],
   controllers: [
     RidesController,
     TariffsController,

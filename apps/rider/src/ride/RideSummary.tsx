@@ -7,6 +7,7 @@ import { canComplain } from '../lib/complaints';
 import { cancellationFeeNote, fareLines, OWED_FEE_LABEL, stopStateText } from '../lib/fare';
 import { passengerLine } from '../lib/passenger';
 import { POOL_DISCOUNT_LABEL } from '../lib/sharing';
+import { rideDiscountLines } from '../lib/promo';
 import { classLabel, isCargoClass, loadLine, SERVICE_NAMES, serviceTitle } from '../lib/services';
 import { driverGivenName, formatDateTime, formatMoney, placeLine } from '../lib/format';
 import { callPhone, openLink } from '../lib/links';
@@ -15,7 +16,9 @@ import { cancelledText, rideScreen } from '../lib/ride-state';
 import { orderPath, updateDraft } from '../trip/draft';
 import { Banner, Button, Card, Divider, KeyValue, T } from '../ui/primitives';
 import { colors, space } from '../ui/theme';
+import { ChatButton } from './ChatButton';
 import { RatingForm } from './RatingForm';
+import { TipCard } from './TipCard';
 
 /** Rating stays possible this long after the ride (the API's window). */
 const RATING_WINDOW_MS = 7 * 86_400_000;
@@ -32,7 +35,9 @@ export function RideSummary({ ride }: { ride: Ride }) {
   const completed = ride.status === 'completed';
   // fees owed from earlier cancelled rides this ride collected: a line apart from the fare
   const owedFee = ride.fare.owedFee ?? 0;
-  const total = (ride.fare.total ?? ride.fare.quoted + ride.fare.waiting) + owedFee;
+  // a promo code (or invitation) and ride credit: the platform paid that part
+  const discount = completed ? (ride.fare.discount ?? 0) : 0;
+  const total = (ride.fare.total ?? ride.fare.quoted + ride.fare.waiting) - discount + owedFee;
   const now = new Date();
   const canRate =
     completed &&
@@ -146,6 +151,16 @@ export function RideSummary({ ride }: { ride: Ride }) {
               valueColor={colors.success}
             />
           ) : null}
+          {discount > 0
+            ? rideDiscountLines(ride.fare).map((line) => (
+                <KeyValue
+                  key={line.label}
+                  label={line.label}
+                  value={`−${formatMoney(line.amount)}`}
+                  valueColor={colors.success}
+                />
+              ))
+            : null}
           {owedFee > 0 ? (
             <>
               <KeyValue label={OWED_FEE_LABEL} value={formatMoney(owedFee)} />
@@ -182,11 +197,14 @@ export function RideSummary({ ride }: { ride: Ride }) {
             driverName={driverGivenName(ride.driver?.name)}
             rated={ride.rated}
           />
-          <T variant="small" color={colors.textMuted} align="center">
-            Choy puli ilovada hozircha yo‘q — xohlasangiz haydovchiga naqd bering.
-          </T>
         </Card>
       ) : null}
+
+      {completed && ride.driver ? (
+        <TipCard rideId={ride.id} driverName={driverGivenName(ride.driver.name)} />
+      ) : null}
+
+      {completed && ride.driver ? <ChatButton rideId={ride.id} afterRide /> : null}
 
       {complain ? (
         <Card style={styles.card}>

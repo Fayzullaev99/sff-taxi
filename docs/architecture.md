@@ -278,6 +278,57 @@ public, so it is only sanity-checked; verifying it against the Ministry of Trans
 - **Minimum balance** (default −10 000): below it a driver cannot start a shift nor get offers.
 - **Earnings**: per day/week, fares, cash collected, commission, tax, net.
 
+### Rider discounts: promo codes, "Do'stni taklif qil", ride credit
+
+`src/lib/promo.ts` (pure, tested), `src/modules/promos` (I/O, locking), migration 0021.
+
+- **Promo codes** are made by operators (`admin/promos`): a percent (capped) or a fixed
+  amount, a minimum fare, valid from/until, a total and a per-rider limit, first ride only,
+  services, classes, a city, on/off, a description riders see. Codes are upper-case; riders
+  type them in any case into one box (profile or order screen), which also takes a friend's
+  invitation code. A saved code is applied by the quote: per class the best one (or the
+  invitation's welcome discount), with the reason when it does not fit (class, service,
+  minimum fare). Wrong codes count against 10 per hour.
+- **Locked at order, counted on completion**: the order sends the `promoId` the quote showed;
+  the code's row is locked (`FOR UPDATE`) while its uses are counted, so however many riders
+  order at once a limit is never overused (a concurrency test orders three rides for the last
+  use: one wins, two get 409 "Promokodning limiti tugagan"). The discount is reserved in
+  `ride_discounts` (it counts against the limits at once), redeemed when the ride completes and
+  released when it is cancelled (the use comes back, spent credit is credited back). A code
+  that stopped applying between the quote and the order is refused (409 with `reason`), never
+  silently charged in full. Not for rides for later, shared rides or phone orders.
+- **Referrals**: every rider has a personal code (6 unambiguous characters) and a share text
+  with the deep link `sfftaxi://invite/CODE` and the web page (`invite_url` setting). A new
+  rider enters it before the first completed ride, once per phone (account) and once per
+  device (the app's install id); the referrer's own phone (an install that opened the
+  referrer's invitation card) is refused. The invitee gets the welcome discount (50% up to
+  10 000 on the first ride by default); the referrer gets ride credit (10 000) after the
+  invitee's first completed ride, at most `monthly_reward_cap` times per Tashkent month
+  (beyond it the referral is `capped`, no reward). Operators list and revoke referrals (the
+  reward is taken back from the credit that is left).
+- **Ride credit** is an append-only ledger per rider (`rider_credits`, balance = sum). It is
+  spent automatically after the promo, at most `credit_max_percent` (50%) of the fare; the
+  rider can switch it off on the order screen. The rider always pays at least
+  `min_rider_pays` (1 000): credit gives way first.
+- **Who pays**: the driver always earns the full fare. A cash ride: the rider hands over the
+  fare less the discount (`collectCash` says so) and the platform credits the discount to the
+  driver's balance on completion (`promo_compensation`, once per ride). A card ride: the card is
+  charged the discounted amount and the driver is credited the full fare (`card_fare`). The
+  commission, the 1% tax and its withholding row are computed on the full fare; the fiscal
+  receipt shows the full price with the promo as a discount and the credit as "other"
+  ([fiscal-and-licence.md](fiscal-and-licence.md)). Owed cancellation fees are collected on top
+  as before.
+
+### Tips
+
+`src/lib/tips.ts`, `src/modules/tips`, migration 0025. On the rating screen the rider may add
+one tip per ride (presets, or another amount up to the cap, within a day of the ride): cash is
+only recorded (the driver is told), a card tip is a payment intent of purpose `tip` credited
+whole to the driver's balance when Payme/Click confirm it (ledger `tip`): no commission, no
+tax withheld, no receipt ([payments.md](payments.md#tips-choychaqa) explains the decision).
+Drivers see tips on the finished ride, in the earnings (`tipsCard`, `tipsCash`) and the
+ledger; operators in the ride detail and among the card payments.
+
 ## 9. Safety
 
 - **Ratings** both ways, once per side per completed ride, within 7 days; driver stars feed the
@@ -286,6 +337,29 @@ public, so it is only sanity-checked; verifying it against the Ministry of Trans
   realtime alert and SMS to operators, emergency numbers (112/102/103/101) in the answer.
 - **Share trip**: an unguessable token link shows the car, the driver's first name and the live
   position with its trail; no phone numbers; it stops working when the ride ends.
+
+### Ride chat
+
+`src/lib/chat.ts`, `src/modules/chat`, migration 0023. The rider and the ride's driver write
+to each other from the assignment until 30 minutes after completion (a forgotten bag), then
+the chat is read-only; a cancelled ride or one still searching has none. Text only: up to 500
+characters, control characters and invisible (zero-width, bidi override) characters stripped,
+links allowed; quick replies, one set per side ("Chiqyapman", "5 daqiqada chiqaman",
+"Qayerdasiz?", "Podyezd oldidaman" for riders; "Yetib keldim", "Tirbandlik, biroz
+kechikaman"… for drivers) are stored with their key. 20 messages a minute per person, 300 per
+ride; the app's `clientMessageId` makes a retry after a lost answer one message. Every message
+keeps the driver it was written to: a driver taken off the ride does not read the next one's
+conversation (and the next driver starts empty); the rider keeps all of it. Delivery: the
+outbox event `ride.message` sends `chat.message` over the stream to both sides and a push to
+the other side (`kind: chat`; not when it was already read, and the apps keep the banner quiet
+while that chat is on screen); reading sends `chat.read` (read receipts) and clears the
+unread badge. Operators read a ride's whole chat in the ride detail (`admin/rides/:id/messages`)
+and never write in it.
+
+**Phones**: the rider sees the driver's number and the driver the rider's only while the ride
+is on (the views hide them once it ends; the share link never shows them), and calling stays
+the phone's own dialer. Number masking (calls through a telephony provider's virtual numbers)
+needs a contract with an Uzbek telecom/IP-telephony provider: a future item.
 
 ## 10. Realtime and notifications
 
@@ -376,10 +450,9 @@ Backend backlog:
 
 - **Legal integrations switched on**: the OFD provider and the Ministry of Transport registry
   (the adapters are ready; [fiscal-and-licence.md](fiscal-and-licence.md) lists what is needed).
-- Promo codes, masked calls
-  (a telephony provider's number masking; today riders and drivers see each other's phones only
-  within a ride or a booking), tips by card, owed fees of card riders and late seat cancellations,
-  automatic payouts.
+- Masked calls (a telephony provider's number masking; today riders and drivers see each
+  other's phones only within a ride or a booking), owed fees of card riders and late seat
+  cancellations, automatic payouts.
 - The shared driver pool with SFF Eats (A9); a load test on the production host with two API
   replicas (the laptop run and its fixes: [audit.md](audit.md) "Load test").
 - Deployment in a UZ data centre: [deploy.md](deploy.md).

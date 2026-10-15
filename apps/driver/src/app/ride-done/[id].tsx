@@ -22,6 +22,7 @@ import {
   Row,
   Title,
 } from '../../ui/components';
+import { TipLine } from '../../ride/tip-line';
 import { haptics } from '../../ui/haptics';
 import { Screen } from '../../ui/screen';
 import { colors, space } from '../../ui/theme';
@@ -78,6 +79,8 @@ export default function RideDone() {
   const cashNow = money.total;
   const parts = cashPartsText(money);
   const owedNote = owedFeeNote(money.owedFee);
+  // the rider's promo / bonus: the platform pays it (cash rides: onto the balance)
+  const bonus = r.discount?.compensation ?? 0;
   const service = serviceOf(r);
   const deposit = depositLine(r.fare.deposit, cashNow);
   const e = r.earnings;
@@ -129,10 +132,15 @@ export default function RideDone() {
         ) : null}
       </View>
 
+      <TipLine rideId={r.id} />
+
       {e ? (
         <Card>
           <Title>Bu safardan</Title>
           <Row label="Safar narxi" value={som(e.fare ?? total)} />
+          {bonus > 0 ? (
+            <Row label="Bonus kompensatsiya (balansga)" value={som(bonus)} tone="success" />
+          ) : null}
           <Row
             label={`Komissiya${e.commissionNote ? ` (${COMMISSION_NOTES[e.commissionNote] ?? e.commissionNote})` : ''}`}
             value={som(-e.commission)}
@@ -140,6 +148,16 @@ export default function RideDone() {
           <Row label={`Soliq ${taxPercent}% (davlatga, siz uchun to‘lanadi)`} value={som(-e.tax)} />
           <Row label="Sizga qoladi" value={som(e.net)} strong tone="success" />
           <Muted>Komissiya va soliq balansingizdan yechildi; naqd pul to‘liq sizda qoladi.</Muted>
+          {bonus > 0 ? (
+            <Muted>
+              Yo‘lovchi promokod yoki bonus bilan {som(bonus)} kam to‘ladi: SFF bu summani
+              balansingizga yozdi — siz to‘liq narxni olasiz.
+            </Muted>
+          ) : r.discount && r.discount.amount > 0 && !cash ? (
+            <Muted>
+              Yo‘lovchi chegirma bilan to‘ladi, lekin balansingizga to‘liq narx yoziladi.
+            </Muted>
+          ) : null}
           {money.owedFee > 0 ? (
             <Muted>
               Oldingi safar uchun olingan {som(money.owedFee)} sizniki emas: u balansingizdan

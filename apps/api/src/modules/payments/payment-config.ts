@@ -21,7 +21,7 @@ export function enabledProviders(env: Env): PaymentProvider[] {
   return out;
 }
 
-export type IntentPurpose = 'ride' | 'topup' | 'booking';
+export type IntentPurpose = 'ride' | 'topup' | 'booking' | 'tip';
 
 /**
  * Where the provider's page sends the payer back: the purpose's own URL (a ride payment to

@@ -14,11 +14,13 @@ import { SmsModule } from './core/sms/sms.module.js';
 import { HealthController } from './health/health.controller.js';
 import { AppConfigModule } from './modules/app-config/app-config.module.js';
 import { BillingModule } from './modules/billing/billing.module.js';
+import { ChatModule } from './modules/chat/chat.module.js';
 import { DispatchModule } from './modules/dispatch/dispatch.module.js';
 import { DriversModule } from './modules/drivers/drivers.module.js';
 import { ComplaintsModule } from './modules/complaints/complaints.module.js';
 import { FiscalModule } from './modules/fiscal/fiscal.module.js';
 import { PlacesModule } from './modules/places/places.module.js';
+import { PromosModule } from './modules/promos/promos.module.js';
 import { GeoModule } from './modules/geo/geo.module.js';
 import { IntercityModule } from './modules/intercity/intercity.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
@@ -27,6 +29,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module.js';
 import { RidesModule } from './modules/rides/rides.module.js';
 import { SafetyModule } from './modules/safety/safety.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
+import { TipsModule } from './modules/tips/tips.module.js';
 import { UploadsModule } from './modules/uploads/uploads.module.js';
 
 /**
@@ -97,6 +100,9 @@ export function logRequest<T extends { url?: unknown }>(req: T): T {
     FiscalModule,
     PlacesModule,
     ComplaintsModule,
+    PromosModule,
+    ChatModule,
+    TipsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_INTERCEPTOR, useClass: RateLimitInterceptor }],

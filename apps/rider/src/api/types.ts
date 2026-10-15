@@ -4,6 +4,8 @@
  * Money is whole so'm; times are ISO 8601 UTC strings.
  */
 
+import type { FareDiscount, QuoteDiscounts } from './promo-types';
+
 export interface LatLng {
   lat: number;
   lng: number;
@@ -258,6 +260,8 @@ export interface Quote {
    * ride collects on top of its fare (a card ride leaves it owed). Null: nothing owed.
    */
   owedFee?: OwedFeeLine | null;
+  /** The rider's promo code / invitation discount and ride credit per class (rides now). */
+  discounts?: QuoteDiscounts | null;
   /** The seating rule (wave 4): at most 3 people, 1 in front, 2 in the back. */
   seats?: {
     max: number;
@@ -501,7 +505,7 @@ export interface RideSummary {
   comment: string | null;
   distanceM: number;
   durationS: number | null;
-  fare: {
+  fare: FareDiscount & {
     quoted: number;
     waiting: number;
     total: number | null;
@@ -599,6 +603,10 @@ export interface OrderInput {
   womenOnly?: boolean;
   /** 'seat': a fixed route's per-person price in a shared car. */
   fareMode?: FareMode;
+  /** The discount the quote offered for the class (a promo code's or the invitation's id). */
+  promoId?: string | null;
+  /** Spend ride credit as the quote showed. */
+  useCredit?: boolean;
   /** Cargo: the load described more precisely than in the quote (the price stays). */
   cargo?: { description?: string | null; weightKg?: number | null };
   /** Delivery: the parcel. */

@@ -7,7 +7,13 @@ import {
 } from './driver-config';
 import { departureParts, tripEditable, tripEdits } from './intercity';
 import { pushTarget } from './refresh';
-import { cashBreakdown, cashPartsText, offerOwedFeeLine, owedFeeNote } from './ride-flow';
+import {
+  bonusNote,
+  cashBreakdown,
+  cashPartsText,
+  offerOwedFeeLine,
+  owedFeeNote,
+} from './ride-flow';
 import { topupPollMs, topupRefetchMs, withPaidEvent } from './topup';
 import { isPdfDocument } from './upload-flow';
 
@@ -102,6 +108,7 @@ describe('cash to collect', () => {
       waiting: 1_000,
       owedFee: 3_000,
       discount: 0,
+      bonus: 0,
     });
     expect(cashPartsText(cash)).toBe(
       'Narx 20 000 so‘m + kutish 1 000 so‘m + oldingi safar 3 000 so‘m',
@@ -122,7 +129,14 @@ describe('cash to collect', () => {
 
   it('a card ride: only the waiting in cash', () => {
     const cash = cashBreakdown({ paymentMethod: 'card', fare, collectCash: 1_000 });
-    expect(cash).toEqual({ total: 1_000, fare: 0, waiting: 1_000, owedFee: 0, discount: 0 });
+    expect(cash).toEqual({
+      total: 1_000,
+      fare: 0,
+      waiting: 1_000,
+      owedFee: 0,
+      discount: 0,
+      bonus: 0,
+    });
     expect(cashPartsText(cash)).toBeNull();
     expect(owedFeeNote(0)).toBeNull();
   });
@@ -154,6 +168,27 @@ describe('cash to collect', () => {
         fare: { quoted: 15_600, waiting: 500, total: null, poolDiscount: 2_300 },
       }).discount,
     ).toBe(0);
+  });
+
+  it('takes less cash when the rider used a promo code or bonus: the platform pays the rest', () => {
+    const cash = cashBreakdown({
+      paymentMethod: 'cash',
+      fare: { quoted: 7_000, waiting: 0, total: null },
+      collectCash: 5_600,
+      discount: { compensation: 1_400 },
+    });
+    expect(cash).toMatchObject({ total: 5_600, fare: 7_000, bonus: 1_400 });
+    expect(cashPartsText(cash)).toBe('Narx 7 000 so‘m − yo‘lovchi bonusi 1 400 so‘m');
+    expect(bonusNote(cash.bonus)).toBe('Yo‘lovchi bonusi 1 400 so‘m — SFF balansingizga to‘laydi');
+    expect(bonusNote(0)).toBeNull();
+    // an older API without collectCash
+    expect(
+      cashBreakdown({
+        paymentMethod: 'cash',
+        fare: { quoted: 7_000, waiting: 0, total: null },
+        discount: { compensation: 1_400 },
+      }).total,
+    ).toBe(5_600);
   });
 
   it('falls back to fare + waiting + owed fee without collectCash (older API)', () => {

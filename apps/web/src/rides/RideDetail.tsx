@@ -39,6 +39,9 @@ import {
   time,
   timeSec,
 } from '../lib/format';
+import { discountText } from '../lib/promos';
+import { RideChat } from './RideChat';
+import { RideTip } from './RideTip';
 import {
   canAssign,
   canCancel,
@@ -529,6 +532,15 @@ export function RideDetail({
               <dd>−{som(r.fare.poolDiscount!)}</dd>
             </div>
           )}
+          {r.discount && r.discount.status !== 'released' && (
+            <div>
+              <dt>Yo‘lovchi chegirmasi (platforma to‘laydi)</dt>
+              <dd>
+                −{som(r.discount.total)}
+                <div className="muted small">{discountText(r.discount)}</div>
+              </dd>
+            </div>
+          )}
           {r.fare.pays !== undefined && r.fare.pays !== r.fare.quoted && (
             <div>
               <dt>Yo‘lovchi to‘laydi</dt>
@@ -670,6 +682,10 @@ export function RideDetail({
           </div>
         )}
       </section>
+
+      {r.status === 'completed' ? <RideTip rideId={r.id} /> : null}
+
+      {r.driver ? <RideChat rideId={r.id} /> : null}
 
       <section className="detail-section">
         <h3>Tarix</h3>

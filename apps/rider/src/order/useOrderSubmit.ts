@@ -61,6 +61,8 @@ export function useOrderSubmit(onQuoteExpired: () => void) {
           return;
         }
         setError(describeError(e));
+        // a promo code that no longer applies (used up, expired): price again without it
+        if ((e.body as { reason?: unknown } | null)?.reason) onQuoteExpired();
       } else if (e instanceof ApiError && (e.status === 404 || e.status === 410)) {
         attempts.settle('rejected');
         setError('Narx yangilandi, qaytadan tasdiqlang.');

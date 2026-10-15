@@ -59,6 +59,10 @@ describe('where a tapped push leads', () => {
     });
   });
 
+  it('opens the chat for a chat message', () => {
+    expect(pushTarget({ kind: 'chat', rideId })).toEqual({ screen: 'chat', id: rideId });
+  });
+
   it('opens the ride for a refund and other ride pushes', () => {
     expect(pushTarget({ kind: 'refund_pending', rideId })).toEqual({ screen: 'ride', id: rideId });
     expect(pushTarget({ kind: 'refunded', rideId })).toEqual({ screen: 'ride', id: rideId });

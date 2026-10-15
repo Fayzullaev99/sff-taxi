@@ -200,6 +200,13 @@ export default function ProfileScreen() {
 
       <Card style={styles.menu}>
         <MenuRow
+          icon="pricetag-outline"
+          title="Promokod va bonuslar"
+          subtitle="Do‘stni taklif qiling — bonus oling"
+          onPress={() => router.push('/promos')}
+        />
+        <Divider />
+        <MenuRow
           icon="location-outline"
           title="Saqlangan manzillar"
           onPress={() => router.push('/places')}

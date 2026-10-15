@@ -180,6 +180,79 @@ export const DEFAULT_FISCAL: FiscalRules = {
   vat_percent: 0,
 };
 
+/**
+ * Rider discounts (src/lib/promo.ts, src/modules/promos): the referral programme
+ * ("Do'stni taklif qil") and how ride credit is spent. Promo codes themselves are rows
+ * operators manage (admin/promos).
+ */
+export const PromoRules = z
+  .object({
+    referral_enabled: z.boolean(),
+    /** The invitee's welcome discount on their first ride(s). */
+    invitee_discount_percent: z.number().int().min(0).max(100),
+    invitee_max_discount: soum,
+    invitee_rides: z.number().int().min(1).max(10),
+    /** Ride credit the referrer gets after the invitee's first completed ride. */
+    referrer_bonus: soum,
+    /** Rewarded referrals per referrer per Tashkent month (0 = no limit). */
+    monthly_reward_cap: z.number().int().min(0).max(1000),
+    /** Ride credit pays at most this share of a fare. */
+    credit_max_percent: z.number().int().min(0).max(100),
+    /** Whatever the discounts, the rider pays at least this much for the trip. */
+    min_rider_pays: z.number().int().min(100).max(100_000),
+    /** The invitation's web page (for phones without the app): the code is appended. */
+    invite_url: z.url({ protocol: /^https$/ }).max(200),
+  })
+  .refine((r) => r.invitee_max_discount > 0 || r.invitee_discount_percent === 0, {
+    message: 'Chegirma foizi bo‘lsa, eng ko‘p summa ham bo‘lishi kerak',
+    path: ['invitee_max_discount'],
+  });
+export type PromoRules = z.infer<typeof PromoRules>;
+
+export const DEFAULT_PROMO: PromoRules = {
+  referral_enabled: true,
+  invitee_discount_percent: 50,
+  invitee_max_discount: 10_000,
+  invitee_rides: 1,
+  referrer_bonus: 10_000,
+  monthly_reward_cap: 10,
+  credit_max_percent: 50,
+  min_rider_pays: 1000,
+  invite_url: 'https://taxi.sff.uz/invite',
+};
+
+/** Tips ("choychaqa", src/lib/tips.ts): the rating screen's presets and limits. */
+export const TipRules = z
+  .object({
+    enabled: z.boolean(),
+    /** The buttons, so'm (whole 100 so'm). */
+    presets: z.array(z.number().int().min(100).max(1_000_000).multipleOf(100)).min(1).max(5),
+    min_amount: z.number().int().min(100).max(1_000_000),
+    max_amount: z.number().int().min(1000).max(1_000_000),
+    /** Card tips through Payme/Click (cash tips are only recorded). */
+    card_enabled: z.boolean(),
+    /** A tip can be added this long after the ride. */
+    window_hours: z.number().int().min(1).max(168),
+  })
+  .refine((r) => r.min_amount <= r.max_amount, {
+    message: 'Eng kam summa eng ko‘pidan katta bo‘lmasin',
+    path: ['min_amount'],
+  })
+  .refine((r) => r.presets.every((p) => p >= r.min_amount && p <= r.max_amount), {
+    message: 'Tugmalar eng kam va eng ko‘p summa orasida bo‘lsin',
+    path: ['presets'],
+  });
+export type TipRules = z.infer<typeof TipRules>;
+
+export const DEFAULT_TIPS: TipRules = {
+  enabled: true,
+  presets: [2000, 5000, 10_000],
+  min_amount: 1000,
+  max_amount: 50_000,
+  card_enabled: true,
+  window_hours: 24,
+};
+
 const RULES = {
   tariff: { key: 'tariff', schema: Tariff, fallback: DEFAULT_TARIFF },
   dispatch: { key: 'dispatch', schema: DispatchRules, fallback: DEFAULT_DISPATCH },
@@ -189,6 +262,8 @@ const RULES = {
   pool: { key: 'pool', schema: PoolRules, fallback: DEFAULT_POOL },
   booking: { key: 'booking', schema: BookingRules, fallback: DEFAULT_BOOKING },
   cargo: { key: 'cargo', schema: CargoRules, fallback: DEFAULT_CARGO },
+  promo: { key: 'promo', schema: PromoRules, fallback: DEFAULT_PROMO },
+  tips: { key: 'tips', schema: TipRules, fallback: DEFAULT_TIPS },
 } as const;
 type RuleName = keyof typeof RULES;
 type RuleValue<N extends RuleName> = z.infer<(typeof RULES)[N]['schema']>;
@@ -267,6 +342,14 @@ export class SettingsService {
 
   cargo(db?: Db) {
     return this.get('cargo', db);
+  }
+
+  promo(db?: Db) {
+    return this.get('promo', db);
+  }
+
+  tips(db?: Db) {
+    return this.get('tips', db);
   }
 }
 
@@ -357,6 +440,28 @@ export class SettingsController {
   @Put('cargo')
   setCargo(@Body(new ZodPipe(CargoRules)) body: CargoRules) {
     return this.settings.set('cargo', body);
+  }
+
+  /** Rider discounts: the referral programme and how ride credit is spent (src/lib/promo.ts). */
+  @Get('promo')
+  promo() {
+    return this.settings.promo();
+  }
+
+  @Put('promo')
+  setPromo(@Body(new ZodPipe(PromoRules)) body: PromoRules) {
+    return this.settings.set('promo', body);
+  }
+
+  /** Tips: presets, limits, card on/off, the window after the ride (src/lib/tips.ts). */
+  @Get('tips')
+  tips() {
+    return this.settings.tips();
+  }
+
+  @Put('tips')
+  setTips(@Body(new ZodPipe(TipRules)) body: TipRules) {
+    return this.settings.set('tips', body);
   }
 }
 

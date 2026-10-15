@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Linking } from 'react-native';
+import { chatKeys } from '../api/chat-api';
 import { keys } from '../api/queries';
 import { beforeSignOut, useIsSignedIn } from '../api/session';
 import { pushTarget } from './data';
@@ -64,6 +65,8 @@ export function PushManager() {
     setTimeout(() => {
       if (target.screen === 'ride') {
         router.push({ pathname: '/ride/[id]', params: { id: target.id } });
+      } else if (target.screen === 'chat') {
+        router.push({ pathname: '/chat/[rideId]', params: { rideId: target.id } });
       } else if (target.screen === 'complaint') {
         router.push({ pathname: '/support/[id]', params: { id: target.id } });
       } else {
@@ -87,6 +90,8 @@ export function PushManager() {
       } else if (target.screen === 'booking') {
         void queryClient.invalidateQueries({ queryKey: keys.bookings });
         void queryClient.invalidateQueries({ queryKey: keys.booking(target.id) });
+      } else if (target.screen === 'chat') {
+        void queryClient.invalidateQueries({ queryKey: chatKeys.conversation(target.id) });
       }
       const rideId = (data as { rideId?: unknown } | null)?.rideId;
       if (typeof rideId === 'string') {

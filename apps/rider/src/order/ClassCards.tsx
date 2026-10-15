@@ -25,10 +25,13 @@ export function ClassCards({
   quote,
   selected,
   onSelect,
+  discountOf,
 }: {
   quote: Quote;
   selected: RideClass;
   onSelect: (rideClass: RideClass) => void;
+  /** The rider's promo / credit discount on a class (so'm): the old price struck through. */
+  discountOf?: (rideClass: RideClass) => number;
 }) {
   const classes = quoteClasses(quote);
   return (
@@ -46,6 +49,7 @@ export function ClassCards({
           quote={quote}
           selected={selected === c.id}
           onSelect={onSelect}
+          discount={discountOf?.(c.id) ?? 0}
         />
       ))}
     </ScrollView>
@@ -57,11 +61,14 @@ const ClassCard = memo(function ClassCard({
   quote,
   selected,
   onSelect,
+  discount = 0,
 }: {
   choice: ClassChoice;
   quote: Quote;
   selected: boolean;
   onSelect: (rideClass: RideClass) => void;
+  /** The rider's promo / credit discount on this class: the old price struck through. */
+  discount?: number;
 }) {
   const fare = quote.fares[choice.id];
   if (!fare) return null;
@@ -74,7 +81,7 @@ const ClassCard = memo(function ClassCard({
     <Pressable
       accessibilityRole="radio"
       accessibilityState={{ checked: selected }}
-      accessibilityLabel={`${choice.label}, ${choice.note}, ${formatMoney(fare.total)}, narx o‘zgarmaydi${availability ? `. ${availability}` : ''}`}
+      accessibilityLabel={`${choice.label}, ${choice.note}, ${formatMoney(fare.total - discount)}, narx o‘zgarmaydi${availability ? `. ${availability}` : ''}`}
       onPress={() => onSelect(choice.id)}
       style={[styles.card, selected ? styles.cardOn : null]}
     >
@@ -86,8 +93,13 @@ const ClassCard = memo(function ClassCard({
           {choice.label}
         </T>
       </View>
-      <T variant="price" numberOfLines={1}>
-        {formatMoney(fare.total)}
+      {discount > 0 ? (
+        <T variant="small" color={colors.textMuted} numberOfLines={1} style={styles.struck}>
+          {formatMoney(fare.total)}
+        </T>
+      ) : null}
+      <T variant="price" numberOfLines={1} color={discount > 0 ? colors.success : undefined}>
+        {formatMoney(fare.total - discount)}
       </T>
       <T variant="small" color={colors.textMuted} numberOfLines={2}>
         {choice.note}
@@ -120,6 +132,7 @@ const styles = StyleSheet.create({
     minHeight: 150,
   },
   cardOn: { borderColor: colors.ink, backgroundColor: colors.brandSoft },
+  struck: { textDecorationLine: 'line-through' },
   head: { flexDirection: 'row', alignItems: 'center', gap: space(2) },
   icon: {
     width: 36,

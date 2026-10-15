@@ -118,6 +118,9 @@ export const LEDGER_KINDS: Record<string, string> = {
   payout: 'Kartangizga o‘tkazildi',
   cancel_fee: 'Bekor qilish haqi',
   cancel_fee_collected: 'Olingan bekor qilish haqi',
+  deposit: 'Oldindan to‘lov (depozit)',
+  promo_compensation: 'Bonus kompensatsiya',
+  tip: 'Choychaqa (karta)',
 };
 
 /** What each ledger entry means, one line (the ledger screen). */
@@ -132,6 +135,10 @@ export const LEDGER_HINTS: Record<string, string> = {
   cancel_fee: 'Yo‘lovchi bekor qilgan safaringiz uchun haq (u keyingi naqd safarida to‘ladi)',
   cancel_fee_collected:
     'Yo‘lovchidan naqd olgan oldingi safar(lar) bekor qilish haqi — o‘sha safar haydovchisiga yozildi',
+  deposit: 'Yo‘lovchi kartada oldindan to‘lagan qism (yoki kech bekor qilgani uchun) — sizniki',
+  promo_compensation:
+    'Yo‘lovchi promokod yoki bonus bilan kamroq naqd berdi: farqini SFF balansingizga to‘ladi',
+  tip: 'Yo‘lovchi kartadan bergan choychaqa — to‘liq sizniki, komissiyasiz',
 };
 
 /** Why a ride's commission was lower than the percentage (`commissionNote`). */

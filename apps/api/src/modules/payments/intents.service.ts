@@ -33,7 +33,7 @@ type Intent = Selectable<PaymentIntentsTable>;
 export const REASON_TIMEOUT = 4;
 
 export interface IntentFilter {
-  purpose?: 'ride' | 'topup' | 'booking';
+  purpose?: 'ride' | 'topup' | 'booking' | 'tip';
   /** An intent status, or "failed": expired or cancelled without a payment. */
   status?: PaymentIntentStatus | 'failed';
   provider?: PaymentProvider;
@@ -50,9 +50,10 @@ export type Unpayable = 'missing' | 'paid' | 'closed';
 
 export interface PayableIntent {
   id: string;
-  purpose: 'ride' | 'topup' | 'booking';
+  purpose: 'ride' | 'topup' | 'booking' | 'tip';
   rideId: string | null;
   bookingId: string | null;
+  tipId: string | null;
   driverId: string | null;
   /** so'm */
   amount: number;
@@ -129,6 +130,26 @@ export class IntentsService {
         user_id: b.riderId,
         amount: b.amount,
         expires_at: b.expiresAt,
+      })
+      .execute();
+    return id;
+  }
+
+  /** A card tip's payment (TipsService.give), in the tip's transaction: one per attempt. */
+  async createForTip(
+    trx: Tx,
+    t: { tipId: string; riderId: string; amount: number; expiresAt: Date },
+  ): Promise<string> {
+    const id = uuidv7();
+    await trx
+      .insertInto('payment_intents')
+      .values({
+        id,
+        purpose: 'tip',
+        tip_id: t.tipId,
+        user_id: t.riderId,
+        amount: t.amount,
+        expires_at: t.expiresAt,
       })
       .execute();
     return id;
@@ -270,11 +291,22 @@ export class IntentsService {
         .executeTakeFirstOrThrow();
       if (booking.status !== 'awaiting_payment') return 'closed';
     }
+    if (i.tip_id) {
+      // the tip still waits for this payment (not paid by another attempt, not made cash)
+      const tip = await trx
+        .selectFrom('ride_tips')
+        .select('status')
+        .where('id', '=', i.tip_id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      if (tip.status !== 'awaiting_payment') return 'closed';
+    }
     return {
       id: i.id,
       purpose: i.purpose,
       rideId: i.ride_id,
       bookingId: i.booking_id,
+      tipId: i.tip_id,
       driverId: i.driver_id,
       amount: i.amount,
     };
@@ -306,6 +338,37 @@ export class IntentsService {
         driverId: intent.driverId,
         amount: intent.amount,
         provider,
+      });
+      return;
+    }
+    if (intent.purpose === 'tip') {
+      const tip = await trx
+        .updateTable('ride_tips')
+        .set({ status: 'paid', paid_at: now, updated_at: now })
+        .where('id', '=', intent.tipId!)
+        .returning(['id', 'ride_id', 'driver_id', 'amount'])
+        .executeTakeFirstOrThrow();
+      const ride = await trx
+        .selectFrom('rides')
+        .select('number')
+        .where('id', '=', tip.ride_id)
+        .executeTakeFirstOrThrow();
+      // the whole tip is the driver's: no commission, no tax (docs/payments.md "Tips")
+      await this.ledger.post(trx, {
+        driverId: tip.driver_id,
+        kind: 'tip',
+        amount: intent.amount,
+        rideId: tip.ride_id,
+        paymentIntentId: intent.id,
+        note: `Choychaqa — safar #${ride.number} (${PROVIDER_NAME[provider]})`,
+      });
+      await emit(trx, 'ride.tip_changed', {
+        tipId: tip.id,
+        rideId: tip.ride_id,
+        driverId: tip.driver_id,
+        amount: intent.amount,
+        method: 'card',
+        status: 'paid',
       });
       return;
     }
@@ -414,6 +477,20 @@ export class IntentsService {
         intentId: i.id,
         status: 'refunded',
         amount: i.amount,
+      });
+    } else if (i.tip_id) {
+      // a card tip given back from the cabinet: taken back from the driver's balance
+      const tip = await trx
+        .updateTable('ride_tips')
+        .set({ status: 'refunded', updated_at: now })
+        .where('id', '=', i.tip_id)
+        .returning(['driver_id'])
+        .executeTakeFirstOrThrow();
+      await this.ledger.post(trx, {
+        driverId: tip.driver_id,
+        kind: 'adjustment',
+        amount: -i.amount,
+        note: `Choychaqa qaytarildi (${PROVIDER_NAME[provider]})`,
       });
     } else if (i.booking_id) {
       // a deposit given back: the rider's booking view shows it (booking.payment); nothing
@@ -594,6 +671,8 @@ export class IntentsService {
       .innerJoin('users as u', 'u.id', 'i.user_id')
       .leftJoin('rides as r', 'r.id', 'i.ride_id')
       .leftJoin('intercity_bookings as b', 'b.id', 'i.booking_id')
+      .leftJoin('ride_tips as tp', 'tp.id', 'i.tip_id')
+      .leftJoin('rides as tr', 'tr.id', 'tp.ride_id')
       .leftJoin('drivers as d', 'd.user_id', 'i.driver_id')
       .select([
         'i.id',
@@ -606,6 +685,8 @@ export class IntentsService {
         'i.booking_id as bookingId',
         'b.number as bookingNumber',
         'b.trip_id as tripId',
+        'tp.ride_id as tipRideId',
+        'tr.number as tipRideNumber',
         'i.driver_id as driverId',
         'd.full_name as driverName',
         'i.user_id as userId',

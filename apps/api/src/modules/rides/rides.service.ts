@@ -85,6 +85,7 @@ import { RoutingService } from '../geo/routing.service.js';
 import { FiscalService } from '../fiscal/fiscal.service.js';
 import { IntentsService } from '../payments/intents.service.js';
 import { type PaymentMethod, PaymentsService } from '../payments/payments.service.js';
+import { PromosService, type RideDiscountView } from '../promos/promos.service.js';
 import { SettingsService } from '../settings/settings.module.js';
 import { UploadsService } from '../uploads/uploads.service.js';
 import { DriverTrackService } from '../geo/driver-track.service.js';
@@ -161,6 +162,10 @@ export interface OrderInput {
   stops?: { address: string | null; landmark: string | null }[];
   /** Ordered for someone else: who rides (taxi rides only). */
   passenger?: { name: string; phone: string } | null;
+  /** The rider discount the quote offered for the class (a promo code's or the referral's id). */
+  promoId?: string | null;
+  /** Spend ride credit on this ride. */
+  useCredit?: boolean;
 }
 
 export interface PhoneOrderInput {
@@ -231,6 +236,7 @@ export class RidesService {
     private readonly routes: RouteFaresService,
     private readonly pool: PoolService,
     private readonly limiter: RateLimiter,
+    private readonly promos: PromosService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -376,6 +382,12 @@ export class RidesService {
       // which card providers a card payment can go through (Payme, Click)
       cardProviders: scheduledFor ? [] : this.payments.providers(),
       owedFee,
+      // the rider's promo code, invitation discount and ride credit per class
+      discounts: await this.discountsFor(user, opts.forRider, scheduledFor, {
+        cityId: priced.city.id,
+        service: 'taxi',
+        fares: priced.fares,
+      }),
       waiting: priced.tariff.waiting,
       cancellationFee: priced.tariff.cancellation_fee,
       // the nearest free car per class, by road: "~4 min" on the class buttons
@@ -428,6 +440,25 @@ export class RidesService {
           }
         : null,
     };
+  }
+
+  /**
+   * The rider's discounts per class: the best saved promo code (or the invitation's welcome
+   * discount) and ride credit. Null for operators' quotes and rides for later; a shared ride
+   * gets none either (its price moves with the riders who join: the order refuses it).
+   */
+  private discountsFor(
+    user: AuthUser,
+    forRider: boolean,
+    scheduledFor: Date | null,
+    q: { cityId: string; service: RideService; fares: Record<string, { total: number }> },
+  ) {
+    if (!forRider || scheduledFor) return Promise.resolve(null);
+    return this.promos.quoteDiscounts(user.userId, {
+      cityId: q.cityId,
+      service: q.service,
+      fares: Object.fromEntries(Object.entries(q.fares).map(([c, f]) => [c, f.total])),
+    });
   }
 
   /** How a quote may be paid: rides for later are cash only (a card ride is prepaid first). */
@@ -532,6 +563,11 @@ export class RidesService {
       ...stopsBlock(q.stops, priced.tariff),
       ...this.paymentOptions(q.scheduledFor),
       owedFee: q.forRider ? await this.owedFeeLine(user.userId) : null,
+      discounts: await this.discountsFor(user, q.forRider, q.scheduledFor, {
+        cityId: priced.city.id,
+        service: 'delivery',
+        fares: priced.fares,
+      }),
       waiting: priced.tariff.waiting,
       cancellationFee: priced.tariff.cancellation_fee,
       availability: q.scheduledFor
@@ -650,6 +686,11 @@ export class RidesService {
       fares,
       ...this.paymentOptions(scheduledFor),
       owedFee: opts.forRider ? await this.owedFeeLine(user.userId) : null,
+      discounts: await this.discountsFor(user, opts.forRider, scheduledFor, {
+        cityId: found.city.id,
+        service: 'cargo',
+        fares,
+      }),
       // the small class's loading rules; every class's are in cargo.classes
       waiting: { free_minutes: small.included_minutes, per_minute: small.per_minute },
       cancellationFee: found.tariff.cancellation_fee,
@@ -806,6 +847,12 @@ export class RidesService {
     if (deposit > 0 && !this.intents.cardAvailable()) {
       throw new BadRequestException('Oldindan bron uchun karta orqali to‘lov hali ulanmagan');
     }
+    const wantsDiscount = Boolean(input.promoId) || Boolean(input.useCredit);
+    if (wantsDiscount && (quote.scheduled_for || how.shareable)) {
+      throw new BadRequestException(
+        'Promokod va bonus hozir buyurtma qilinadigan, hamrohsiz safarlarga qo‘llanadi',
+      );
+    }
     const id = await this.db.transaction(async (trx) => {
       // a double tap racing the check above lands on the unique key: answer with that ride
       await sql`select pg_advisory_xact_lock(hashtext(${user.userId}))`.execute(trx);
@@ -819,7 +866,24 @@ export class RidesService {
       // a ride for later does not block riding now; a few may wait at once
       if (quote.scheduled_for) await this.assertScheduledRoom(trx, user.userId);
       else await this.assertNoOpenRide(trx, user.userId);
-      return this.createRide(trx, {
+      // the rider's discount, checked again and reserved under the code's lock (its limits
+      // hold however many riders order at once); released if the ride is cancelled
+      const discount = wantsDiscount
+        ? await this.promos.reserve(
+            trx,
+            user.userId,
+            {
+              cityId: quote.city_id,
+              service: how.service,
+              rideClass: input.class,
+              fare: how.fare.total,
+            },
+            { promoId: input.promoId ?? null, useCredit: Boolean(input.useCredit) },
+            now,
+          )
+        : null;
+      const rideId = await this.createRide(trx, {
+        discount: discount?.total ?? 0,
         riderId: user.userId,
         riderPhone: rider.phone,
         riderName: rider.full_name,
@@ -855,6 +919,8 @@ export class RidesService {
         stops: rideStops(quote.stops, input.stops),
         passenger,
       });
+      if (discount) await this.promos.attach(trx, rideId, user.userId, discount);
+      return rideId;
     });
     return { created: true, ride: await this.riderView(user, id) };
   }
@@ -1409,6 +1475,8 @@ export class RidesService {
       stops?: RideStop[];
       /** Ordered for someone else: who rides. */
       passenger?: { name: string; phone: string } | null;
+      /** The rider's discount (promo, credit): a card ride is charged that much less. */
+      discount?: number;
     },
   ): Promise<string> {
     const id = uuidv7();
@@ -1490,7 +1558,7 @@ export class RidesService {
       await this.intents.createForRide(trx, {
         id,
         riderId: r.riderId,
-        amount: deposit > 0 ? deposit : r.fare.total,
+        amount: deposit > 0 ? deposit : r.fare.total - (r.discount ?? 0),
       });
     } else if (status === 'scheduled') {
       await emit(trx, 'ride.status_changed', { rideId: id, from: null, to: 'scheduled' });
@@ -1842,6 +1910,13 @@ export class RidesService {
         .execute();
       // earlier rides' owed cancellation fees, paid in cash with this fare
       const owedCollected = ride.owed_fee > 0 ? await this.collectOwedFees(trx, ride) : 0;
+      // the rider's discount is the platform's: the driver is made whole (cash rides get it
+      // on the balance; a card ride's full fare was credited above); the referrer rewarded
+      const discount = await this.promos.onCompleted(
+        trx,
+        { ...ride, paidInCash: ride.payment_method === 'cash' || refunded },
+        now,
+      );
       const charged = await this.charges.charge(trx, {
         id: ride.id,
         number: ride.number,
@@ -1870,6 +1945,7 @@ export class RidesService {
           commission: charged.commission,
           tax: charged.tax,
           ...(owedCollected ? { owedFee: owedCollected } : {}),
+          ...(discount ? { discount } : {}),
           ...(refunded ? { prepaymentRefunded: true } : {}),
         },
       };
@@ -1973,6 +2049,8 @@ export class RidesService {
     // riders sharing the car: the plan and their shared prices follow without this one
     if (ride.pool_id && isActive(ride.status))
       await this.pool.left(trx, ride, { keepPoolId: true });
+    // a promo code's use and spent ride credit go back to the rider
+    await this.promos.onCancelled(trx, ride.id, now);
     // a deposit lost by cancelling late (or not coming out) is the driver's compensation
     const forfeit = ride.deposit_amount > 0 && this.depositForfeited(ride, by, fee, now);
     if (forfeit) {
@@ -2481,7 +2559,7 @@ export class RidesService {
         ? tariff.cancellation_fee
         : 0;
     // the app polls this while the ride is open: every part read at once
-    const [driver, receipt, payment, rated, car, progress, events] = await Promise.all([
+    const [driver, receipt, payment, rated, car, progress, events, discount] = await Promise.all([
       // after the ride (or once it left this car) the driver's phone and live position
       // are no longer the rider's to see
       ride.driver_id ? this.driverCard(ride.driver_id, { live: isActive(ride.status) }) : null,
@@ -2495,9 +2573,11 @@ export class RidesService {
       ride.driver_id && isActive(ride.status) ? this.pool.occupancy(ride.driver_id) : null,
       this.carProgress(ride),
       this.events(ride.id, RIDER_EVENTS),
+      this.promos.view(ride.id),
     ]);
     return {
       ...base,
+      fare: withDiscount(base.fare, discount),
       driver,
       receipt,
       canCancel: RIDER_CANCELLABLE.includes(ride.status),
@@ -2577,8 +2657,23 @@ export class RidesService {
     const base = this.baseView(ride);
     // phones are for the ride in progress: a finished or cancelled ride keeps the names only
     const live = isActive(ride.status);
+    // the rider's discount: the rider hands over less cash, the platform pays the driver the rest
+    const discount = await this.promos.view(ride.id);
+    const riderDiscount = discount?.total ?? 0;
+    const paidInCash = ride.payment_method === 'cash' || ride.payment_status === 'refunded';
     return {
       ...base,
+      fare: withDiscount(base.fare, discount),
+      /** The platform pays the rider's discount: on the balance for cash (bonus kompensatsiya). */
+      discount: riderDiscount
+        ? {
+            amount: riderDiscount,
+            promo: discount!.promo,
+            credit: discount!.credit,
+            compensation: paidInCash ? riderDiscount : 0,
+            status: discount!.status,
+          }
+        : null,
       delivery: base.delivery && !live ? { ...base.delivery, recipientPhone: null } : base.delivery,
       // the passenger of a ride ordered for someone else: the driver calls them
       passenger: base.passenger && !live ? { ...base.passenger, phone: null } : base.passenger,
@@ -2590,9 +2685,9 @@ export class RidesService {
       // (a prepayment refunded from the provider's cabinet: the whole fare is taken in cash)
       collectCash:
         (ride.payment_status === 'refunded'
-          ? ride.fare_quoted - ride.pool_discount
+          ? ride.fare_quoted - ride.pool_discount - riderDiscount
           : ride.payment_method === 'cash'
-            ? ride.fare_quoted - ride.pool_discount - ride.deposit_amount
+            ? ride.fare_quoted - ride.pool_discount - ride.deposit_amount - riderDiscount
             : 0) +
         ride.waiting_fee +
         ride.owed_fee,
@@ -2644,7 +2739,7 @@ export class RidesService {
   /** Everything, for operators: offers made, the full event history. */
   async adminView(rideId: string) {
     const ride = await this.findRide(rideId);
-    const [driver, offers, events, rider] = await Promise.all([
+    const [driver, offers, events, rider, discount] = await Promise.all([
       ride.driver_id ? this.driverCard(ride.driver_id) : null,
       this.db.kysely
         .selectFrom('ride_offers as o')
@@ -2675,6 +2770,7 @@ export class RidesService {
         ),
       this.events(ride.id).then((rows) => rows.map(labelEvent)),
       this.riderCard(ride),
+      this.promos.view(ride.id),
     ]);
     // fees this ride carries from earlier rides, and this ride's own fee if it is owed
     const collects = ride.owed_fee
@@ -2684,8 +2780,12 @@ export class RidesService {
           .where('fee_collect_ride_id', '=', ride.id)
           .execute()
       : [];
+    const base = this.baseView(ride);
     return {
-      ...this.baseView(ride),
+      ...base,
+      fare: withDiscount(base.fare, discount),
+      /** The rider's discount with its status (reserved, redeemed, released). */
+      discount,
       rider,
       driver,
       createdBy: ride.created_by,
@@ -2893,8 +2993,15 @@ export class RidesService {
       .orderBy('id', 'desc')
       .limit(30)
       .execute();
+    const discounts = await this.promos.amountsFor(rows.map((r) => r.id));
     return {
-      items: rows.map((r) => this.baseView(r)),
+      items: rows.map((r) => {
+        const base = this.baseView(r);
+        const amount = discounts.get(r.id) ?? 0;
+        return amount
+          ? { ...base, fare: { ...base.fare, discount: amount, pays: base.fare.pays - amount } }
+          : base;
+      }),
       nextCursor: rows.length === 30 ? rows.at(-1)!.id : null,
     };
   }
@@ -3221,6 +3328,26 @@ function stopsBlock(stops: Point[], tariff: Tariff) {
 /** What the apps show of each orderable class: name, a line, car examples, people. */
 function classCatalog(classes: readonly RideClass[]) {
   return classes.map((c) => ({ id: c, ...CLASS_INFO[c] }));
+}
+
+/**
+ * The fare with the rider's discount (a promo code or the invitation, ride credit): what the
+ * rider pays; `total` stays the full fare the driver earns (the platform pays the discount).
+ */
+function withDiscount<F extends { pays: number; total: number | null }>(
+  fare: F,
+  d: RideDiscountView | null,
+) {
+  const amount = d?.total ?? 0;
+  return {
+    ...fare,
+    discount: amount,
+    promo: d && d.status !== 'released' ? d.promo : null,
+    credit: d && d.status !== 'released' ? d.credit : 0,
+    pays: fare.pays - amount,
+    /** What the rider paid in all once completed: the fare total less the discount. */
+    riderTotal: fare.total === null ? null : fare.total - amount,
+  };
 }
 
 /** Event types riders see in their ride's timeline. */

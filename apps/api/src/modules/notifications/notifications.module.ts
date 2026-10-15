@@ -5,6 +5,7 @@ import { ENV, type Env } from '../../config/env.js';
 import { type AuthUser, CurrentUser } from '../../core/auth/auth-context.js';
 import { Database } from '../../core/db/database.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
+import { EngagementNotificationsHandler } from './engagement-notifications.handler.js';
 import { IntercityNotificationsHandler } from './intercity-notifications.handler.js';
 import { NotificationsHandler } from './notifications.handler.js';
 import { Notifier } from './notifier.js';
@@ -84,7 +85,7 @@ export class NotificationsModule {}
 /** The worker's notification sender (an outbox handler). */
 @Module({
   imports: [NotificationsCoreModule],
-  providers: [NotificationsHandler, IntercityNotificationsHandler],
-  exports: [NotificationsHandler, IntercityNotificationsHandler],
+  providers: [NotificationsHandler, IntercityNotificationsHandler, EngagementNotificationsHandler],
+  exports: [NotificationsHandler, IntercityNotificationsHandler, EngagementNotificationsHandler],
 })
 export class NotificationsWorkerModule {}
