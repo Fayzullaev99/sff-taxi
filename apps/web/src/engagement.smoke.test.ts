@@ -12,6 +12,7 @@ import { sessionStore } from './api/client';
 import type { AdminPromo, PromoRules, Referral } from './api/promo-types';
 import Promos from './promos/Promos';
 import { RideChat } from './rides/RideChat';
+import { RideTip } from './rides/RideTip';
 import { FeedbackProvider } from './ui/feedback';
 
 type Init = RequestInit | undefined;
@@ -101,6 +102,21 @@ const routes: [RegExp, (init: Init, path: string) => unknown][] = [
   [/^\/v1\/admin\/referrals\/[^/]+\/revoke$/, () => ({ ...referral, status: 'revoked' })],
   [/^\/v1\/admin\/referrals$/, () => ({ items: [referral], nextCursor: null })],
   [/^\/v1\/admin\/settings\/promo$/, (init) => (method(init) === 'PUT' ? body(init) : rules)],
+  [
+    /^\/v1\/admin\/rides\/[^/]+\/tip$/,
+    () => ({
+      tip: {
+        id: 't1',
+        rideId: 'r1',
+        amount: 5000,
+        method: 'card',
+        status: 'paid',
+        paidAt: '2026-10-10T10:30:00.000Z',
+        createdAt: '2026-10-10T10:29:00.000Z',
+        payments: [{ id: 'i1', amount: 5000, status: 'paid', provider: 'payme' }],
+      },
+    }),
+  ],
   [
     /^\/v1\/admin\/rides\/[^/]+\/messages$/,
     () => ({
@@ -316,6 +332,13 @@ describe('promo codes and referrals in the panel', () => {
       expect(text).toContain(t);
     }
     expect(document.querySelector('textarea')).toBeNull();
+  });
+
+  it('shows a ride’s tip, whole to the driver', async () => {
+    const text = await render(createElement(RideTip, { rideId: 'r1' }));
+    for (const t of ['Choychaqa', '5 000 so‘m', 'Kartadan to‘landi', 'komissiyasiz']) {
+      expect(text).toContain(t);
+    }
   });
 
   it('called only mocked endpoints', () => {

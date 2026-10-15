@@ -41,6 +41,7 @@ import {
 } from '../lib/format';
 import { discountText } from '../lib/promos';
 import { RideChat } from './RideChat';
+import { RideTip } from './RideTip';
 import {
   canAssign,
   canCancel,
@@ -649,6 +650,8 @@ export function RideDetail({
           </div>
         )}
       </section>
+
+      {r.status === 'completed' ? <RideTip rideId={r.id} /> : null}
 
       {r.driver ? <RideChat rideId={r.id} /> : null}
 

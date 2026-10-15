@@ -106,7 +106,9 @@ export type RealtimeEvent =
   /** An operator answered an appeal. */
   | { type: 'appeal.updated'; appealId: string; status: string }
   /** The ride chat: a new message, or the rider read the driver's (lib/chat.ts). */
-  | ChatEvent;
+  | ChatEvent
+  /** A rider's tip: recorded (cash) or paid by card (the balance grew). */
+  | { type: 'tip.updated'; rideId: string; status: string; amount: number };
 
 const str = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 
@@ -167,6 +169,15 @@ export function parseRealtimeEvent(data: string): RealtimeEvent | null {
     case 'chat.message':
     case 'chat.read':
       return parseChatEvent(data);
+    case 'tip.updated':
+      return str(v.rideId) && str(v.status)
+        ? {
+            type: 'tip.updated',
+            rideId: v.rideId,
+            status: v.status,
+            amount: typeof v.amount === 'number' && Number.isFinite(v.amount) ? v.amount : 0,
+          }
+        : null;
     default:
       return null;
   }

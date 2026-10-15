@@ -27,9 +27,10 @@ describe('worker', () => {
   });
 
   it('reports health and metrics with the dispatch loop running', async () => {
-    // healthy once the outbox loop has completed a cycle
+    // healthy once the outbox loop has completed a cycle (the first one works through what the
+    // earlier test files left in the outbox: allow it up to 30 s on a busy machine)
     let health = await fetch(`http://127.0.0.1:${PORT}/health`);
-    for (let i = 0; i < 50 && health.status !== 200; i++) {
+    for (let i = 0; i < 300 && health.status !== 200; i++) {
       await new Promise((r) => setTimeout(r, 100));
       health = await fetch(`http://127.0.0.1:${PORT}/health`);
     }

@@ -51,6 +51,8 @@ export type RealtimeEvent =
     }
   /** One side read the other's chat messages (read receipts). */
   | { type: 'chat.read'; rideId: string; readerRole: 'rider' | 'driver' }
+  /** A tip was recorded (cash) or paid (card): the driver's line and balance, the rider's screen. */
+  | { type: 'tip.updated'; rideId: string; status: string; amount: number }
   | {
       /** Operators' live map: every online driver's last position, every few seconds. */
       type: 'drivers.positions';
@@ -257,6 +259,23 @@ export class RealtimePublisher implements OutboxHandler {
             authorRole: m.author_role,
             text: m.text,
             at: m.created_at.toISOString(),
+          },
+        });
+      }
+      case 'ride.tip_changed': {
+        const ride = await this.db.kysely
+          .selectFrom('rides')
+          .select(['rider_id'])
+          .where('id', '=', String(p.rideId))
+          .executeTakeFirst();
+        if (!ride) return;
+        return this.bus.publish({
+          to: { userIds: [String(p.driverId), ride.rider_id], admins: true },
+          event: {
+            type: 'tip.updated',
+            rideId: String(p.rideId),
+            status: String(p.status),
+            amount: Number(p.amount),
           },
         });
       }

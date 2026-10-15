@@ -217,6 +217,12 @@ export function useRealtime(enabled: boolean): void {
           // the ride chat: the conversation (and the badge) is fetched again
           void qc.invalidateQueries({ queryKey: chatKeys.conversation(event.rideId) });
           break;
+        case 'tip.updated':
+          // a tip: the ride's line, and the balance and earnings for a card one
+          void qc.invalidateQueries({ queryKey: ['driver', 'tip', event.rideId] });
+          void qc.invalidateQueries({ queryKey: keys.balance });
+          void qc.invalidateQueries({ queryKey: ['driver', 'earnings'] });
+          break;
       }
     };
 

@@ -118,9 +118,32 @@ Cabinets:
 
 Test with the sandbox and a 5 000 top-up before switching card rides on for riders.
 
+## Tips ("choychaqa")
+
+After a completed ride (within `window_hours`, 24 by default) the rider may add one tip
+(`POST /rides/:id/tip { amount, method }`; presets 2 000 / 5 000 / 10 000, 1 000..50 000 in
+whole 100 so'm, `admin/settings/tips`):
+
+- **Cash**: only recorded (`recorded`): the rider hands it over; the driver sees it, nothing
+  moves on the balance.
+- **Card**: a payment intent of purpose `tip` (30 minutes, its own `tip_id`; one waiting and one
+  paid per tip, partial unique indexes), paid by Payme or Click like any intent. The payment
+  credits the driver's balance with the whole amount (`tip` ledger entry, once per ride and per
+  payment): no commission. Not paid in time: the intent expires and the tip is `failed` (the
+  rider may try again, also with another amount). A tip refunded from the Payme cabinet is
+  taken back from the balance with an `adjustment`.
+- One tip per ride: a repeat of the same request answers the same tip; a different one after a
+  tip is recorded or paid is refused (409).
+
+**Tax decision**: the platform withholds no 1% tax and issues no fiscal receipt for tips. A
+tip is a voluntary gift passed through whole, not the price of the service (the receipt and
+the withholding are on the fare); the driver, as a self-employed person, declares it in their
+own income if the tax adviser says it is turnover. This is to be confirmed with the tax adviser
+together with the OFD questions ([fiscal-and-licence.md](fiscal-and-licence.md)); switching
+to withholding later is one more ledger entry at payment time.
+
 ## Not built (next)
 
-- Tips by card (an intent of purpose `tip` credited 100% to the driver's balance).
 - Card-on-file (Payme Subscribe / Click card tokens): one-tap payment and holds.
 - Automatic payouts to drivers' cards (today operators record transfers).
 - Collecting owed cancellation fees from card riders (cash rides collect them: architecture §5).

@@ -811,7 +811,9 @@ export type LedgerKind =
   /** A deposit the rider lost by cancelling late: the waiting driver's compensation. */
   | 'deposit'
   /** A cash ride's rider discount (promo, credit), paid by the platform to the driver. */
-  | 'promo_compensation';
+  | 'promo_compensation'
+  /** A rider's card tip, credited whole to the driver. */
+  | 'tip';
 
 export interface LedgerEntry {
   id: string;
@@ -847,7 +849,7 @@ export interface TaxReport {
   totals: { rides: number; base: number; amount: number };
 }
 
-export type IntentPurpose = 'ride' | 'topup' | 'booking';
+export type IntentPurpose = 'ride' | 'topup' | 'booking' | 'tip';
 
 /** GET /admin/payments/refunds items: cancelled card rides and trip-board booking deposits. */
 export interface Refund {
@@ -888,6 +890,9 @@ export interface PaymentIntent {
   rideNumber: number | null;
   bookingId?: string | null;
   bookingNumber?: number | null;
+  /** A card tip: the ride it was given for. */
+  tipRideId?: string | null;
+  tipRideNumber?: number | null;
   driverId: string | null;
   driverName: string | null;
   userId: string;

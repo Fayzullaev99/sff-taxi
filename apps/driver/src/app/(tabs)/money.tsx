@@ -207,6 +207,16 @@ export default function Money() {
                 value={som(e.fares - e.cash - (e.promoCompensation ?? 0))}
               />
             ) : null}
+            {(e.tipsCard ?? 0) > 0 ? (
+              <Row
+                label="Choychaqa kartadan (balansingizga)"
+                value={som(e.tipsCard!)}
+                tone="success"
+              />
+            ) : null}
+            {(e.tipsCash ?? 0) > 0 ? (
+              <Row label="Choychaqa naqd (yo‘lovchi aytgan)" value={som(e.tipsCash!)} />
+            ) : null}
             {(e.promoCompensation ?? 0) > 0 ? (
               <Row
                 label="Bonus kompensatsiya (balansingizga)"

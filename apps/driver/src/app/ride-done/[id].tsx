@@ -22,6 +22,7 @@ import {
   Row,
   Title,
 } from '../../ui/components';
+import { TipLine } from '../../ride/tip-line';
 import { haptics } from '../../ui/haptics';
 import { Screen } from '../../ui/screen';
 import { colors, space } from '../../ui/theme';
@@ -130,6 +131,8 @@ export default function RideDone() {
           </Text>
         ) : null}
       </View>
+
+      <TipLine rideId={r.id} />
 
       {e ? (
         <Card>

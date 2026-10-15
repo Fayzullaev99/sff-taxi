@@ -221,6 +221,38 @@ export const DEFAULT_PROMO: PromoRules = {
   invite_url: 'https://taxi.sff.uz/invite',
 };
 
+/** Tips ("choychaqa", src/lib/tips.ts): the rating screen's presets and limits. */
+export const TipRules = z
+  .object({
+    enabled: z.boolean(),
+    /** The buttons, so'm (whole 100 so'm). */
+    presets: z.array(z.number().int().min(100).max(1_000_000).multipleOf(100)).min(1).max(5),
+    min_amount: z.number().int().min(100).max(1_000_000),
+    max_amount: z.number().int().min(1000).max(1_000_000),
+    /** Card tips through Payme/Click (cash tips are only recorded). */
+    card_enabled: z.boolean(),
+    /** A tip can be added this long after the ride. */
+    window_hours: z.number().int().min(1).max(168),
+  })
+  .refine((r) => r.min_amount <= r.max_amount, {
+    message: 'Eng kam summa eng ko‘pidan katta bo‘lmasin',
+    path: ['min_amount'],
+  })
+  .refine((r) => r.presets.every((p) => p >= r.min_amount && p <= r.max_amount), {
+    message: 'Tugmalar eng kam va eng ko‘p summa orasida bo‘lsin',
+    path: ['presets'],
+  });
+export type TipRules = z.infer<typeof TipRules>;
+
+export const DEFAULT_TIPS: TipRules = {
+  enabled: true,
+  presets: [2000, 5000, 10_000],
+  min_amount: 1000,
+  max_amount: 50_000,
+  card_enabled: true,
+  window_hours: 24,
+};
+
 const RULES = {
   tariff: { key: 'tariff', schema: Tariff, fallback: DEFAULT_TARIFF },
   dispatch: { key: 'dispatch', schema: DispatchRules, fallback: DEFAULT_DISPATCH },
@@ -231,6 +263,7 @@ const RULES = {
   booking: { key: 'booking', schema: BookingRules, fallback: DEFAULT_BOOKING },
   cargo: { key: 'cargo', schema: CargoRules, fallback: DEFAULT_CARGO },
   promo: { key: 'promo', schema: PromoRules, fallback: DEFAULT_PROMO },
+  tips: { key: 'tips', schema: TipRules, fallback: DEFAULT_TIPS },
 } as const;
 type RuleName = keyof typeof RULES;
 type RuleValue<N extends RuleName> = z.infer<(typeof RULES)[N]['schema']>;
@@ -313,6 +346,10 @@ export class SettingsService {
 
   promo(db?: Db) {
     return this.get('promo', db);
+  }
+
+  tips(db?: Db) {
+    return this.get('tips', db);
   }
 }
 
@@ -414,6 +451,17 @@ export class SettingsController {
   @Put('promo')
   setPromo(@Body(new ZodPipe(PromoRules)) body: PromoRules) {
     return this.settings.set('promo', body);
+  }
+
+  /** Tips: presets, limits, card on/off, the window after the ride (src/lib/tips.ts). */
+  @Get('tips')
+  tips() {
+    return this.settings.tips();
+  }
+
+  @Put('tips')
+  setTips(@Body(new ZodPipe(TipRules)) body: TipRules) {
+    return this.settings.set('tips', body);
   }
 }
 

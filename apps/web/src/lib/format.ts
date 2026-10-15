@@ -301,6 +301,7 @@ export const LEDGER_KINDS: Record<LedgerKind, string> = {
   cancel_fee_collected: 'Olingan qarz (boshqa haydovchiga)',
   deposit: 'Depozit (yo‘lovchi kech bekor qildi)',
   promo_compensation: 'Bonus kompensatsiya (yo‘lovchi chegirmasi)',
+  tip: 'Choychaqa (karta, to‘liq haydovchiga)',
 };
 
 export const OFFER_STATUS: Record<RideOffer['status'], string> = {
@@ -505,6 +506,7 @@ export const INTENT_PURPOSE: Record<IntentPurpose, string> = {
   ride: 'Safar uchun',
   topup: 'Balans to‘ldirish',
   booking: 'Bron depoziti',
+  tip: 'Choychaqa',
 };
 
 /** A cash ride's cancellation fee, as operators read it. */

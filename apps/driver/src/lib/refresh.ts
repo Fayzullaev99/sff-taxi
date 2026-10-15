@@ -87,6 +87,8 @@ export function pushTarget(data: unknown): PushTarget | null {
   }
   if (d.kind === 'topup_paid') return { kind: 'topup', intentId: uuid(d.intentId) };
   if (d.kind === 'appeal_resolved') return { kind: 'appeal', appealId: uuid(d.appealId) };
+  // a tip on a finished ride: the money is on home and in the money tab
+  if (d.kind === 'tip') return { kind: 'home' };
   if (d.kind === 'chat') {
     const rideId = uuid(d.rideId);
     return rideId ? { kind: 'chat', rideId } : null;

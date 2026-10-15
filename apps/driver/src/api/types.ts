@@ -376,7 +376,8 @@ export interface LedgerEntry {
     | 'cancel_fee'
     | 'cancel_fee_collected'
     | 'deposit'
-    | 'promo_compensation';
+    | 'promo_compensation'
+    | 'tip';
   amount: number;
   rideId: string | null;
   note: string | null;
@@ -411,6 +412,9 @@ export interface Earnings {
   cash: number;
   /** Riders' discounts the platform paid onto the balance (cash rides). */
   promoCompensation?: number;
+  /** Card tips credited to the balance, and cash tips riders said they handed over. */
+  tipsCard?: number;
+  tipsCash?: number;
   commission: number;
   tax: number;
   net: number;

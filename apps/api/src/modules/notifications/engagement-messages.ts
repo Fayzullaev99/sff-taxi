@@ -5,6 +5,23 @@ const soum = (n: number) => `${String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} 
 
 /** Push texts of the rider-engagement features: referral rewards, ride chat, tips. */
 export const engagementPush = {
+  /** The driver: a tip handed over in cash (recorded) or paid by card onto the balance. */
+  tip: (l: Locale, method: 'cash' | 'card', amount: number): PushText =>
+    l === 'ru'
+      ? {
+          title: 'Чаевые',
+          body:
+            method === 'cash'
+              ? 'Пассажир оставит ' + soum(amount) + ' наличными.'
+              : soum(amount) + ' зачислено на ваш баланс.',
+        }
+      : {
+          title: 'Choychaqa',
+          body:
+            method === 'cash'
+              ? 'Yo‘lovchi ' + soum(amount) + ' choychaqani naqd beradi.'
+              : soum(amount) + ' balansingizga tushdi.',
+        },
   /** A chat message from the driver (`name`: the driver's given name) or from the rider. */
   chatMessage: (
     l: Locale,

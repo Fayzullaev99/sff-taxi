@@ -47,7 +47,9 @@ export type OutboxTopic =
   /** A ride chat message was written. { messageId, rideId, authorRole, recipientId } */
   | 'ride.message'
   /** One side read the other's chat messages. { rideId, readerRole, authorId, count } */
-  | 'ride.messages_read';
+  | 'ride.messages_read'
+  /** A rider's tip was recorded (cash) or paid (card). { tipId, rideId, driverId, amount, method, status } */
+  | 'ride.tip_changed';
 
 /**
  * Records an event in the caller's transaction: it is delivered by the worker

@@ -17,6 +17,7 @@ import { Banner, Button, Card, Divider, KeyValue, T } from '../ui/primitives';
 import { colors, space } from '../ui/theme';
 import { ChatButton } from './ChatButton';
 import { RatingForm } from './RatingForm';
+import { TipCard } from './TipCard';
 
 /** Rating stays possible this long after the ride (the API's window). */
 const RATING_WINDOW_MS = 7 * 86_400_000;
@@ -184,10 +185,11 @@ export function RideSummary({ ride }: { ride: Ride }) {
             driverName={driverGivenName(ride.driver?.name)}
             rated={ride.rated}
           />
-          <T variant="small" color={colors.textMuted} align="center">
-            Choy puli ilovada hozircha yo‘q — xohlasangiz haydovchiga naqd bering.
-          </T>
         </Card>
+      ) : null}
+
+      {completed && ride.driver ? (
+        <TipCard rideId={ride.id} driverName={driverGivenName(ride.driver.name)} />
       ) : null}
 
       {completed && ride.driver ? <ChatButton rideId={ride.id} afterRide /> : null}

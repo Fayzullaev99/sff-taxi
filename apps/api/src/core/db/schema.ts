@@ -128,7 +128,9 @@ export type LedgerKind =
   /** A deposit the rider lost by cancelling late: the waiting driver's compensation. */
   | 'deposit'
   /** A cash ride's rider discount (promo, credit), paid by the platform to the driver. */
-  | 'promo_compensation';
+  | 'promo_compensation'
+  /** A rider's card tip, credited whole to the driver (no commission, no tax). */
+  | 'tip';
 export type RideClassColumn = 'economy' | 'comfort';
 /** Cargo classes (src/lib/cargo.ts): small (Damas/Labo), medium (Gazel/Porter). */
 export type CargoClassColumn = 'cargo_s' | 'cargo_m';
@@ -577,10 +579,12 @@ export type PaymentIntentStatus =
 
 export interface PaymentIntentsTable {
   id: string;
-  purpose: 'ride' | 'topup' | 'booking';
+  purpose: 'ride' | 'topup' | 'booking' | 'tip';
   ride_id: string | null;
   /** A trip-board booking's deposit. */
   booking_id: string | null;
+  /** A card tip (ride_tips): one intent per attempt. */
+  tip_id: string | null;
   driver_id: string | null;
   user_id: string;
   amount: number;
@@ -931,6 +935,22 @@ export interface RideMessagesTable {
   created_at: CreatedAt;
 }
 
+export type TipStatus = 'recorded' | 'awaiting_payment' | 'paid' | 'failed' | 'refunded';
+
+export interface RideTipsTable {
+  id: string;
+  ride_id: string;
+  rider_id: string;
+  driver_id: string;
+  amount: number;
+  /** cash: only recorded; card: a payment intent of purpose 'tip'. */
+  method: 'cash' | 'card';
+  status: TipStatus;
+  paid_at: Timestamp | null;
+  created_at: CreatedAt;
+  updated_at: Generated<Date>;
+}
+
 export interface DB {
   users: UsersTable;
   admins: AdminsTable;
@@ -979,4 +999,5 @@ export interface DB {
   ride_discounts: RideDiscountsTable;
   rider_credits: RiderCreditsTable;
   ride_messages: RideMessagesTable;
+  ride_tips: RideTipsTable;
 }

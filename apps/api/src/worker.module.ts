@@ -26,6 +26,7 @@ import { IntercityCoreModule } from './modules/intercity/intercity.module.js';
 import { BlockedDriverHandler } from './modules/drivers/blocked-driver.handler.js';
 import { LicenceHandler } from './modules/drivers/licence.handler.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
+import { TipsCoreModule } from './modules/tips/tips.module.js';
 import { UploadsModule } from './modules/uploads/uploads.module.js';
 import { WorkerRuntime } from './worker-runtime.js';
 
@@ -51,6 +52,7 @@ import { WorkerRuntime } from './worker-runtime.js';
     RidesModule,
     PaymentsCoreModule,
     IntercityCoreModule,
+    TipsCoreModule,
     FiscalCoreModule,
     DispatchModule,
     NotificationsWorkerModule,

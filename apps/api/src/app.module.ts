@@ -29,6 +29,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module.js';
 import { RidesModule } from './modules/rides/rides.module.js';
 import { SafetyModule } from './modules/safety/safety.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
+import { TipsModule } from './modules/tips/tips.module.js';
 import { UploadsModule } from './modules/uploads/uploads.module.js';
 
 /**
@@ -101,6 +102,7 @@ export function logRequest<T extends { url?: unknown }>(req: T): T {
     ComplaintsModule,
     PromosModule,
     ChatModule,
+    TipsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_INTERCEPTOR, useClass: RateLimitInterceptor }],

@@ -221,6 +221,21 @@ export class RideChargesService {
       .where('b.completed_at', '>=', from)
       .where('b.completed_at', '<', to)
       .executeTakeFirstOrThrow();
+    // tips: card ones are on the balance, cash ones the riders said they handed over
+    const tips = await this.db.kysely
+      .selectFrom('ride_tips')
+      .select([
+        sql<string>`coalesce(sum(amount) filter (where method = 'card' and status = 'paid'), 0)`.as(
+          'card',
+        ),
+        sql<string>`coalesce(sum(amount) filter (where method = 'cash' and status = 'recorded'), 0)`.as(
+          'cash',
+        ),
+      ])
+      .where('driver_id', '=', driverId)
+      .where(sql<Date>`coalesce(paid_at, created_at)`, '>=', from)
+      .where(sql<Date>`coalesce(paid_at, created_at)`, '<', to)
+      .executeTakeFirstOrThrow();
     const fares = Number(row.fares) + Number(seats.fares);
     const commission = Number(row.commission) + Number(seats.commission);
     const tax = Number(row.tax) + Number(seats.tax);
@@ -233,6 +248,9 @@ export class RideChargesService {
       cash: Number(row.cash) + Number(seats.cash),
       /** Riders' discounts the platform paid onto the balance (cash rides). */
       promoCompensation: Number(row.promoCompensation),
+      /** Card tips credited whole to the balance; cash tips riders recorded (not in `net`). */
+      tipsCard: Number(tips.card),
+      tipsCash: Number(tips.cash),
       commission,
       tax,
       net: fares - commission - tax,

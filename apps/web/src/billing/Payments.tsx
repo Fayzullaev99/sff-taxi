@@ -52,7 +52,7 @@ function IntentSummary({ from, to }: { from: string; to: string }) {
   const totals = intentTotals(summary.data);
   return (
     <div className="summary-grid" aria-label="Jami">
-      {(['ride', 'topup', 'booking'] as const).map((purpose) => {
+      {(['ride', 'topup', 'booking', 'tip'] as const).map((purpose) => {
         const t = totals[purpose];
         return (
           <section key={purpose} className="card summary-card">
@@ -126,6 +126,7 @@ function IntentsTab() {
           <option value="ride">{INTENT_PURPOSE.ride}</option>
           <option value="topup">{INTENT_PURPOSE.topup}</option>
           <option value="booking">{INTENT_PURPOSE.booking}</option>
+          <option value="tip">{INTENT_PURPOSE.tip}</option>
         </select>
         <label className="sr-only" htmlFor="intent-status">
           Holat
@@ -238,6 +239,15 @@ function IntentsTab() {
                         {INTENT_PURPOSE.booking}
                         {i.bookingNumber != null && (
                           <div className="small">bron #{i.bookingNumber}</div>
+                        )}
+                      </>
+                    ) : i.purpose === 'tip' ? (
+                      <>
+                        {INTENT_PURPOSE.tip}
+                        {i.tipRideId && (
+                          <div className="small">
+                            <Link to={`/rides/${i.tipRideId}`}>safar #{i.tipRideNumber ?? ''}</Link>
+                          </div>
                         )}
                       </>
                     ) : i.purpose === 'ride' ? (

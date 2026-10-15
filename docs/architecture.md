@@ -271,6 +271,16 @@ public, so it is only sanity-checked; verifying it against the Ministry of Trans
   ([fiscal-and-licence.md](fiscal-and-licence.md)). Owed cancellation fees are collected on top
   as before.
 
+### Tips
+
+`src/lib/tips.ts`, `src/modules/tips`, migration 0025. On the rating screen the rider may add
+one tip per ride (presets, or another amount up to the cap, within a day of the ride): cash is
+only recorded (the driver is told), a card tip is a payment intent of purpose `tip` credited
+whole to the driver's balance when Payme/Click confirm it (ledger `tip`): no commission, no
+tax withheld, no receipt ([payments.md](payments.md#tips-choychaqa) explains the decision).
+Drivers see tips on the finished ride, in the earnings (`tipsCard`, `tipsCash`) and the
+ledger; operators in the ride detail and among the card payments.
+
 ## 9. Safety
 
 - **Ratings** both ways, once per side per completed ride, within 7 days; driver stars feed the

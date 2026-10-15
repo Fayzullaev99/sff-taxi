@@ -10,7 +10,8 @@ import { Notifier } from './notifier.js';
  * Pushes of the rider-engagement features, apart from the ride lifecycle's handler:
  * - riders: the referral reward (a friend's first completed ride credited them);
  * - the ride chat: the other side's message when the app may be closed (the app keeps the
- *   banner quiet while that chat is on screen); a message already read is not pushed.
+ *   banner quiet while that chat is on screen); a message already read is not pushed;
+ * - drivers: a tip, cash the rider hands over or a card tip on the balance.
  */
 @Injectable()
 export class EngagementNotificationsHandler implements OutboxHandler {
@@ -22,7 +23,11 @@ export class EngagementNotificationsHandler implements OutboxHandler {
   ) {}
 
   handles(topic: string): boolean {
-    return topic === 'promo.referral_rewarded' || topic === 'ride.message';
+    return (
+      topic === 'promo.referral_rewarded' ||
+      topic === 'ride.message' ||
+      topic === 'ride.tip_changed'
+    );
   }
 
   async handle(event: OutboxEvent): Promise<void> {
@@ -42,6 +47,18 @@ export class EngagementNotificationsHandler implements OutboxHandler {
       return;
     }
     if (event.topic === 'ride.message') return this.chatMessage(key, String(p.messageId));
+    if (event.topic === 'ride.tip_changed') {
+      const method = p.method === 'card' ? 'card' : 'cash';
+      const amount = Number(p.amount);
+      await this.notifier.push({
+        key,
+        kind: 'tip',
+        rideId: String(p.rideId),
+        userId: String(p.driverId),
+        app: 'driver',
+        text: (l) => engagementPush.tip(l, method, amount),
+      });
+    }
   }
 
   private async chatMessage(key: string, messageId: string) {
