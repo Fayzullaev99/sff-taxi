@@ -47,7 +47,7 @@ try {
     const admin = await app
       .get(Database)
       .kysely.selectFrom('users')
-      .select(['id', 'phone', 'full_name'])
+      .select(['id', 'phone', 'full_name', 'locale'])
       .where('phone', '=', phone)
       .executeTakeFirst();
     if (!admin) {
@@ -57,7 +57,13 @@ try {
       {
         promos: app.get(PromosService),
         settings: app.get(SettingsService),
-        admin: { userId: admin.id, phone: admin.phone, fullName: admin.full_name, isAdmin: true },
+        admin: {
+          userId: admin.id,
+          phone: admin.phone,
+          fullName: admin.full_name,
+          isAdmin: true,
+          locale: admin.locale,
+        },
       },
       LAUNCH_CAMPAIGN,
       inviteUrl,

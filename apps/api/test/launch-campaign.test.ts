@@ -23,13 +23,19 @@ describe('launch campaign', () => {
     const user = await app
       .get(Database)
       .kysely.selectFrom('users')
-      .select(['id', 'phone', 'full_name'])
+      .select(['id', 'phone', 'full_name', 'locale'])
       .where('phone', '=', ADMIN_PHONE)
       .executeTakeFirstOrThrow();
     deps = {
       promos: app.get(PromosService),
       settings: app.get(SettingsService),
-      admin: { userId: user.id, phone: user.phone, fullName: user.full_name, isAdmin: true },
+      admin: {
+        userId: user.id,
+        phone: user.phone,
+        fullName: user.full_name,
+        isAdmin: true,
+        locale: user.locale,
+      },
     };
   });
   afterAll(async () => {
