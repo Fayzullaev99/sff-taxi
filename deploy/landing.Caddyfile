@@ -1,0 +1,43 @@
+# Serves the built landing site inside the landing container. TLS, security headers and the
+# /v1 proxy (share-trip and tariff requests) are the edge Caddy's job (deploy/Caddyfile).
+{
+	admin off
+	auto_https off
+	persist_config off
+}
+
+:8080 {
+	root * /srv
+	encode zstd gzip
+
+	respond /healthz 200
+
+	# hashed bundles never change: cache for a year
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+
+	# images and the manifest: a day
+	@static path /*.png /*.svg /*.webmanifest /*.xml /*.txt
+	header @static Cache-Control "public, max-age=86400"
+
+	# pages are revalidated so a deploy reaches open browsers
+	@pages path / /index.html /*/ /*/index.html
+	header @pages Cache-Control "no-cache"
+
+	# app-link files must be served as JSON (the Apple one has no extension)
+	@aasa path /.well-known/apple-app-site-association
+	header @aasa Content-Type application/json
+	header /.well-known/assetlinks.json Content-Type application/json
+
+	# /invite/CODE, /promo/CODE and /t/TOKEN are one page each: the code is in the path
+	@invite path_regexp ^/invite/[^/]+/?$
+	rewrite @invite /invite/index.html
+	@promo path_regexp ^/promo/[^/]+/?$
+	rewrite @promo /promo/index.html
+	@trip path_regexp ^/t/[^/]+/?$
+	rewrite @trip /t/index.html
+
+	# anything else that is not a file is a 404 page
+	try_files {path} {path}/index.html /404.html
+	file_server
+}

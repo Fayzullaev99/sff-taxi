@@ -5,6 +5,8 @@ coverage/
 .env
 .env.*
 !.env.example
+# the landing site's public texts and links (phone, legal entity, store pages): no secrets
+!apps/landing/.env.production
 *.log
 .DS_Store
 .idea/

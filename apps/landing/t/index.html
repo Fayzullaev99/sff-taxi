@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="uz-Latn">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{t:share.title}} · SFF Taxi</title>
+    <meta name="description" content="{{t:safety.shareText}}" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#FFC400" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="SFF Taxi" />
+    <meta property="og:title" content="{{t:share.title}} · SFF Taxi" />
+    <meta property="og:description" content="{{t:safety.shareText}}" />
+    <meta property="og:image" content="{{c:siteUrl}}/og.png" />
+    <script type="module" src="/src/share.ts"></script>
+  </head>
+  <body class="page">
+    <header class="header">
+      <div class="container header__row">
+        <a class="logo" href="/" aria-label="SFF Taxi"
+          ><span class="logo__mark" aria-hidden="true">🚕</span> SFF Taxi</a
+        >
+        <div class="header__actions">
+          <button class="lang-switch" type="button" data-lang-switch aria-label="{{t:lang.label}}">
+            {{t:lang.switch}}
+          </button>
+        </div>
+      </div>
+    </header>
+    <main class="page__main">
+      <div class="container trip">
+        <div class="trip__status" id="status" aria-live="polite" data-i18n="share.title">
+          {{t:share.title}}
+        </div>
+        <h1 id="title" style="font-size: 1.6rem">{{t:share.title}}</h1>
+        <div class="trip__map" id="map" role="img" aria-label="Xarita"></div>
+        <p class="status" data-i18n="share.refresh">{{t:share.refresh}}</p>
+        <div class="trip__msg" id="message" data-i18n="share.loading">{{t:share.loading}}</div>
+        <div class="trip__facts" id="facts" hidden>
+          <div class="fact">
+            <small data-i18n="share.driver">{{t:share.driver}}</small><b id="driver">—</b>
+          </div>
+          <div class="fact">
+            <small data-i18n="share.car">{{t:share.car}}</small><b id="vehicle">—</b>
+          </div>
+          <div class="fact">
+            <small data-i18n="share.from">{{t:share.from}}</small><b id="from">—</b>
+          </div>
+          <div class="fact"><small data-i18n="share.to">{{t:share.to}}</small><b id="to">—</b></div>
+          <div class="fact" id="stops-fact" hidden>
+            <small data-i18n="share.stops">{{t:share.stops}}</small><b id="stops">—</b>
+          </div>
+          <p class="status" id="no-position" hidden data-i18n="share.noPosition">
+            {{t:share.noPosition}}
+          </p>
+        </div>
+        <p class="status" data-phone-block>
+          <span data-i18n="share.sosHint">{{t:share.sosHint}}</span>
+          <a href="tel:{{c:supportPhone}}" data-phone>{{c:supportPhone}}</a>
+        </p>
+        <p class="status" data-i18n="share.privacy">{{t:share.privacy}}</p>
+      </div>
+    </main>
+    <footer class="footer">
+      <div class="container">
+        <p class="footer__note" style="border: 0; padding: 0; margin: 0">
+          © <span data-year>2026</span> SFF Taxi ·
+          <a href="/privacy/" data-i18n="footer.privacy">{{t:footer.privacy}}</a>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

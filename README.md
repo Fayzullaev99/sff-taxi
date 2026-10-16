@@ -15,15 +15,16 @@ built in.
 
 ## Repository
 
-| Path          | What                                                            |
-| ------------- | --------------------------------------------------------------- |
-| `apps/api`    | NestJS 12 API + worker (Kysely, PostgreSQL 17, Redis)           |
-| `apps/rider`  | Rider app (Expo), see apps/rider/README.md                      |
-| `apps/driver` | Driver app (Expo), see apps/driver/README.md                    |
-| `apps/web`    | Operator / dispatcher panel (React + Vite)                      |
-| `infra`       | Local Postgres init (roles, test databases), SeaweedFS identity |
-| `deploy`      | Production compose stack, Caddy, backups, monitoring            |
-| `docs`        | Analysis, architecture, conventions, operations                 |
+| Path           | What                                                                                                           |
+| -------------- | -------------------------------------------------------------------------------------------------------------- |
+| `apps/api`     | NestJS 12 API + worker (Kysely, PostgreSQL 17, Redis)                                                          |
+| `apps/rider`   | Rider app (Expo), see apps/rider/README.md                                                                     |
+| `apps/driver`  | Driver app (Expo), see apps/driver/README.md                                                                   |
+| `apps/web`     | Operator / dispatcher panel (React + Vite)                                                                     |
+| `apps/landing` | Public site: landing, invite/promo pages, share-trip page, legal texts (Vite + TS), see apps/landing/README.md |
+| `infra`        | Local Postgres init (roles, test databases), SeaweedFS identity                                                |
+| `deploy`       | Production compose stack, Caddy, backups, monitoring                                                           |
+| `docs`         | Analysis, architecture, conventions, operations; `docs/store/` store listings and ad copy                      |
 
 The API reuses the production-tested core of the sister project SFF Eats (auth, outbox, geo,
 realtime, notifications, uploads, payments, observability, deployment), adapted for rides.

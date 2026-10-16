@@ -1,0 +1,51 @@
+# syntax=docker/dockerfile:1
+# Static build of the public landing site (taxi.<domain>: the marketing page, /invite/CODE,
+# /promo/CODE, the share-trip page /t/TOKEN, privacy and terms), served by Caddy as a
+# non-root user, like the operator panel (Dockerfile.web).
+#   docker build -f Dockerfile.landing -t sff-taxi-landing .
+# Site texts and links are compiled in from VITE_* build args (apps/landing/.env.example);
+# VITE_API_URL stays empty so the pages call their own origin (/v1/...), which the edge Caddy
+# proxies to the API (deploy/Caddyfile).
+
+FROM node:24-bookworm-slim AS build
+WORKDIR /repo
+COPY package.json package-lock.json ./
+# every workspace's manifest: the lockfile describes the whole monorepo
+COPY apps/api/package.json apps/api/
+COPY apps/rider/package.json apps/rider/
+COPY apps/driver/package.json apps/driver/
+COPY apps/web/package.json apps/web/
+COPY apps/landing/package.json apps/landing/
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --ignore-scripts --no-audit --no-fund
+COPY apps/landing apps/landing
+ARG VITE_SITE_URL=https://taxi.sff.uz
+ARG VITE_API_URL=""
+ARG VITE_PLAY_RIDER=""
+ARG VITE_APPSTORE_RIDER=""
+ARG VITE_PLAY_DRIVER=""
+ARG VITE_APPSTORE_DRIVER=""
+ARG VITE_SUPPORT_PHONE=""
+ARG VITE_SUPPORT_TELEGRAM=""
+ARG VITE_OFFICE_ADDRESS=""
+ARG VITE_LEGAL_NAME=""
+ARG VITE_INN=""
+ARG VITE_LEGAL_EMAIL=""
+ARG VITE_LAUNCH_PROMO_CODE=""
+ARG VITE_ANALYTICS_SRC=""
+ARG VITE_ANALYTICS_SITE=""
+ARG VITE_MAP_TILE_URL=""
+ARG VITE_MAP_ATTRIBUTION=""
+# the build script type-checks first (tsc --noEmit && vite build); empty args keep the defaults
+RUN npm run build -w apps/landing
+
+FROM caddy:2-alpine
+ENV XDG_CONFIG_HOME=/config \
+    XDG_DATA_HOME=/data
+COPY --from=build /repo/apps/landing/dist /srv
+COPY deploy/landing.Caddyfile /etc/caddy/Caddyfile
+RUN chown -R 1000:1000 /config /data
+USER 1000:1000
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]

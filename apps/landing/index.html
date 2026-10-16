@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="uz-Latn">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{t:site.title}}</title>
+    <meta name="description" content="{{t:site.description}}" />
+    <link rel="canonical" href="{{c:siteUrl}}/" />
+    <link rel="alternate" hreflang="uz" href="{{c:siteUrl}}/" />
+    <link rel="alternate" hreflang="ru" href="{{c:siteUrl}}/?lang=ru" />
+    <link rel="alternate" hreflang="x-default" href="{{c:siteUrl}}/" />
+    <meta name="theme-color" content="#FFC400" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="SFF Taxi" />
+    <meta property="og:title" content="{{t:site.title}}" />
+    <meta property="og:description" content="{{t:site.description}}" />
+    <meta property="og:url" content="{{c:siteUrl}}/" />
+    <meta property="og:image" content="{{c:siteUrl}}/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="uz_UZ" />
+    <meta property="og:locale:alternate" content="ru_RU" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="{{t:site.title}}" />
+    <meta name="twitter:description" content="{{t:site.description}}" />
+    <meta name="twitter:image" content="{{c:siteUrl}}/og.png" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "SFF Taxi",
+        "url": "{{c:siteUrl}}/",
+        "logo": "{{c:siteUrl}}/apple-touch-icon.png",
+        "areaServed": "Guliston, Sirdaryo viloyati, O‘zbekiston",
+        "contactPoint": {
+          "@type": "ContactPoint",
+          "telephone": "{{c:supportPhone}}",
+          "contactType": "customer service",
+          "availableLanguage": ["uz", "ru"]
+        }
+      }
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <header class="header">
+      <div class="container header__row">
+        <a class="logo" href="/" aria-label="SFF Taxi">
+          <span class="logo__mark" aria-hidden="true">
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#111"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11" />
+              <path d="M3 13.5A1.5 1.5 0 0 1 4.5 12h15a1.5 1.5 0 0 1 1.5 1.5V17H3z" />
+              <circle cx="7" cy="17" r="1.3" fill="#111" />
+              <circle cx="17" cy="17" r="1.3" fill="#111" />
+              <path d="M9 3h6" />
+            </svg>
+          </span>
+          SFF Taxi
+        </a>
+        <nav class="nav" aria-label="Bo‘limlar">
+          <a href="#services" data-i18n="nav.services">{{t:nav.services}}</a>
+          <a href="#prices" data-i18n="nav.prices">{{t:nav.prices}}</a>
+          <a href="#safety" data-i18n="nav.safety">{{t:nav.safety}}</a>
+          <a href="#drivers" data-i18n="nav.drivers">{{t:nav.drivers}}</a>
+          <a href="#faq" data-i18n="nav.faq">{{t:nav.faq}}</a>
+        </nav>
+        <div class="header__actions">
+          <button class="lang-switch" type="button" data-lang-switch aria-label="{{t:lang.label}}">
+            {{t:lang.switch}}
+          </button>
+          <a class="btn btn--primary btn--sm" href="#download" data-i18n="nav.download"
+            >{{t:nav.download}}</a
+          >
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="container hero__grid">
+          <div>
+            <span class="kicker hero__kicker" data-i18n="hero.kicker">{{t:hero.kicker}}</span>
+            <h1 data-i18n="hero.title">{{t:hero.title}}</h1>
+            <p class="hero__sub" data-i18n="hero.sub">{{t:hero.sub}}</p>
+            <ul class="hero__badges">
+              <li>
+                <span aria-hidden="true">✓</span>
+                <span data-i18n="hero.badge1">{{t:hero.badge1}}</span>
+              </li>
+              <li>
+                <span aria-hidden="true">✓</span>
+                <span data-i18n="hero.badge2">{{t:hero.badge2}}</span>
+              </li>
+              <li>
+                <span aria-hidden="true">✓</span>
+                <span data-i18n="hero.badge3">{{t:hero.badge3}}</span>
+              </li>
+            </ul>
+            <div class="store-buttons">
+              <a
+                class="btn btn--primary"
+                data-store="play-rider"
+                href="{{c:playRider}}"
+                rel="noopener"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="#34A853"
+                    d="M3.6 2.4 13.8 12 3.6 21.6c-.4-.2-.6-.7-.6-1.2V3.6c0-.5.2-1 .6-1.2z"
+                  />
+                  <path fill="#FBBC04" d="M17.3 8.5 20.5 10.3c1 .6 1 2.2 0 2.8l-3.2 1.8L13.8 12z" />
+                  <path fill="#4285F4" d="M3.6 2.4c.4-.3 1-.3 1.5 0l12.2 6.1-3.5 3.5z" />
+                  <path fill="#EA4335" d="M3.6 21.6 13.8 12l3.5 3.5-12.2 6.1c-.5.3-1.1.3-1.5 0z" />
+                </svg>
+                <span class="btn__label"
+                  ><span class="btn__sub" data-i18n="cta.playSub">{{t:cta.playSub}}</span>Google
+                  Play</span
+                >
+              </a>
+              <a
+                class="btn btn--ghost"
+                data-store="appstore-rider"
+                href="{{c:appStoreRider}}"
+                rel="noopener"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="#111"
+                    d="M16.4 12.6c0-2.5 2-3.6 2.1-3.7-1.2-1.7-3-1.9-3.6-2-1.5-.2-3 .9-3.8.9-.8 0-2-.9-3.3-.8-1.7 0-3.3 1-4.1 2.5-1.8 3.1-.5 7.6 1.3 10.1.8 1.2 1.8 2.6 3.1 2.5 1.3 0 1.7-.8 3.3-.8 1.5 0 1.9.8 3.3.8 1.4 0 2.2-1.2 3-2.5.9-1.4 1.3-2.7 1.3-2.8-.1 0-2.6-1-2.6-4.2zM14 5.3c.7-.8 1.2-2 1-3.2-1 0-2.3.7-3 1.5-.7.7-1.2 1.9-1.1 3.1 1.1.1 2.3-.6 3.1-1.4z"
+                  />
+                </svg>
+                <span class="btn__label"
+                  ><span class="btn__sub" data-i18n="cta.appstoreSub">{{t:cta.appstoreSub}}</span
+                  >App Store</span
+                >
+              </a>
+            </div>
+            <div class="hero__phone" data-phone-block>
+              <span data-i18n="hero.phoneHint">{{t:hero.phoneHint}}</span><br />
+              <a href="tel:{{c:supportPhone}}" data-phone>{{c:supportPhone}}</a>
+            </div>
+          </div>
+          <div class="hero__card" aria-label="Narx misoli">
+            <small data-i18n="hero.from">{{t:hero.from}}</small>
+            <div class="price" data-i18n="hero.fromPrice">{{t:hero.fromPrice}}</div>
+            <div class="route" aria-hidden="true">
+              <div><span class="dot dot--brand"></span> Guliston, Mustaqillik ko‘chasi</div>
+              <div><span class="dot"></span> Temir yo‘l vokzali</div>
+            </div>
+            <div class="store-buttons">
+              <span class="btn btn--brand btn--sm" style="flex: 1" aria-hidden="true"
+                >7 000 so‘m · Ekonom</span
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="promo" id="promo">
+        <div class="container promo__grid">
+          <div>
+            <span class="kicker" data-i18n="promo.kicker">{{t:promo.kicker}}</span>
+            <h2 data-i18n="promo.title_html">{{{t:promo.title_html}}}</h2>
+            <p data-i18n="promo.text">{{t:promo.text}}</p>
+            <div class="promo__code">
+              <span
+                ><small
+                  style="
+                    letter-spacing: 0;
+                    font-weight: 600;
+                    opacity: 0.7;
+                    display: block;
+                    font-size: 0.75rem;
+                  "
+                  data-i18n="promo.code"
+                  >{{t:promo.code}}</small
+                >{{c:launchPromoCode}}</span
+              >
+              <button
+                class="btn btn--brand btn--sm"
+                type="button"
+                data-copy-promo
+                data-i18n="cta.copy"
+              >
+                {{t:cta.copy}}
+              </button>
+            </div>
+          </div>
+          <div class="promo__referral">
+            <h3 data-i18n="promo.referralTitle">{{t:promo.referralTitle}}</h3>
+            <p data-i18n="promo.referralText">{{t:promo.referralText}}</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="services">
+        <div class="container">
+          <div class="section__head">
+            <h2 data-i18n="services.title">{{t:services.title}}</h2>
+            <p data-i18n="services.sub">{{t:services.sub}}</p>
+          </div>
+          <div class="grid grid--3">
+            <article class="card" data-class="economy">
+              <div class="card__icon" aria-hidden="true">🚕</div>
+              <h3 data-i18n="services.economy">{{t:services.economy}}</h3>
+              <p data-i18n="services.economyText">{{t:services.economyText}}</p>
+              <span class="card__tag" hidden data-i18n="services.soon">{{t:services.soon}}</span>
+            </article>
+            <article class="card" data-class="comfort">
+              <div class="card__icon" aria-hidden="true">❄️</div>
+              <h3 data-i18n="services.comfort">{{t:services.comfort}}</h3>
+              <p data-i18n="services.comfortText">{{t:services.comfortText}}</p>
+              <span class="card__tag" hidden data-i18n="services.soon">{{t:services.soon}}</span>
+            </article>
+            <article class="card card--off" data-class="minivan">
+              <div class="card__icon" aria-hidden="true">🚐</div>
+              <h3 data-i18n="services.minivan">{{t:services.minivan}}</h3>
+              <p data-i18n="services.minivanText">{{t:services.minivanText}}</p>
+              <span class="card__tag" data-i18n="services.soon">{{t:services.soon}}</span>
+            </article>
+            <article class="card card--off" data-class="business">
+              <div class="card__icon" aria-hidden="true">💼</div>
+              <h3 data-i18n="services.business">{{t:services.business}}</h3>
+              <p data-i18n="services.businessText">{{t:services.businessText}}</p>
+              <span class="card__tag" data-i18n="services.soon">{{t:services.soon}}</span>
+            </article>
+            <article class="card">
+              <div class="card__icon" aria-hidden="true">👥</div>
+              <h3 data-i18n="services.shared">{{t:services.shared}}</h3>
+              <p data-i18n="services.sharedText">{{t:services.sharedText}}</p>
+            </article>
+            <article class="card">
+              <div class="card__icon" aria-hidden="true">🛣️</div>
+              <h3 data-i18n="services.intercity">{{t:services.intercity}}</h3>
+              <p data-i18n="services.intercityText">{{t:services.intercityText}}</p>
+            </article>
+            <article class="card">
+              <div class="card__icon" aria-hidden="true">📦</div>
+              <h3 data-i18n="services.cargo">{{t:services.cargo}}</h3>
+              <p data-i18n="services.cargoText">{{t:services.cargoText}}</p>
+            </article>
+            <article class="card">
+              <div class="card__icon" aria-hidden="true">✉️</div>
+              <h3 data-i18n="services.delivery">{{t:services.delivery}}</h3>
+              <p data-i18n="services.deliveryText">{{t:services.deliveryText}}</p>
+            </article>
+            <article class="card">
+              <div class="card__icon" aria-hidden="true">👩</div>
+              <h3 data-i18n="services.women">{{t:services.women}}</h3>
+              <p data-i18n="services.womenText">{{t:services.womenText}}</p>
+            </article>
+          </div>
+          <h3 style="margin-top: 28px" data-i18n="services.more">{{t:services.more}}</h3>
+          <ul class="more-list" data-i18n="services.moreList_html">
+            {{{t:services.moreList_html}}}
+          </ul>
+        </div>
+      </section>
+
+      <section class="section section--alt" id="prices">
+        <div class="container">
+          <div class="section__head">
+            <h2 data-i18n="prices.title">{{t:prices.title}}</h2>
+            <p data-i18n="prices.sub">{{t:prices.sub}}</p>
+          </div>
+          <div class="prices__grid">
+            <div>
+              <div class="price-table-wrap" id="price-table">{{prices:table}}</div>
+              <p class="price-source">
+                <span class="pill" id="price-source">{{t:prices.static}}</span>
+                <span id="price-updated" hidden></span>
+              </p>
+              <h3 style="margin-top: 24px" data-i18n="prices.examplesTitle">
+                {{t:prices.examplesTitle}}
+              </h3>
+              <div class="examples" id="price-examples">{{prices:examples}}</div>
+            </div>
+            <div>
+              <h3 data-i18n="prices.rules">{{t:prices.rules}}</h3>
+              <ul class="rules" id="price-rules">
+                {{prices:rules}}
+              </ul>
+              <p
+                style="margin-top: 18px; color: var(--muted); font-size: 0.95rem"
+                data-i18n="prices.receipt"
+              >
+                {{t:prices.receipt}}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="safety">
+        <div class="container">
+          <div class="section__head">
+            <h2 data-i18n="safety.title">{{t:safety.title}}</h2>
+            <p data-i18n="safety.sub">{{t:safety.sub}}</p>
+          </div>
+          <div class="grid grid--3">
+            <article class="card">
+              <div class="card__icon" aria-hidden="true">🪪</div>
+              <h3 data-i18n="safety.verified">{{t:safety.verified}}</h3>
+              <p data-i18n="safety.verifiedText">{{t:safety.verifiedText}}</p>
+            </article>
+            <article class="card">
+              <div class="card__icon" aria-hidden="true">📍</div>
+              <h3 data-i18n="safety.share">{{t:safety.share}}</h3>
+              <p data-i18n="safety.shareText">{{t:safety.shareText}}</p>
+            </article>
+            <article class="card">
+              <div class="card__icon" aria-hidden="true">🆘</div>
+              <h3 data-i18n="safety.sos">{{t:safety.sos}}</h3>
+              <p data-i18n="safety.sosText">{{t:safety.sosText}}</p>
+            </article>
+            <article class="card">
+              <div class="card__icon" aria-hidden="true">⭐</div>
+              <h3 data-i18n="safety.rating">{{t:safety.rating}}</h3>
+              <p data-i18n="safety.ratingText">{{t:safety.ratingText}}</p>
+            </article>
+            <article class="card">
+              <div class="card__icon" aria-hidden="true">🔒</div>
+              <h3 data-i18n="safety.privacy">{{t:safety.privacy}}</h3>
+              <p data-i18n="safety.privacyText">{{t:safety.privacyText}}</p>
+            </article>
+            <article class="card">
+              <div class="card__icon" aria-hidden="true">🧾</div>
+              <h3 data-i18n="safety.legal">{{t:safety.legal}}</h3>
+              <p data-i18n="safety.legalText">{{t:safety.legalText}}</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section drivers" id="drivers">
+        <div class="container">
+          <div class="section__head">
+            <span class="kicker" data-i18n="drivers.kicker">{{t:drivers.kicker}}</span>
+            <h2 data-i18n="drivers.title">{{t:drivers.title}}</h2>
+            <p data-i18n="drivers.sub">{{t:drivers.sub}}</p>
+          </div>
+          <div class="stats">
+            <div class="stat">
+              <b data-i18n="drivers.stat1">{{t:drivers.stat1}}</b
+              ><span data-i18n="drivers.stat1Text">{{t:drivers.stat1Text}}</span>
+            </div>
+            <div class="stat">
+              <b data-i18n="drivers.stat2">{{t:drivers.stat2}}</b
+              ><span data-i18n="drivers.stat2Text">{{t:drivers.stat2Text}}</span>
+            </div>
+            <div class="stat">
+              <b data-i18n="drivers.stat3">{{t:drivers.stat3}}</b
+              ><span data-i18n="drivers.stat3Text">{{t:drivers.stat3Text}}</span>
+            </div>
+          </div>
+          <div class="drivers__grid">
+            <div>
+              <ul class="benefits" data-i18n="drivers.benefits_html">
+                {{{t:drivers.benefits_html}}}
+              </ul>
+            </div>
+            <div>
+              <h3 data-i18n="drivers.howTitle">{{t:drivers.howTitle}}</h3>
+              <ol class="steps">
+                <li>
+                  <div>
+                    <b data-i18n="drivers.step1">{{t:drivers.step1}}</b
+                    ><span data-i18n="drivers.step1Text">{{t:drivers.step1Text}}</span>
+                  </div>
+                </li>
+                <li>
+                  <div>
+                    <b data-i18n="drivers.step2">{{t:drivers.step2}}</b
+                    ><span data-i18n="drivers.step2Text">{{t:drivers.step2Text}}</span>
+                  </div>
+                </li>
+                <li>
+                  <div>
+                    <b data-i18n="drivers.step3">{{t:drivers.step3}}</b
+                    ><span data-i18n="drivers.step3Text">{{t:drivers.step3Text}}</span>
+                  </div>
+                </li>
+                <li>
+                  <div>
+                    <b data-i18n="drivers.step4">{{t:drivers.step4}}</b
+                    ><span data-i18n="drivers.step4Text">{{t:drivers.step4Text}}</span>
+                  </div>
+                </li>
+              </ol>
+              <h3 data-i18n="drivers.reqTitle">{{t:drivers.reqTitle}}</h3>
+              <ul class="req" data-i18n="drivers.req_html">
+                {{{t:drivers.req_html}}}
+              </ul>
+              <div class="store-buttons">
+                <a
+                  class="btn btn--brand"
+                  data-store="play-driver"
+                  href="{{c:playDriver}}"
+                  rel="noopener"
+                >
+                  <span class="btn__label"
+                    ><span class="btn__sub" data-i18n="cta.playSub">{{t:cta.playSub}}</span
+                    ><span data-i18n="drivers.cta">{{t:drivers.cta}}</span></span
+                  >
+                </a>
+                <a
+                  class="btn btn--ghost"
+                  data-store="appstore-driver"
+                  href="{{c:appStoreDriver}}"
+                  rel="noopener"
+                >
+                  <span class="btn__label"
+                    ><span class="btn__sub" data-i18n="cta.appstoreSub">{{t:cta.appstoreSub}}</span
+                    >App Store</span
+                  >
+                </a>
+              </div>
+              <p class="note" style="margin-top: 14px">
+                <span data-i18n="drivers.ctaCall">{{t:drivers.ctaCall}}</span>: {{c:officeAddress}}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section download" id="download">
+        <div class="container">
+          <div class="section__head">
+            <h2 data-i18n="download.title">{{t:download.title}}</h2>
+            <p data-i18n="download.sub">{{t:download.sub}}</p>
+          </div>
+          <div class="download__grid">
+            <div class="card">
+              <h3 data-i18n="download.rider">{{t:download.rider}}</h3>
+              <div class="store-buttons">
+                <a
+                  class="btn btn--primary"
+                  data-store="play-rider"
+                  href="{{c:playRider}}"
+                  rel="noopener"
+                  ><span class="btn__label"
+                    ><span class="btn__sub" data-i18n="cta.playSub">{{t:cta.playSub}}</span>Google
+                    Play</span
+                  ></a
+                >
+                <a
+                  class="btn btn--ghost"
+                  data-store="appstore-rider"
+                  href="{{c:appStoreRider}}"
+                  rel="noopener"
+                  ><span class="btn__label"
+                    ><span class="btn__sub" data-i18n="cta.appstoreSub">{{t:cta.appstoreSub}}</span
+                    >App Store</span
+                  ></a
+                >
+              </div>
+            </div>
+            <div class="card">
+              <h3 data-i18n="download.driver">{{t:download.driver}}</h3>
+              <div class="store-buttons">
+                <a
+                  class="btn btn--primary"
+                  data-store="play-driver"
+                  href="{{c:playDriver}}"
+                  rel="noopener"
+                  ><span class="btn__label"
+                    ><span class="btn__sub" data-i18n="cta.playSub">{{t:cta.playSub}}</span>Google
+                    Play</span
+                  ></a
+                >
+                <a
+                  class="btn btn--ghost"
+                  data-store="appstore-driver"
+                  href="{{c:appStoreDriver}}"
+                  rel="noopener"
+                  ><span class="btn__label"
+                    ><span class="btn__sub" data-i18n="cta.appstoreSub">{{t:cta.appstoreSub}}</span
+                    >App Store</span
+                  ></a
+                >
+              </div>
+            </div>
+          </div>
+          <p class="download__phone" data-phone-block>
+            <span data-i18n="download.orCall">{{t:download.orCall}}</span>
+            <a href="tel:{{c:supportPhone}}" data-phone>{{c:supportPhone}}</a>
+          </p>
+        </div>
+      </section>
+
+      <section class="section section--alt" id="faq">
+        <div class="container">
+          <div class="section__head">
+            <h2 data-i18n="faq.title">{{t:faq.title}}</h2>
+          </div>
+          <div class="faq">
+            <details>
+              <summary data-i18n="faq.q1">{{t:faq.q1}}</summary>
+              <p data-i18n="faq.a1">{{t:faq.a1}}</p>
+            </details>
+            <details>
+              <summary data-i18n="faq.q2">{{t:faq.q2}}</summary>
+              <p data-i18n="faq.a2">{{t:faq.a2}}</p>
+            </details>
+            <details>
+              <summary data-i18n="faq.q3">{{t:faq.q3}}</summary>
+              <p data-i18n="faq.a3">{{t:faq.a3}}</p>
+            </details>
+            <details>
+              <summary data-i18n="faq.q4">{{t:faq.q4}}</summary>
+              <p data-i18n="faq.a4">{{t:faq.a4}}</p>
+            </details>
+            <details>
+              <summary data-i18n="faq.q5">{{t:faq.q5}}</summary>
+              <p data-i18n="faq.a5">{{t:faq.a5}}</p>
+            </details>
+            <details>
+              <summary data-i18n="faq.q6">{{t:faq.q6}}</summary>
+              <p data-i18n="faq.a6">{{t:faq.a6}}</p>
+            </details>
+            <details>
+              <summary data-i18n="faq.q7">{{t:faq.q7}}</summary>
+              <p data-i18n="faq.a7">{{t:faq.a7}}</p>
+            </details>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container">
+        <div class="footer__grid">
+          <div>
+            <h3 data-i18n="footer.company">{{t:footer.company}}</h3>
+            <ul>
+              <li>
+                <span data-i18n="footer.legalName">{{t:footer.legalName}}</span>: {{c:legalName}}
+              </li>
+              <li><span data-i18n="footer.inn">{{t:footer.inn}}</span>: {{c:inn}}</li>
+              <li>
+                <span data-i18n="footer.address">{{t:footer.address}}</span>: {{c:officeAddress}}
+              </li>
+            </ul>
+          </div>
+          <div>
+            <h3 data-i18n="footer.contacts">{{t:footer.contacts}}</h3>
+            <ul>
+              <li><a href="tel:{{c:supportPhone}}" data-phone>{{c:supportPhone}}</a></li>
+              <li><a href="https://t.me/" data-telegram rel="noopener">Telegram</a></li>
+              <li><a href="mailto:{{c:legalEmail}}">{{c:legalEmail}}</a></li>
+            </ul>
+          </div>
+          <div>
+            <h3 data-i18n="footer.docs">{{t:footer.docs}}</h3>
+            <ul>
+              <li><a href="/privacy/" data-i18n="footer.privacy">{{t:footer.privacy}}</a></li>
+              <li><a href="/terms/" data-i18n="footer.terms">{{t:footer.terms}}</a></li>
+            </ul>
+          </div>
+        </div>
+        <p class="footer__note" data-i18n="footer.note">{{t:footer.note}}</p>
+        <p class="footer__note" style="border: 0; padding-top: 0; margin-top: 8px">
+          © <span data-year>2026</span> SFF Taxi.
+          <span data-i18n="footer.rights">{{t:footer.rights}}</span>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

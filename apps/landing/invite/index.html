@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="uz-Latn">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{t:invite.title}} · SFF Taxi</title>
+    <meta name="description" content="{{t:invite.sub}}" />
+    <meta name="robots" content="noindex, follow" />
+    <meta name="theme-color" content="#FFC400" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="SFF Taxi" />
+    <meta property="og:title" content="{{t:invite.title}}" />
+    <meta property="og:description" content="{{t:invite.sub}}" />
+    <meta property="og:image" content="{{c:siteUrl}}/og-invite.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="module" src="/src/invite-page.ts"></script>
+  </head>
+  <body class="page">
+    <header class="header">
+      <div class="container header__row">
+        <a class="logo" href="/" aria-label="SFF Taxi"
+          ><span class="logo__mark" aria-hidden="true">🚕</span> SFF Taxi</a
+        >
+        <div class="header__actions">
+          <button class="lang-switch" type="button" data-lang-switch aria-label="{{t:lang.label}}">
+            {{t:lang.switch}}
+          </button>
+        </div>
+      </div>
+    </header>
+    <main class="page__main">
+      <div class="container">
+        <div class="panel">
+          <div class="gift" aria-hidden="true">🎁</div>
+          <h1 data-i18n="invite.title">{{t:invite.title}}</h1>
+          <p class="lead" data-i18n="invite.sub">{{t:invite.sub}}</p>
+          <p id="invalid" hidden data-i18n="invite.invalid">{{t:invite.invalid}}</p>
+          <div id="code-panel">
+            <div class="code-box">
+              <small data-i18n="invite.codeLabel">{{t:invite.codeLabel}}</small>
+              <div class="code" id="code" aria-live="polite">······</div>
+              <button class="btn btn--ghost btn--sm" type="button" id="copy" data-i18n="cta.copy">
+                {{t:cta.copy}}
+              </button>
+            </div>
+            <p class="status" id="status" hidden data-i18n="invite.opening">{{t:invite.opening}}</p>
+            <div class="store-buttons" style="margin-top: 16px">
+              <a
+                class="btn btn--brand"
+                data-open-app
+                href="sfftaxi://invite/"
+                data-i18n="cta.openApp"
+                >{{t:cta.openApp}}</a
+              >
+            </div>
+            <div class="store-buttons" style="margin-top: 10px">
+              <a
+                class="btn btn--primary"
+                data-store="play-rider"
+                href="{{c:playRider}}"
+                rel="noopener"
+                ><span class="btn__label"
+                  ><span class="btn__sub" data-i18n="cta.playSub">{{t:cta.playSub}}</span>Google
+                  Play</span
+                ></a
+              >
+              <a
+                class="btn btn--ghost"
+                data-store="appstore-rider"
+                href="{{c:appStoreRider}}"
+                rel="noopener"
+                ><span class="btn__label"
+                  ><span class="btn__sub" data-i18n="cta.appstoreSub">{{t:cta.appstoreSub}}</span
+                  >App Store</span
+                ></a
+              >
+            </div>
+            <h3 style="margin-top: 22px" data-i18n="invite.howTitle">{{t:invite.howTitle}}</h3>
+            <ol class="how" data-i18n="invite.how_html">
+              {{{t:invite.how_html}}}
+            </ol>
+          </div>
+          <p style="margin-top: 22px"><a href="/" data-i18n="cta.back">{{t:cta.back}}</a></p>
+        </div>
+      </div>
+    </main>
+    <footer class="footer">
+      <div class="container">
+        <p class="footer__note" style="border: 0; padding: 0; margin: 0">
+          © <span data-year>2026</span> SFF Taxi ·
+          <a href="/privacy/" data-i18n="footer.privacy">{{t:footer.privacy}}</a> ·
+          <a href="/terms/" data-i18n="footer.terms">{{t:footer.terms}}</a>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>
