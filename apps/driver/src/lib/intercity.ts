@@ -5,9 +5,15 @@
  * no-shows), arrive (each booking is charged tax and commission). Seats are paid in cash.
  */
 
+import { getLanguage } from '../i18n/core';
 import { liveTable, t } from '../i18n/dictionary';
 import { DEFAULT_INTERCITY_RULES, type IntercityRules } from './driver-config';
 import { distance, time } from './format';
+
+/** A town of the trip board in the app's language (operators name every town in both). */
+export function townName(p: { nameUz: string; nameRu?: string | null }): string {
+  return (getLanguage() === 'ru' && p.nameRu) || p.nameUz;
+}
 
 /**
  * The board's launch rules, until `GET /v1/driver/config` (`intercity`) loads: screens take
@@ -252,12 +258,12 @@ export function bookingMoney(b: { price: number; depositAmount?: number; payCash
 /** "Boyovut → Yangiyer" for a seat along the way, else null. */
 export function alongTheWayText(b: {
   alongTheWay?: boolean;
-  pickup?: { nameUz: string } | null;
-  dropoff?: { nameUz: string } | null;
+  pickup?: { nameUz: string; nameRu?: string | null } | null;
+  dropoff?: { nameUz: string; nameRu?: string | null } | null;
 }): string | null {
   if (!b.alongTheWay) return null;
-  const from = b.pickup?.nameUz ?? t('intercity.bookings.onTheWayFrom');
-  const to = b.dropoff?.nameUz ?? t('intercity.bookings.onTheWayTo');
+  const from = b.pickup ? townName(b.pickup) : t('intercity.bookings.onTheWayFrom');
+  const to = b.dropoff ? townName(b.dropoff) : t('intercity.bookings.onTheWayTo');
   return `${from} → ${to}`;
 }
 

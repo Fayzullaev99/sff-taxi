@@ -70,6 +70,8 @@ describe('launch campaign', () => {
       perRiderLimit: 1,
       services: ['taxi'],
       isActive: true,
+      description: 'Ochilish aksiyasi: birinchi safarga 50% chegirma (10 000 so‘mgacha)',
+      descriptionRu: 'Акция к открытию: скидка 50% на первую поездку (до 10 000 сум)',
     });
     expect(codes[0].validUntil).toBe('2026-12-31T18:59:59.000Z');
   });

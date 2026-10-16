@@ -26,6 +26,8 @@ export interface PromoForm {
   cityId: string;
   isActive: boolean;
   description: string;
+  /** The Russian wording for Russian apps (empty: they get the Uzbek text). */
+  descriptionRu: string;
 }
 
 export const PROMO_SERVICES: { value: string; label: string }[] = [
@@ -60,6 +62,7 @@ export function emptyPromoForm(): PromoForm {
     cityId: '',
     isActive: true,
     description: '',
+    descriptionRu: '',
   };
 }
 
@@ -80,6 +83,7 @@ export function promoToForm(p: AdminPromo): PromoForm {
     cityId: p.cityId ?? '',
     isActive: p.isActive,
     description: p.description ?? '',
+    descriptionRu: p.descriptionRu ?? '',
   };
 }
 
@@ -110,6 +114,7 @@ export function promoFormProblems(f: PromoForm): Partial<Record<keyof PromoForm,
     p.validUntil = 'Tugash boshlanishidan keyin bo‘lsin';
   }
   if (f.description.length > 300) p.description = 'Ko‘pi bilan 300 belgi';
+  if (f.descriptionRu.length > 300) p.descriptionRu = 'Ko‘pi bilan 300 belgi';
   return p;
 }
 
@@ -131,6 +136,7 @@ export function formToBody(f: PromoForm): PromoBody {
     cityId: f.cityId || null,
     isActive: f.isActive,
     description: f.description.trim() || null,
+    descriptionRu: f.descriptionRu.trim() || null,
   };
 }
 

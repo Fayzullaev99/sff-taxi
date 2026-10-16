@@ -172,9 +172,13 @@ Gradle was building timed two timing tests out at 20 s — the dispatch cascade 
 1. **Vehicle colour is free text in Uzbek** ("oq", "qora"): a Russian rider reads "qora Malibu",
    "Oq Chevrolet Cobalt". A colour quick-pick in the driver wizard (a fixed list in both
    languages) would fix it for new cars; existing cars need an operator's edit.
-2. **Promo descriptions are operator text**: GULISTON's "Ochilish aksiyasi: birinchi safarga
-   50% chegirma" shows in Uzbek inside the Russian wallet. Either write bilingual descriptions
-   in the campaign (`src/lib/launch-campaign.ts`) or add a `description_ru` field.
+2. **Fixed (polish, 2026-10-16).** Promo descriptions were operator text in Uzbek only:
+   GULISTON's "Ochilish aksiyasi: birinchi safarga 50% chegirma" showed in the Russian wallet.
+   `promo_codes.description_ru` (migration 0028), the panel's "Tavsif (ruscha)" field, the API
+   answers in the request's language with the Uzbek text as the fallback (wallet, quote,
+   `promos.test.ts`); the campaign carries "Акция к открытию: скидка 50% на первую поездку
+   (до 10 000 сум)" (`launch-campaign.test.ts`). Other operator-entered texts riders see are
+   listed under "Operator texts and languages" below.
 3. Rider names stored before the whitespace fix (wave 4, bug 15) still carry a double space
    ("Madinaxon Abdulazizova Nurmuhammad qizi") in the driver's cards and the complete dialog;
    a one-off `UPDATE users SET full_name = regexp_replace(full_name, '\s+', ' ', 'g')` before
@@ -195,6 +199,20 @@ Gradle was building timed two timing tests out at 20 s — the dispatch cascade 
 7. Push on the emulators: the apps have no EAS project id, so the worker's pushes are
    "skipped: no device" (the push text and routing are covered by `ride-stops-change.test.ts`
    and `notifications.test.ts`); the driver's local "Новый заказ" notification did show.
+
+## Operator texts and languages (polish, 2026-10-16)
+
+Texts operators type that riders and drivers read, and what a Russian app gets:
+
+| Text                                                                    | Russian app                                                                                                                                             |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Promo code description                                                  | `description_ru` when written, else the Uzbek text (fixed above)                                                                                        |
+| City names (`cities.name_ru`)                                           | `city.name` of the quote / geocoding payloads follows the request language (both names stay in the payload)                                             |
+| Intercity towns (`intercity_points`)                                    | the apps show `nameRu` in Russian (`townName()` in both apps' `lib/intercity.ts`); push and SMS about a trip name the towns in the recipient's language |
+| Vehicle colour                                                          | a fixed list with a code per colour, shown in the app's language (open issue 1)                                                                         |
+| Intercity meeting point (one text)                                      | **as typed** (Uzbek): one free-text field per town; operators may write it bilingually ("Vokzal / Вокзал")                                              |
+| An operator's cancel reason, complaint answers, a driver's trip comment | **as typed**: free text from the person who wrote it, shown in the summary / push; system reasons are translated                                        |
+| Place names from geocoding                                              | not operator text; unchanged by this work                                                                                                               |
 
 ## Needs the founder
 

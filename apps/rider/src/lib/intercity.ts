@@ -5,10 +5,16 @@
  * GET /config and the trip / booking views; 60 minutes and 30% are the launch defaults).
  */
 import type { BookingStatus, TripStatus } from '../api/types';
+import { getLanguage } from '../i18n/core';
 import { t } from '../i18n/dictionary';
 import { formatDay, formatDistance, formatMoney, formatTime, tashkentDay } from './format';
 
 export const MAX_SEATS = 4;
+
+/** A town of the trip board in the app's language (operators name every town in both). */
+export function townName(p: { nameUz: string; nameRu?: string | null }): string {
+  return (getLanguage() === 'ru' && p.nameRu) || p.nameUz;
+}
 
 export interface SeatPrices {
   rear: number;
@@ -283,8 +289,8 @@ export function boardingHint(view: TripStops & { alongTheWay?: boolean }): strin
 export function alongRouteParams(
   trip: {
     alongTheWay?: boolean;
-    pickup?: { slug: string; nameUz: string };
-    dropoff?: { slug: string; nameUz: string };
+    pickup?: { slug: string; nameUz: string; nameRu?: string | null };
+    dropoff?: { slug: string; nameUz: string; nameRu?: string | null };
     price: SeatPrices;
   } & TripStops,
 ): Record<string, string> {
@@ -293,8 +299,8 @@ export function alongRouteParams(
     along: '1',
     from: trip.pickup.slug,
     to: trip.dropoff.slug,
-    fromName: trip.pickup.nameUz,
-    toName: trip.dropoff.nameUz,
+    fromName: townName(trip.pickup),
+    toName: townName(trip.dropoff),
     rear: String(trip.price.rear),
     front: String(trip.price.front),
     ...(trip.boardingPoint

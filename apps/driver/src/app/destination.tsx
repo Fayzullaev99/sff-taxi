@@ -7,6 +7,7 @@ import { geo } from '../api/driver';
 import { useDriverMe, useIntercityPoints } from '../data/queries';
 import { useT } from '../i18n';
 import { errorMessage } from '../lib/api-client';
+import { townName } from '../lib/intercity';
 import { type Destination, preferencesError } from '../lib/pool';
 import { loadRecentDestinations, rememberDestination, usePreferences } from '../home/preferences';
 import { Banner, Button, Field, Muted, SectionTitle } from '../ui/components';
@@ -171,11 +172,11 @@ export default function DestinationScreen() {
           {(towns.data ?? []).map((t) => (
             <Pressable
               key={t.id}
-              onPress={() => pick({ lat: t.lat, lng: t.lng, address: t.nameUz })}
+              onPress={() => pick({ lat: t.lat, lng: t.lng, address: townName(t) })}
               accessibilityRole="button"
               style={({ pressed }) => [styles.town, pressed && { opacity: 0.7 }]}
             >
-              <Text style={styles.townText}>{t.nameUz}</Text>
+              <Text style={styles.townText}>{townName(t)}</Text>
             </Pressable>
           ))}
         </View>

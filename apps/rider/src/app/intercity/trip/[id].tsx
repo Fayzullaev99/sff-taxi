@@ -18,6 +18,7 @@ import {
   frontSurcharge,
   MAX_SEATS,
   stopLines,
+  townName,
   tripStatusLabel,
 } from '../../../lib/intercity';
 import { OrderAttempts } from '../../../lib/order-attempt';
@@ -130,7 +131,7 @@ export default function TripScreen() {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.head}>
           <T variant="h1" accessibilityRole="header">
-            {trip.from.nameUz} → {trip.to.nameUz}
+            {townName(trip.from)} → {townName(trip.to)}
           </T>
           <T variant="h3">{formatDateTime(trip.departureAt)}</T>
           {along ? (

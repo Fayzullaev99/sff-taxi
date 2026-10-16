@@ -56,6 +56,8 @@ const PromoBody = z
     cityId: z.uuid().nullable().default(null),
     isActive: z.boolean().default(true),
     description: z.string().trim().min(1).max(300).nullable().default(null),
+    /** The same for Russian apps (optional: the Uzbek text is shown without it). */
+    descriptionRu: z.string().trim().min(1).max(300).nullable().default(null),
   })
   .refine((p) => p.kind !== 'percent' || p.value <= 100, {
     message: 'Foiz 1 dan 100 gacha bo‘ladi',

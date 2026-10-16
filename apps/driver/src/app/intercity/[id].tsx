@@ -14,6 +14,7 @@ import {
   alongTheWayText,
   BOOKING_STATUS_TEXT,
   bookingMoney,
+  townName,
   TRIP_STATUS_TEXT,
   tripActions,
   tripEditable,
@@ -207,7 +208,7 @@ export default function TripScreen() {
     >
       <Card>
         <Text style={styles.route}>
-          {x.from.nameUz} → {x.to.nameUz}
+          {townName(x.from)} → {townName(x.to)}
         </Text>
         <Text style={styles.when}>{whenLabel(x.departureAt, now)}</Text>
         <View style={styles.chips}>
@@ -246,7 +247,10 @@ export default function TripScreen() {
             icon="navigate"
             variant="secondary"
             onPress={() =>
-              void navigateTo({ lat: x.from.lat, lng: x.from.lng }, x.meetingPoint ?? x.from.nameUz)
+              void navigateTo(
+                { lat: x.from.lat, lng: x.from.lng },
+                x.meetingPoint ?? townName(x.from),
+              )
             }
           />
         ) : null}

@@ -870,7 +870,9 @@ export interface PromoCodesTable {
   classes: Generated<string[]>;
   city_id: string | null;
   is_active: Generated<boolean>;
+  /** What riders see of the code, in Uzbek (the source), and in Russian when written. */
   description: string | null;
+  description_ru: string | null;
   created_by: string | null;
   created_at: CreatedAt;
   updated_at: Timestamp;

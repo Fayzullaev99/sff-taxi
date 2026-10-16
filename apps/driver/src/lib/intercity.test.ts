@@ -13,6 +13,7 @@ import {
   priceProblem,
   seatsSold,
   stepPrice,
+  townName,
   TRIP_STATUS_TEXT,
   tripActions,
 } from './intercity';
@@ -221,5 +222,16 @@ describe('in Russian', () => {
     });
     expect(lines[0]).toBe('Посадка: Sirdaryo, bozor · примерно в 08:50');
     expect(lines[1]).toMatch(/^Его участок: 85[,.]7 км$/);
+  });
+});
+
+describe('town names', () => {
+  it('names a town in the app’s language, Uzbek when no Russian name is set', () => {
+    const town = { nameUz: 'Guliston', nameRu: 'Гулистан' };
+    expect(townName(town)).toBe('Guliston');
+    setLanguage('ru');
+    expect(townName(town)).toBe('Гулистан');
+    expect(townName({ nameUz: 'Boyovut', nameRu: null })).toBe('Boyovut');
+    setLanguage('uz');
   });
 });

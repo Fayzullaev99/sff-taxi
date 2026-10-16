@@ -31,6 +31,7 @@ const PROMO: AdminPromo = {
   cityId: null,
   isActive: true,
   description: 'Kuzgi aksiya',
+  descriptionRu: 'Осенняя акция',
   createdAt: '2026-09-30T10:00:00.000Z',
   updatedAt: '2026-09-30T10:00:00.000Z',
   stats: { redeemed: 12, reserved: 3, discountTotal: 54_000, saved: 40 },
@@ -67,7 +68,10 @@ describe('promo codes in the panel', () => {
       validUntil: '2026-11-01T00:00:00.000Z',
       cityId: null,
       description: 'Kuzgi aksiya',
+      descriptionRu: 'Осенняя акция',
     });
+    // no Russian wording: null, the apps fall back to the Uzbek text
+    expect(formToBody({ ...form, descriptionRu: '  ' }).descriptionRu).toBeNull();
     // a fixed amount has no cap
     expect(formToBody({ ...form, kind: 'fixed', value: 3000 }).maxDiscount).toBeNull();
   });

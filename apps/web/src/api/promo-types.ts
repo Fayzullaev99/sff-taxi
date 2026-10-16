@@ -29,7 +29,9 @@ export interface AdminPromo {
   classes: string[];
   cityId: string | null;
   isActive: boolean;
+  /** What riders see of the code: Uzbek, and Russian when written (the Uzbek text otherwise). */
   description: string | null;
+  descriptionRu: string | null;
   createdAt: string;
   updatedAt: string;
   stats: PromoStats;
@@ -69,6 +71,7 @@ export interface PromoBody {
   cityId: string | null;
   isActive: boolean;
   description: string | null;
+  descriptionRu: string | null;
 }
 
 export type ReferralStatus = 'pending' | 'rewarded' | 'capped' | 'revoked';

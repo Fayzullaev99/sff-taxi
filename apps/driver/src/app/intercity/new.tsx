@@ -24,6 +24,7 @@ import {
   parseTime,
   priceProblem,
   stepPrice,
+  townName,
   tripEditable,
   tripEdits,
 } from '../../lib/intercity';
@@ -249,7 +250,7 @@ export default function NewTrip() {
       {trip ? (
         <Card>
           <Text style={styles.route}>
-            {trip.from.nameUz} → {trip.to.nameUz}
+            {townName(trip.from)} → {townName(trip.to)}
           </Text>
           <Muted>{t('intercity.new.routeLocked')}</Muted>
           {locked ? (
@@ -260,7 +261,7 @@ export default function NewTrip() {
         <>
           <SectionTitle>{t('intercity.new.from')}</SectionTitle>
           <Choice
-            options={towns.map((p) => ({ value: p.slug, label: p.nameUz }))}
+            options={towns.map((p) => ({ value: p.slug, label: townName(p) }))}
             selected={from ? [from] : []}
             onToggle={(v) => {
               setFrom(v);
@@ -270,7 +271,7 @@ export default function NewTrip() {
           />
           <SectionTitle>{t('intercity.new.to')}</SectionTitle>
           <Choice
-            options={towns.map((p) => ({ value: p.slug, label: p.nameUz }))}
+            options={towns.map((p) => ({ value: p.slug, label: townName(p) }))}
             selected={to ? [to] : []}
             disabled={(v) => v === from}
             onToggle={(v) => {

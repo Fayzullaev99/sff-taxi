@@ -12,7 +12,13 @@ import { useIntercityPoints, useIntercityTrips } from '../../api/queries';
 import type { IntercityPoint, IntercityTrip } from '../../api/types';
 import { useT } from '../../i18n';
 import { formatDistance, formatMoney, formatTime } from '../../lib/format';
-import { MAX_SEATS, searchDates, alongRouteParams, boardingHint } from '../../lib/intercity';
+import {
+  MAX_SEATS,
+  searchDates,
+  alongRouteParams,
+  boardingHint,
+  townName,
+} from '../../lib/intercity';
 import { Banner, Button, Chip, Icon, IconButton, RadioMark, Stepper, T } from '../../ui/primitives';
 import { formatRating } from '../../ui/Rating';
 import { Sheet } from '../../ui/Sheet';
@@ -206,7 +212,7 @@ export default function IntercityScreen() {
                   style={({ pressed }) => [styles.townRow, pressed ? styles.pressed : null]}
                 >
                   <View style={styles.flex}>
-                    <T variant="bodyStrong">{p.nameUz}</T>
+                    <T variant="bodyStrong">{townName(p)}</T>
                     <T variant="small" color={colors.textMuted} numberOfLines={1}>
                       {p.meetingPoint}
                     </T>
@@ -237,7 +243,7 @@ function TownField({
       accessibilityRole="button"
       accessibilityLabel={t('intercity.board.townA11y', {
         field,
-        town: point?.nameUz ?? t('intercity.board.notChosen'),
+        town: (point && townName(point)) ?? t('intercity.board.notChosen'),
       })}
       onPress={onPress}
       style={({ pressed }) => [styles.townField, pressed ? styles.pressed : null]}
@@ -246,7 +252,7 @@ function TownField({
         {kind === 'from' ? t('intercity.board.fromLabel') : t('intercity.board.toLabel')}
       </T>
       <T variant="bodyStrong" color={point ? colors.text : colors.placeholder}>
-        {point?.nameUz ?? t('intercity.board.chooseTown')}
+        {(point && townName(point)) ?? t('intercity.board.chooseTown')}
       </T>
     </Pressable>
   );
@@ -276,13 +282,13 @@ function TripCard({ trip, onPress }: { trip: IntercityTrip; onPress: () => void 
         <T variant="h2">{formatTime(trip.departureAt)}</T>
         <View style={styles.flex}>
           <T variant="bodyStrong" numberOfLines={1}>
-            {trip.from.nameUz} → {trip.to.nameUz}
+            {townName(trip.from)} → {townName(trip.to)}
           </T>
           {trip.alongTheWay && trip.pickup && trip.dropoff ? (
             <T variant="smallStrong" color={colors.brandText} numberOfLines={2}>
               {t('intercity.board.alongLine', {
-                from: trip.pickup.nameUz,
-                to: trip.dropoff.nameUz,
+                from: townName(trip.pickup),
+                to: townName(trip.dropoff),
               })}
             </T>
           ) : null}

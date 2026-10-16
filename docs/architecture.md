@@ -300,7 +300,9 @@ public, so it is only sanity-checked; verifying it against the Ministry of Trans
 
 - **Promo codes** are made by operators (`admin/promos`): a percent (capped) or a fixed
   amount, a minimum fare, valid from/until, a total and a per-rider limit, first ride only,
-  services, classes, a city, on/off, a description riders see. Codes are upper-case; riders
+  services, classes, a city, on/off, a description riders see (Uzbek, and a Russian one
+  since migration 0028: the API answers in the request's language, falling back to the
+  Uzbek text; the panel's "Tavsif (ruscha)"). Codes are upper-case; riders
   type them in any case into one box (profile or order screen), which also takes a friend's
   invitation code. A saved code is applied by the quote: per class the best one (or the
   invitation's welcome discount), with the reason when it does not fit (class, service,
@@ -405,7 +407,12 @@ entry. The operator panel sends `uz` and stays Uzbek. The account remembers its 
 sign-in language for a new account), so the worker writes SMS in the recipient's language
 (phone orders, passengers, parcel recipients, intercity bookings; operators' SOS stays Uzbek)
 and the OTP SMS uses `SMS_OTP_TEMPLATE_RU` for Russian apps. Push follows the device's
-registered language, which the app re-registers on a switch.
+registered language, which the app re-registers on a switch. Operator-entered texts riders
+read: a promo code's description has a Russian twin (`description_ru`, the Uzbek text as the
+fallback), cities and intercity towns carry `name_uz` / `name_ru` (the apps pick by language,
+`city.name` follows the request, trip push/SMS name the towns in the recipient's language),
+a car's colour is a code shown in each language (§7); a meeting point, an operator's cancel
+reason and a driver's trip comment stay as typed.
 
 ## 11. Intercity trip board (MA §6.4)
 

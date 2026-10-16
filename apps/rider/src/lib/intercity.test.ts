@@ -3,6 +3,7 @@ import { setLanguage } from '../i18n/dictionary';
 import {
   alongParams,
   alongRouteParams,
+  townName,
   boardingHint,
   bookingCancelledText,
   bookingCancelTerms,
@@ -325,5 +326,17 @@ describe('in Russian', () => {
       'Завтра',
       '30 сентября',
     ]);
+  });
+});
+
+describe('town names', () => {
+  it('names a town in the app’s language, Uzbek when no Russian name is set', () => {
+    const town = { nameUz: 'Guliston', nameRu: 'Гулистан' };
+    expect(townName(town)).toBe('Guliston');
+    setLanguage('ru');
+    expect(townName(town)).toBe('Гулистан');
+    expect(townName({ nameUz: 'Boyovut', nameRu: null })).toBe('Boyovut');
+    expect(townName({ nameUz: 'Boyovut' })).toBe('Boyovut');
+    setLanguage('uz');
   });
 });

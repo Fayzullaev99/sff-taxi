@@ -13,6 +13,7 @@ import { Database, type Tx } from '../../core/db/database.js';
 import { containsPattern } from '../../core/db/like.js';
 import type { PromoCodesTable, ReferralStatus, RidesTable } from '../../core/db/schema.js';
 import { msg } from '../../core/http/messages.js';
+import { currentLanguage } from '../../core/i18n/language.js';
 import { emit } from '../../core/outbox/outbox.js';
 import { type Limit, RateLimiter } from '../../core/redis/rate-limiter.js';
 import { tashkentMonth } from '../../lib/commission.js';
@@ -53,7 +54,14 @@ export interface PromoInput {
   classes: string[];
   cityId: string | null;
   isActive: boolean;
+  /** What riders see of the code: Uzbek, and Russian when the operator wrote it. */
   description: string | null;
+  descriptionRu: string | null;
+}
+
+/** The description for the person behind the request: Russian when written, else Uzbek. */
+function describe(p: Pick<PromoRow, 'description' | 'description_ru'>): string | null {
+  return (currentLanguage() === 'ru' && p.description_ru) || p.description;
 }
 
 /** What a discount is for: one class of a quote, or the ride being ordered. */
@@ -1233,7 +1241,7 @@ export class PromosService {
       }
       if (!best || d.discount > best.amount) {
         best = {
-          choice: { id: p.id, source: 'code', code: p.code, description: p.description },
+          choice: { id: p.id, source: 'code', code: p.code, description: describe(p) },
           amount: d.discount,
         };
       }
@@ -1301,6 +1309,7 @@ export class PromosService {
       city_id: i.cityId,
       is_active: i.isActive,
       description: i.description,
+      description_ru: i.descriptionRu,
     };
   }
 
@@ -1317,13 +1326,16 @@ export class PromosService {
       firstRideOnly: p.first_ride_only,
       services: p.services,
       classes: p.classes,
-      description: p.description,
+      description: describe(p),
     };
   }
 
+  /** Operators (the panel is Uzbek) see both descriptions as written. */
   private adminPromo(p: PromoRow) {
     return {
       ...this.publicPromo(p),
+      description: p.description,
+      descriptionRu: p.description_ru,
       validFrom: p.valid_from,
       usageLimit: p.usage_limit,
       perRiderLimit: p.per_rider_limit,

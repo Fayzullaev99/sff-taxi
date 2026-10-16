@@ -4,6 +4,7 @@ import { Database } from '../../core/db/database.js';
 import type { OutboxEvent, OutboxHandler } from '../../core/outbox/handler.js';
 import { formatPlate } from '../../lib/driver-rules.js';
 import { intercityPush, intercitySms, type TripText } from './intercity-messages.js';
+import type { Locale } from './messages.js';
 import { Notifier } from './notifier.js';
 
 /**
@@ -51,7 +52,6 @@ export class IntercityNotificationsHandler implements OutboxHandler {
       .where('id', '=', bookingId)
       .executeTakeFirst();
     if (!b) return;
-    const text = trip.text;
     if (status === 'booked') {
       await this.notifier.push({
         key,
@@ -59,7 +59,7 @@ export class IntercityNotificationsHandler implements OutboxHandler {
         rideId: null,
         userId: trip.driverId,
         app: 'driver',
-        text: (l) => intercityPush.newBooking(l, text, b.seats, b.price),
+        text: (l) => intercityPush.newBooking(l, trip.text(l), b.seats, b.price),
         data: { tripId: trip.id, bookingId: b.id },
       });
       if (by === 'payment') {
@@ -70,11 +70,12 @@ export class IntercityNotificationsHandler implements OutboxHandler {
           rideId: null,
           userId: b.rider_id,
           app: 'rider',
-          text: (l) => intercityPush.depositPaid(l, text, b.price - b.deposit_amount),
+          text: (l) => intercityPush.depositPaid(l, trip.text(l), b.price - b.deposit_amount),
           data: { tripId: trip.id, bookingId: b.id },
         });
       }
       if (b.channel === 'phone' && this.env.NOTIFY_SMS_PHONE_ORDERS) {
+        const l = await this.notifier.localeOfUser(b.rider_id);
         await this.notifier.sms({
           key,
           kind: 'intercity_booked',
@@ -82,9 +83,9 @@ export class IntercityNotificationsHandler implements OutboxHandler {
           userId: b.rider_id,
           phone: b.rider_phone,
           text: intercitySms.booked(
-            await this.notifier.localeOfUser(b.rider_id),
+            l,
             b.number,
-            text,
+            trip.text(l),
             b.seats,
             b.price,
             trip.driverPhone,
@@ -102,7 +103,7 @@ export class IntercityNotificationsHandler implements OutboxHandler {
         rideId: null,
         userId: b.rider_id,
         app: 'rider',
-        text: (l) => intercityPush.unpaidCancelled(l, text),
+        text: (l) => intercityPush.unpaidCancelled(l, trip.text(l)),
         data: { tripId: trip.id, bookingId: b.id },
       });
       return;
@@ -119,7 +120,7 @@ export class IntercityNotificationsHandler implements OutboxHandler {
         rideId: null,
         userId: trip.driverId,
         app: 'driver',
-        text: (l) => intercityPush.bookingCancelled(l, text, b.seats),
+        text: (l) => intercityPush.bookingCancelled(l, trip.text(l), b.seats),
         data: { tripId: trip.id, bookingId: b.id },
       });
     }
@@ -149,8 +150,8 @@ export class IntercityNotificationsHandler implements OutboxHandler {
         app: 'rider',
         text: (l) =>
           to === 'boarding'
-            ? intercityPush.boarding(l, trip.text)
-            : intercityPush.tripCancelled(l, trip.text, trip.cancelReason),
+            ? intercityPush.boarding(l, trip.text(l))
+            : intercityPush.tripCancelled(l, trip.text(l), trip.cancelReason),
         data: { tripId: trip.id, bookingId: b.id },
       });
       if (b.channel === 'phone' && this.env.NOTIFY_SMS_PHONE_ORDERS) {
@@ -160,19 +161,13 @@ export class IntercityNotificationsHandler implements OutboxHandler {
           rideId: null,
           userId: b.rider_id,
           phone: b.rider_phone,
-          text:
-            to === 'boarding'
-              ? intercitySms.boarding(
-                  await this.notifier.localeOfUser(b.rider_id),
-                  b.number,
-                  trip.text,
-                )
-              : intercitySms.cancelled(
-                  await this.notifier.localeOfUser(b.rider_id),
-                  b.number,
-                  trip.text,
-                  trip.cancelReason,
-                ),
+          text: await this.notifier
+            .localeOfUser(b.rider_id)
+            .then((l) =>
+              to === 'boarding'
+                ? intercitySms.boarding(l, b.number, trip.text(l))
+                : intercitySms.cancelled(l, b.number, trip.text(l), trip.cancelReason),
+            ),
         });
       }
     }
@@ -193,20 +188,23 @@ export class IntercityNotificationsHandler implements OutboxHandler {
         't.meeting_point',
         't.vehicle',
         't.cancel_reason',
-        'a.name_uz as from',
-        'b.name_uz as to',
+        'a.name_uz as from_uz',
+        'a.name_ru as from_ru',
+        'b.name_uz as to_uz',
+        'b.name_ru as to_ru',
         'u.phone as driver_phone',
       ])
       .where('t.id', '=', tripId)
       .executeTakeFirst();
     if (!t) return null;
-    const text: TripText = {
+    // the towns in the recipient's language (the meeting point is the operator's text)
+    const text = (l: Locale): TripText => ({
       number: t.number,
-      from: t.from,
-      to: t.to,
+      from: l === 'ru' ? t.from_ru : t.from_uz,
+      to: l === 'ru' ? t.to_ru : t.to_uz,
       departureAt: t.departure_at,
       meetingPoint: t.meeting_point,
-    };
+    });
     return {
       id: t.id,
       status: t.status,

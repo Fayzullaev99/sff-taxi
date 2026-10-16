@@ -3,6 +3,7 @@ import type { Selectable } from 'kysely';
 import { z } from 'zod';
 import { Database, type Tx } from '../../core/db/database.js';
 import type { CitiesTable } from '../../core/db/schema.js';
+import { currentLanguage } from '../../core/i18n/language.js';
 import {
   type BBox,
   bboxOf,
@@ -73,7 +74,8 @@ export function publicCity(c: City) {
   return {
     id: c.id,
     slug: c.slug,
-    name: c.nameUz,
+    /** The name in the request's language (both are there for screens that choose). */
+    name: currentLanguage() === 'ru' ? c.nameRu : c.nameUz,
     nameUz: c.nameUz,
     nameRu: c.nameRu,
     center: c.center,

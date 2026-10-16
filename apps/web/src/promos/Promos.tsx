@@ -456,6 +456,21 @@ function PromoEditor({ promo, onClose }: { promo: AdminPromo | null; onClose: ()
             />
           )}
         </Field>
+        <Field
+          label="Tavsif (ruscha)"
+          hint="Ruscha ilovada shu ko‘rinadi; bo‘sh qolsa — o‘zbekcha izoh"
+          error={err('descriptionRu')}
+        >
+          {(p) => (
+            <input
+              {...p}
+              value={form.descriptionRu}
+              maxLength={300}
+              placeholder="Например: Осенняя акция — скидка 20%"
+              onChange={(e) => set('descriptionRu', e.target.value)}
+            />
+          )}
+        </Field>
       </div>
     </Modal>
   );

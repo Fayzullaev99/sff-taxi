@@ -17,6 +17,7 @@ import {
   bookingStatusLabel,
   cancelRulesFrom,
   stopLines,
+  townName,
   tripStatusLabel,
 } from '../../../lib/intercity';
 import { useNow } from '../../../lib/hooks';
@@ -103,7 +104,7 @@ export default function BookingScreen() {
     >
       <View style={styles.head}>
         <T variant="h1" accessibilityRole="header">
-          {trip.from.nameUz} → {trip.to.nameUz}
+          {townName(trip.from)} → {townName(trip.to)}
         </T>
         <T variant="h3">{formatDateTime(trip.departureAt)}</T>
         <T variant="smallStrong" color={b.status === 'booked' ? colors.success : colors.textMuted}>
@@ -180,7 +181,7 @@ export default function BookingScreen() {
         {b.alongTheWay && b.pickup && b.dropoff ? (
           <KeyValue
             label={t('intercity.booking.alongTheWay')}
-            value={`${b.pickup.nameUz} → ${b.dropoff.nameUz}`}
+            value={`${townName(b.pickup)} → ${townName(b.dropoff)}`}
           />
         ) : null}
         {stopLines(b, trip).map((line) => (

@@ -99,6 +99,46 @@ describe('rider promo codes, referrals and ride credit', () => {
       .execute();
 
   describe('promo codes', () => {
+    it('describes a code in the app’s language: Russian when written, else the Uzbek text', async () => {
+      const both = await promo({ descriptionRu: 'Осенняя акция' });
+      // a smaller discount: the quote picks `both`
+      const uzOnly = await promo({ value: 10 });
+      const rider = await signIn(app);
+      const http = api(app, rider.accessToken);
+      await http.post('/v1/promos').send({ code: both.code }).expect(200);
+      await http.post('/v1/promos').send({ code: uzOnly.code }).expect(200);
+      const byCode = (wallet: { promos: { code: string; description: string | null }[] }) =>
+        Object.fromEntries(wallet.promos.map((p) => [p.code, p.description]));
+
+      const ru = await http.get('/v1/promos').set('Accept-Language', 'ru').expect(200);
+      expect(byCode(ru.body)).toEqual({
+        [both.code]: 'Осенняя акция',
+        [uzOnly.code]: 'Kuzgi aksiya',
+      });
+      const uz = await http.get('/v1/promos').set('Accept-Language', 'uz').expect(200);
+      expect(byCode(uz.body)).toEqual({
+        [both.code]: 'Kuzgi aksiya',
+        [uzOnly.code]: 'Kuzgi aksiya',
+      });
+      // the quote names the code it applies the same way
+      const q = await api(app, rider.accessToken)
+        .post('/v1/rides/quote')
+        .set('Accept-Language', 'ru')
+        .send({ pickup: GULISTON, dropoff: MID })
+        .expect(200);
+      expect(q.body.discounts.classes.economy.promo.description).toBe('Осенняя акция');
+
+      // operators (the panel is Uzbek) see both as written and may edit either
+      const listed = (await admin.get(`/v1/admin/promos/${both.id}`).expect(200)).body;
+      expect(listed).toMatchObject({ description: 'Kuzgi aksiya', descriptionRu: 'Осенняя акция' });
+      await admin
+        .patch(`/v1/admin/promos/${both.id}`)
+        .send({ ...listed, descriptionRu: null })
+        .expect(200);
+      const after = await http.get('/v1/promos').set('Accept-Language', 'ru').expect(200);
+      expect(byCode(after.body)[both.code]).toBe('Kuzgi aksiya');
+    });
+
     it('saves a code typed in any case, shows the discount on the quote, keeps the driver whole', async () => {
       const p = await promo();
       const rider = await signIn(app);

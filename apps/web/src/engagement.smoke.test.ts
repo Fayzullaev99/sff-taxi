@@ -37,6 +37,7 @@ const promo: AdminPromo = {
   cityId: null,
   isActive: true,
   description: 'Kuzgi aksiya',
+  descriptionRu: null,
   createdAt: '2026-10-01T10:00:00.000Z',
   updatedAt: '2026-10-01T10:00:00.000Z',
   stats: { redeemed: 12, reserved: 2, discountTotal: 16_800, saved: 30 },
@@ -270,6 +271,11 @@ describe('promo codes and referrals in the panel', () => {
     const value = dialog.querySelectorAll<HTMLInputElement>('input[inputmode="numeric"]')[0]!;
     await typeInto(value, '5000');
     await click(button('Komfort'));
+    // the Russian wording riders of Russian apps see (the Uzbek one is optional too)
+    const ru = [...dialog.querySelectorAll('label')].find(
+      (l) => l.textContent === 'Tavsif (ruscha)',
+    )!;
+    await typeInto(document.getElementById(ru.htmlFor) as HTMLInputElement, 'Новичкам 5 000');
     await click(button('Saqlash'));
     const [post] = sent('/v1/admin/promos', 'POST');
     expect(post?.body).toMatchObject({
@@ -279,6 +285,8 @@ describe('promo codes and referrals in the panel', () => {
       maxDiscount: null,
       classes: ['comfort'],
       isActive: true,
+      description: null,
+      descriptionRu: 'Новичкам 5 000',
     });
   });
 

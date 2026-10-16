@@ -6,7 +6,7 @@ import { useDriverMe, useTripHistory, useUpcomingTrips } from '../../data/querie
 import { useT } from '../../i18n';
 import { errorMessage } from '../../lib/api-client';
 import { som } from '../../lib/format';
-import { seatsSold, TRIP_STATUS_TEXT } from '../../lib/intercity';
+import { seatsSold, townName, TRIP_STATUS_TEXT } from '../../lib/intercity';
 import { whenLabel } from '../../lib/when';
 import {
   Banner,
@@ -131,7 +131,7 @@ function TripRow(props: { trip: DriverTrip; onPress: () => void }) {
     >
       <View style={{ flex: 1, gap: 4 }}>
         <Text style={styles.route} numberOfLines={1}>
-          {trip.from.nameUz} → {trip.to.nameUz}
+          {townName(trip.from)} → {townName(trip.to)}
         </Text>
         <Text style={styles.when}>{whenLabel(trip.departureAt, Date.now())}</Text>
         <View style={styles.chips}>

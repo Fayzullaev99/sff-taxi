@@ -5,7 +5,7 @@ import { useLiveRides } from '../../api/realtime';
 import type { IntercityBooking } from '../../api/types';
 import { useT } from '../../i18n';
 import { formatDateTime, formatMoney } from '../../lib/format';
-import { bookingStatusLabel } from '../../lib/intercity';
+import { bookingStatusLabel, townName } from '../../lib/intercity';
 import { Icon, PressableRow, T } from '../../ui/primitives';
 import { EmptyView, ErrorView, LoadingView } from '../../ui/states';
 import { colors, radius, space } from '../../ui/theme';
@@ -76,8 +76,8 @@ function BookingRow({ booking }: { booking: IntercityBooking }) {
         router.push({ pathname: '/intercity/booking/[id]', params: { id: booking.id } })
       }
       accessibilityLabel={t('intercity.bookings.rowA11y', {
-        from: trip.from.nameUz,
-        to: trip.to.nameUz,
+        from: townName(trip.from),
+        to: townName(trip.to),
         when: formatDateTime(trip.departureAt),
         status,
       })}
@@ -87,7 +87,7 @@ function BookingRow({ booking }: { booking: IntercityBooking }) {
       </View>
       <View style={styles.flex}>
         <T variant="bodyStrong" numberOfLines={1}>
-          {trip.from.nameUz} → {trip.to.nameUz}
+          {townName(trip.from)} → {townName(trip.to)}
         </T>
         <T variant="small" color={colors.textMuted}>
           {formatDateTime(trip.departureAt)} ·{' '}

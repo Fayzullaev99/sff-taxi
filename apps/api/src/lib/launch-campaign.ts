@@ -41,6 +41,7 @@ export const LAUNCH_CAMPAIGN: LaunchCampaign = {
     cityId: null,
     isActive: true,
     description: 'Ochilish aksiyasi: birinchi safarga 50% chegirma (10 000 so‘mgacha)',
+    descriptionRu: 'Акция к открытию: скидка 50% на первую поездку (до 10 000 сум)',
   },
   referral: {
     referral_enabled: true,
