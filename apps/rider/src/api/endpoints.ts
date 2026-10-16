@@ -33,6 +33,7 @@ import type {
   SavedPlace,
   ShareLink,
   SosResult,
+  StopsPreview,
   TariffInfo,
   TokenPair,
   CreatedUpload,
@@ -140,6 +141,25 @@ export const endpoints = {
     api.request<Ride>(`/v1/rides/${id(rideId)}/cancel`, { method: 'POST', body: { reason } }),
   share: (rideId: string) =>
     api.request<ShareLink>(`/v1/rides/${id(rideId)}/share`, { method: 'POST', body: {} }),
+  /** The price of the ride with other intermediate stops (nothing changes yet). */
+  previewStops: (rideId: string, stops: readonly LatLng[]) =>
+    api.request<StopsPreview>(`/v1/rides/${id(rideId)}/stops/preview`, {
+      method: 'POST',
+      body: { stops: stops.map((s) => ({ lat: s.lat, lng: s.lng })) },
+    }),
+  /** Changes the stops at the price the preview showed (409 `price_changed` when it moved). */
+  changeStops: (
+    rideId: string,
+    stops: readonly (LatLng & { address: string | null })[],
+    confirmTotal: number,
+  ) =>
+    api.request<Ride>(`/v1/rides/${id(rideId)}/stops`, {
+      method: 'PUT',
+      body: {
+        stops: stops.map((s) => ({ lat: s.lat, lng: s.lng, address: s.address, landmark: null })),
+        confirmTotal,
+      },
+    }),
   rate: (rideId: string, input: RatingInput) =>
     api.request<{ rideId: string; stars: number }>(`/v1/rides/${id(rideId)}/rating`, {
       method: 'POST',

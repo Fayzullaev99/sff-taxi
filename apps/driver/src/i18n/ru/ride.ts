@@ -226,6 +226,15 @@ export const ride: Shape<typeof uz> = {
     passed: 'пройдено',
     mapPoint: 'Точка на карте',
     landmark: 'Ориентир: {landmark}',
+    changedTitle: 'Пассажир изменил остановки',
+    changedCount: {
+      one: 'Теперь {count} остановка.',
+      few: 'Теперь {count} остановки.',
+      many: 'Теперь {count} остановок.',
+      other: 'Теперь {count} остановок.',
+    },
+    changedNone: 'Остановок больше нет.',
+    changedCash: 'Наличными с пассажира: {amount}. Список маршрута обновлён.',
   },
   tips: {
     cash: 'Пассажир даёт {amount} чаевых (наличными)',

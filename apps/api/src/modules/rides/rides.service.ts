@@ -59,6 +59,12 @@ import {
 import { depositAmount } from '../../lib/deposit.js';
 import { MAX_PASSENGERS, REAR_SEATS_MAX } from '../../lib/pool.js';
 import {
+  mergeStops,
+  nextStopIndex,
+  stopsChangeAllowed,
+  stopsChangeCheck,
+} from '../../lib/stop-changes.js';
+import {
   CLASS_INFO,
   carCanServe,
   classLabel,
@@ -1869,6 +1875,205 @@ export class RidesService {
     await emit(trx, 'ride.changed', { rideId: ride.id });
   }
 
+  // Intermediate stops after the order ------------------------------------------------
+
+  /**
+   * The price of the ride with other intermediate stops, nothing changed yet: the rider
+   * confirms it before PUT. The same fare logic as the quote on the ride's own tariff
+   * snapshot and the night state of its order time (only the road changes); a route's
+   * fixed car price comes back when the last stop goes. The reserved discount is figured
+   * again by the same rules (the preview says when the code drops out).
+   */
+  async previewStops(user: AuthUser, rideId: string, stops: Point[], now = new Date()) {
+    const ride = await this.findRide(rideId);
+    if (ride.rider_id !== user.userId) throw new NotFoundException('Buyurtma topilmadi');
+    this.assertStopsChange(ride, stops);
+    const priced = await this.repriceStops(ride, stops);
+    const discount = await this.promos.reprice(
+      this.db.kysely,
+      ride.id,
+      this.discountTarget(ride, priced.fare.total),
+      { dryRun: true },
+      now,
+    );
+    return this.stopsChangeView(ride, priced, discount);
+  }
+
+  /**
+   * Changes the ride's intermediate stops at the price the preview showed (409 when the
+   * price moved meanwhile: the rider confirms again). The stops the car already reached
+   * stay; the fare, the distance and the reserved discount follow; the driver is told
+   * (realtime and push) and every screen refetches.
+   */
+  async changeStops(
+    user: AuthUser,
+    rideId: string,
+    input: {
+      stops: (Point & { address: string | null; landmark: string | null })[];
+      confirmTotal: number;
+    },
+    now = new Date(),
+  ) {
+    await this.db.transaction(async (trx) => {
+      const ride = await this.lockRide(trx, rideId);
+      if (ride.rider_id !== user.userId) throw new NotFoundException('Buyurtma topilmadi');
+      this.assertStopsChange(ride, input.stops);
+      const priced = await this.repriceStops(ride, input.stops);
+      if (priced.fare.total !== input.confirmTotal) {
+        throw new ConflictException({
+          message: 'Narx o‘zgardi: yangi narxni qayta ko‘rib tasdiqlang',
+          reason: 'price_changed',
+          total: priced.fare.total,
+        });
+      }
+      if (priced.fare.total < ride.deposit_amount) {
+        throw new ConflictException(
+          'Yangi narx oldindan to‘langan depozitdan kam: bekor qilib qayta buyurtma bering',
+        );
+      }
+      const discount = await this.promos.reprice(
+        trx,
+        ride.id,
+        this.discountTarget(ride, priced.fare.total),
+        { dryRun: false },
+        now,
+      );
+      const stops = mergeStops(ride.stops, input.stops);
+      await trx
+        .updateTable('rides')
+        .set({
+          stops: JSON.stringify(stops),
+          fare: JSON.stringify(priced.fare),
+          fare_quoted: priced.fare.total,
+          kind: priced.fare.kind,
+          distance_m: priced.route.distanceM,
+          duration_s: priced.route.durationS === null ? null : Math.round(priced.route.durationS),
+          route_fare_id: priced.fare.fixed?.routeFareId ?? null,
+          updated_at: now,
+        })
+        .where('id', '=', ride.id)
+        .execute();
+      await this.event(trx, ride.id, 'stops_changed', 'rider', user.userId, {
+        stops: stops.length,
+        before: ride.stops.length,
+        fareBefore: ride.fare_quoted,
+        fareAfter: priced.fare.total,
+        ...(discount
+          ? { discountBefore: discount.before, discountAfter: discount.after.total }
+          : {}),
+      });
+      // the driver's screen and push, the rider's and operators' screens (no status change)
+      await emit(trx, 'ride.stops_changed', {
+        rideId: ride.id,
+        driverId: ride.driver_id,
+        stops: stops.length,
+        fare: priced.fare.total,
+      });
+    });
+    return this.riderView(user, rideId);
+  }
+
+  private assertStopsChange(ride: Ride, stops: Point[]): void {
+    const refusal = stopsChangeCheck(ride, stops);
+    switch (refusal) {
+      case null:
+        return;
+      case 'service':
+        throw new BadRequestException('Oraliq manzil faqat taksi safarida o‘zgartiriladi');
+      case 'shared':
+        throw new BadRequestException('Hamroh bilan safarda oraliq manzil bo‘lmaydi');
+      case 'card':
+        throw new ConflictException(
+          'Karta orqali to‘langan safarda manzillar o‘zgarmaydi: bekor qilib qayta buyurtma bering, pul to‘liq qaytariladi',
+        );
+      case 'status':
+        throw new ConflictException('Bu bosqichda manzillar o‘zgarmaydi');
+      case 'locked':
+        throw new ConflictException('Mashina yetib borgan oraliq manzil o‘zgarmaydi');
+      case 'too_many':
+        throw new BadRequestException(msg('Oraliq manzillar {0} tadan ko‘p bo‘lmaydi', MAX_STOPS));
+      case 'unchanged':
+        throw new BadRequestException('Oraliq manzillar o‘zgarmadi');
+    }
+  }
+
+  /** The ride priced again through other stops: its tariff snapshot, class and options. */
+  private async repriceStops(ride: Ride, stops: Point[]) {
+    const pickup = { lat: ride.pickup_lat, lng: ride.pickup_lng };
+    const dropoff = { lat: ride.dropoff_lat, lng: ride.dropoff_lng };
+    const [city, route, match] = await Promise.all([
+      this.geo.city(ride.city_id),
+      stops.length
+        ? this.routing.via([pickup, ...stops, dropoff])
+        : this.routing.route(pickup, dropoff),
+      // a fixed route price is the price between two towns: never with stops
+      stops.length ? null : this.routes.match(pickup, dropoff),
+    ]);
+    const rideClass = ride.class as RideClass;
+    let fare = computeFare(
+      {
+        pickup,
+        dropoff,
+        roadM: route.distanceM,
+        boundary: city.boundary,
+        rideClass,
+        options: ride.options as RideOption[],
+        // the night add-on stays as it was ordered: the time the ride was priced for
+        at: this.calendar.at(ride.scheduled_for ?? ride.requested_at),
+        stops,
+      },
+      this.tariffOf(ride),
+    );
+    const p = match?.prices[rideClass];
+    if (p?.car) {
+      fare = fixedFare(fare, { routeFareId: p.id, mode: 'car', price: p.car, passengers: 1 });
+    }
+    return { fare, route };
+  }
+
+  private discountTarget(ride: Ride, fare: number) {
+    return { cityId: ride.city_id, service: ride.service, rideClass: ride.class, fare };
+  }
+
+  private stopsChangeView(
+    ride: Ride,
+    priced: Awaited<ReturnType<RidesService['repriceStops']>>,
+    discount: Awaited<ReturnType<PromosService['reprice']>>,
+  ) {
+    const discountBefore = discount?.before ?? 0;
+    const discountAfter = discount?.after.total ?? 0;
+    const tariff = this.tariffOf(ride);
+    return {
+      stops: priced.fare.stops?.count ?? 0,
+      distanceM: priced.route.distanceM,
+      durationS: priced.route.durationS === null ? null : Math.round(priced.route.durationS),
+      fare: {
+        before: ride.fare_quoted,
+        after: priced.fare.total,
+        breakdown: priced.fare,
+      },
+      /** The rider's discount before and after (null: none on this ride). */
+      discount: discount
+        ? {
+            before: discountBefore,
+            after: discountAfter,
+            promo: discount.after.promo,
+            credit: discount.after.credit,
+            /** Why the code no longer applies (it dropped out), else null. */
+            note: discount.note,
+          }
+        : null,
+      /** What the rider pays for the trip before and after (before waiting and owed fees). */
+      pays: {
+        before: ride.fare_quoted - ride.pool_discount - discountBefore,
+        after: priced.fare.total - discountAfter,
+      },
+      deposit: ride.deposit_amount,
+      waiting: ride.waiting_fee,
+      stopRules: stopsBlock([], tariff).stopRules,
+    };
+  }
+
   /**
    * Arrived at the destination: the rider pays the quoted fare plus paid waiting (cash to
    * the driver), and the ride's tax and commission are debited from the driver's balance.
@@ -2596,6 +2801,8 @@ export class RidesService {
       startPin: isOpen(ride.status) ? ride.start_pin : null,
       car,
       ...progress,
+      // the rider may still change the intermediate stops (a cash taxi ride that is on)
+      canChangeStops: stopsChangeAllowed(ride) === null,
       events,
     };
   }
@@ -2617,7 +2824,7 @@ export class RidesService {
    */
   private async carProgress(ride: Ride) {
     if (!ride.driver_id || !isActive(ride.status)) {
-      return { driverEta: null, destinationEta: null, trail: [] };
+      return { driverEta: null, destinationEta: null, nextStopIndex: null, trail: [] };
     }
     const [trail, car] = await Promise.all([
       this.track.trail(ride.driver_id, ride.assigned_at),
@@ -2635,18 +2842,22 @@ export class RidesService {
             { lat: ride.pickup_lat, lng: ride.pickup_lng },
           )
         : null;
-    // on the trip: the road ETA from the car to the destination, refreshed the same way
+    // on the trip: the road ETA from the car to the next stop (an intermediate stop still
+    // ahead, else the destination), refreshed the same way
+    const next = ride.status === 'in_progress' ? nextStopIndex(ride.stops) : null;
     const destinationEta =
       ride.status === 'in_progress' && car?.lat != null && car.lng != null
         ? await this.pickupEta.eta(
             ride.id,
             { lat: car.lat, lng: car.lng },
-            { lat: ride.dropoff_lat, lng: ride.dropoff_lng },
+            next !== null
+              ? { lat: ride.stops[next]!.lat, lng: ride.stops[next]!.lng }
+              : { lat: ride.dropoff_lat, lng: ride.dropoff_lng },
             new Date(),
-            'dropoff',
+            next !== null ? `stop:${next}` : 'dropoff',
           )
         : null;
-    return { driverEta, destinationEta, trail };
+    return { driverEta, destinationEta, nextStopIndex: next, trail };
   }
 
   /**
@@ -3370,6 +3581,7 @@ const RIDER_EVENTS = [
   'started',
   'stop_arrived',
   'stop_left',
+  'stops_changed',
   'completed',
   'cancelled',
 ] as const;

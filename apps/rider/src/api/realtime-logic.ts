@@ -41,6 +41,8 @@ export function parseRealtimeEvent(raw: string): RealtimeEvent | null {
         heading: isNum(d.heading) ? d.heading : null,
         at: isStr(d.at) ? d.at : new Date().toISOString(),
         etaS: isNum(d.etaS) && d.etaS >= 0 ? d.etaS : null,
+        // which stop the trip ETA points to (an older API sends none: the destination)
+        ...(isNum(d.nextStopIndex) ? { nextStopIndex: d.nextStopIndex } : {}),
         destinationEtaS:
           isNum(d.destinationEtaS) && d.destinationEtaS >= 0 ? d.destinationEtaS : null,
       };

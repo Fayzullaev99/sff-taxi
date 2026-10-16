@@ -43,6 +43,7 @@ import {
   rideClassesForCar,
   takesLower,
 } from '../../lib/ride-classes.js';
+import { nextStopIndex } from '../../lib/stop-changes.js';
 import type { RideClass } from '../../lib/tariff.js';
 import { DriverTrackService } from '../geo/driver-track.service.js';
 import { PickupEtaService } from '../geo/pickup-eta.service.js';
@@ -513,6 +514,7 @@ export class DriversService {
         'pickup_lng',
         'dropoff_lat',
         'dropoff_lng',
+        'stops',
       ])
       .where('driver_id', '=', user.userId)
       .where('status', 'in', [...ACTIVE_RIDE_STATUSES])
@@ -526,11 +528,17 @@ export class DriversService {
                 .eta(ride.id, fix, { lat: ride.pickup_lat, lng: ride.pickup_lng }, now)
                 .catch(() => null)
             : null;
-        // on the trip: the road ETA to the destination, refreshed the same way
+        // on the trip: the road ETA to the next stop (an intermediate stop still ahead, else
+        // the destination), refreshed the same way
+        const next = ride.status === 'in_progress' ? nextStopIndex(ride.stops) : null;
+        const target =
+          next !== null
+            ? { lat: ride.stops[next]!.lat, lng: ride.stops[next]!.lng }
+            : { lat: ride.dropoff_lat, lng: ride.dropoff_lng };
         const toDestination =
           ride.status === 'in_progress'
             ? await this.pickupEta
-                .eta(ride.id, fix, { lat: ride.dropoff_lat, lng: ride.dropoff_lng }, now, 'dropoff')
+                .eta(ride.id, fix, target, now, next !== null ? `stop:${next}` : 'dropoff')
                 .catch(() => null)
             : null;
         await this.realtime.publish({
@@ -544,6 +552,7 @@ export class DriversService {
             at: now.toISOString(),
             etaS: eta?.etaS ?? null,
             destinationEtaS: toDestination?.etaS ?? null,
+            nextStopIndex: next,
           },
         });
       }),

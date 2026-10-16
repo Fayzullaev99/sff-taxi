@@ -8,6 +8,7 @@ import { parseSaveTarget, saveTitle } from '../lib/places';
 import { coordinatesLabel, DEFAULT_CENTER, describePoint } from '../location/geo';
 import { PointPicker } from '../location/PointPicker';
 import { choosePickup, getDraft, orderPath, setStop, updateDraft, useDraft } from '../trip/draft';
+import { setEditStop, useStopEdit } from '../trip/stop-edit';
 import { savePicked } from '../trip/places-store';
 import { Button, T } from '../ui/primitives';
 import { colors, space } from '../ui/theme';
@@ -15,17 +16,29 @@ import { colors, space } from '../ui/theme';
 /** A place chosen by moving the map under a pin: the destination, pickup or a saved place. */
 export default function PickOnMapScreen() {
   const { t } = useT();
-  const params = useLocalSearchParams<{ field?: string; save?: string; index?: string }>();
+  const params = useLocalSearchParams<{
+    field?: string;
+    save?: string;
+    index?: string;
+    /** A stop of a ride that is on (the ride's stops screen), not of the order draft. */
+    ride?: string;
+  }>();
   const field = params.field === 'pickup' ? 'pickup' : params.field === 'stop' ? 'stop' : 'dropoff';
   const stopIndex = Number(params.index ?? 0) || 0;
+  const rideEdit = field === 'stop' && typeof params.ride === 'string' ? params.ride : null;
   const save = parseSaveTarget(params.save);
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const config = useGeoConfig().data;
   const draft = useDraft();
+  const edit = useStopEdit();
   const start =
     (field === 'dropoff' ? draft.dropoff : null) ??
-    (field === 'stop' ? (draft.stops[stopIndex] ?? draft.dropoff) : null) ??
+    (field === 'stop'
+      ? rideEdit
+        ? (edit.stops[stopIndex] ?? edit.stops[edit.stops.length - 1] ?? null)
+        : (draft.stops[stopIndex] ?? draft.dropoff)
+      : null) ??
     draft.pickup ??
     config?.defaultCenter ??
     DEFAULT_CENTER;
@@ -67,8 +80,9 @@ export default function PickOnMapScreen() {
       return;
     }
     if (field === 'stop') {
-      // past the search, back to the order sheet
-      setStop(stopIndex, { ...point, address });
+      // past the search, back to the order sheet (or the ride's stops screen)
+      if (rideEdit) setEditStop(stopIndex, { ...point, address });
+      else setStop(stopIndex, { ...point, address });
       router.dismiss(2);
       return;
     }

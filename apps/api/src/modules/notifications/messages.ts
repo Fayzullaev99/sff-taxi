@@ -108,6 +108,17 @@ export const push = {
     l === 'ru'
       ? { title: 'Пассажир отменил заказ', body: `Заказ #${number} отменён.` }
       : { title: 'Yo‘lovchi bekor qildi', body: `#${number} buyurtma bekor qilindi.` },
+  /** The rider changed the intermediate stops: the route and the cash to take changed. */
+  stopsChanged: (l: Locale, number: number, stops: number, cash: number): PushText =>
+    l === 'ru'
+      ? {
+          title: 'Пассажир изменил остановки',
+          body: `Заказ #${number}: ${stops ? `остановок: ${stops}` : 'без остановок'}, наличными ${soum(cash).replace('so‘m', 'сум')}. Маршрут обновлён.`,
+        }
+      : {
+          title: 'Yo‘lovchi manzillarni o‘zgartirdi',
+          body: `#${number}: ${stops ? `${stops} ta oraliq manzil` : 'oraliq manzilsiz'}, naqd ${soum(cash)}. Yo‘nalish yangilandi.`,
+        },
   rideTakenAway: (l: Locale, number: number): PushText =>
     l === 'ru'
       ? { title: 'Заказ передан другому водителю', body: `Заказ #${number} больше не ваш.` }

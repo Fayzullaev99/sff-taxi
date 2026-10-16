@@ -40,7 +40,8 @@ export class NotificationsHandler implements OutboxHandler {
       topic === 'complaint.changed' ||
       topic === 'driver.topup_paid' ||
       topic === 'driver.appeal_resolved' ||
-      topic === 'ride.pool_changed'
+      topic === 'ride.pool_changed' ||
+      topic === 'ride.stops_changed'
     );
   }
 
@@ -48,6 +49,7 @@ export class NotificationsHandler implements OutboxHandler {
     const key = `event:${event.id}`;
     const p = event.payload;
     if (event.topic === 'ride.offer_created') return this.offer(key, String(p.offerId));
+    if (event.topic === 'ride.stops_changed') return this.stopsChanged(key, String(p.rideId));
     if (event.topic === 'driver.status_changed') {
       const reason = typeof p.reason === 'string' ? p.reason : null;
       return this.driverStatus(key, String(p.driverId), String(p.from), String(p.to), reason);
@@ -432,6 +434,48 @@ export class NotificationsHandler implements OutboxHandler {
       userId: driverId,
       app: 'driver',
       text,
+    });
+  }
+
+  /** The rider changed the stops of a ride a driver is on: the route and the cash changed. */
+  private async stopsChanged(key: string, rideId: string) {
+    const ride = await this.db.kysely
+      .selectFrom('rides')
+      .select([
+        'id',
+        'number',
+        'driver_id',
+        'status',
+        'stops',
+        'fare_quoted',
+        'pool_discount',
+        'deposit_amount',
+        'waiting_fee',
+        'owed_fee',
+      ])
+      .where('id', '=', rideId)
+      .executeTakeFirst();
+    if (!ride?.driver_id || ride.status === 'completed' || ride.status === 'cancelled') return;
+    const discount = await this.db.kysely
+      .selectFrom('ride_discounts')
+      .select(['promo_amount', 'credit_amount'])
+      .where('ride_id', '=', rideId)
+      .where('status', '!=', 'released')
+      .executeTakeFirst();
+    const cash =
+      ride.fare_quoted -
+      ride.pool_discount -
+      ride.deposit_amount -
+      (discount ? discount.promo_amount + discount.credit_amount : 0) +
+      ride.waiting_fee +
+      ride.owed_fee;
+    await this.notifier.push({
+      key,
+      kind: 'stops_changed',
+      rideId: ride.id,
+      userId: ride.driver_id,
+      app: 'driver',
+      text: (l) => push.stopsChanged(l, ride.number, ride.stops.length, cash),
     });
   }
 

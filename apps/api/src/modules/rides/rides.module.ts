@@ -9,6 +9,7 @@ import {
   ParseIntPipe,
   ParseUUIDPipe,
   Post,
+  Put,
   Query,
   Res,
 } from '@nestjs/common';
@@ -41,6 +42,21 @@ const Landmark = z.string().trim().min(1).max(200).nullable().default(null);
 const PlaceText = z
   .object({ address: Address, landmark: Landmark })
   .default({ address: null, landmark: null });
+/** New intermediate stops of a ride that is on: points (the preview) with their words (PUT). */
+const StopsPreviewBody = z.object({
+  stops: z
+    .array(PointBody)
+    .max(MAX_STOPS, `Oraliq manzillar ${MAX_STOPS} tadan ko‘p bo‘lmaydi`)
+    .default([]),
+});
+const StopsChangeBody = z.object({
+  stops: z
+    .array(PointBody.extend({ address: Address, landmark: Landmark }))
+    .max(MAX_STOPS, `Oraliq manzillar ${MAX_STOPS} tadan ko‘p bo‘lmaydi`)
+    .default([]),
+  /** The new price the rider saw and confirmed (the preview's `fare.after`). */
+  confirmTotal: z.number().int().min(0),
+});
 const Options = z.array(z.enum(RIDE_OPTIONS)).max(4).default([]);
 const Comment = z.string().trim().min(1).max(500).nullable().default(null);
 
@@ -262,6 +278,32 @@ export class RidesController {
     @Body(new ZodPipe(RiderCancelBody)) body: z.output<typeof RiderCancelBody>,
   ) {
     return this.rides.cancelByRider(user, id, body.reason);
+  }
+
+  /**
+   * The price of the ride with other intermediate stops (nothing changes yet): the rider
+   * confirms it, then PUT with `confirmTotal`.
+   */
+  @Post(':id/stops/preview')
+  @RateLimit({ name: 'rides:stops', by: 'user', max: 30, windowSeconds: 60 })
+  @HttpCode(HttpStatus.OK)
+  previewStops(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(StopsPreviewBody)) body: z.output<typeof StopsPreviewBody>,
+  ) {
+    return this.rides.previewStops(user, id, body.stops);
+  }
+
+  /** Changes the ride's intermediate stops at the price the preview showed (409 if it moved). */
+  @Put(':id/stops')
+  @RateLimit({ name: 'rides:stops', by: 'user', max: 30, windowSeconds: 60 })
+  changeStops(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(StopsChangeBody)) body: z.output<typeof StopsChangeBody>,
+  ) {
+    return this.rides.changeStops(user, id, body);
   }
 
   /** A share-trip link for family: live position until the ride ends. */

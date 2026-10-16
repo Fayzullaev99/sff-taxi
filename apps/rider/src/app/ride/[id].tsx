@@ -41,8 +41,9 @@ import { discountLine, occupancyText, pinDigits, ridePrice } from '../../lib/sha
 import { discountSentence, rideDiscountLines } from '../../lib/promo';
 import { SeatIcons } from '../../order/RideChoices';
 import { shareText } from '../../lib/links';
-import { newerEta, pickupEta, type RideScreen, rideScreen } from '../../lib/ride-state';
+import { etaFor, newerEta, pickupEta, type RideScreen, rideScreen } from '../../lib/ride-state';
 import { searchStartsAt } from '../../lib/schedule';
+import { tripTarget } from '../../lib/stops';
 import { CancelSheet } from '../../ride/CancelSheet';
 import { ChatButton } from '../../ride/ChatButton';
 import { PaymentPanel } from '../../ride/PaymentPanel';
@@ -254,6 +255,17 @@ function LiveRide({
     screen.phase === 'searching' ||
     screen.phase === 'awaiting_payment' ||
     screen.phase === 'scheduled';
+  // the intermediate stops on the map (numbered, passed ones faded) and where the car goes
+  const target = tripTarget(ride);
+  const mapStops = useMemo(
+    () =>
+      (ride.stops ?? []).map((s, i) => ({
+        lat: s.lat,
+        lng: s.lng,
+        passed: target.stopIndex === null ? Boolean(s.leftAt) : i < target.stopIndex,
+      })),
+    [ride.stops, target.stopIndex],
+  );
 
   return (
     <View style={styles.root}>
@@ -280,6 +292,8 @@ function LiveRide({
           heading={screen.heading}
           bottomInset={panelHeight}
           service={ride.service}
+          stops={mapStops}
+          nextStopIndex={target.stopIndex}
         />
       )}
       <TopBar ride={ride} overMap />
@@ -330,6 +344,10 @@ function LiveRide({
           ) : null}
 
           {screen.phase === 'searching' ? <SearchingInfo ride={ride} /> : null}
+
+          {screen.phase !== 'searching' && screen.phase !== 'scheduled' ? (
+            <StopsBox ride={ride} />
+          ) : null}
 
           <LoadInfo ride={ride} />
 
@@ -429,19 +447,30 @@ function PhaseHeader({
   const now = useNow(15_000);
   const liveEta = useLiveEta(ride.id);
   const liveDestinationEta = useLiveDestinationEta(ride.id);
+  // on the trip the car heads to the next intermediate stop, if any, else the drop-off
+  const target = tripTarget(ride);
   // the API's road ETA (fetched or streamed, whichever is newer); the estimate only without
   const rawEta =
     screen.phase === 'assigned'
       ? (pickupEta(newerEta(ride.driverEta, liveEta), car, ride.pickup, now)?.minutes ?? null)
       : screen.phase === 'on_trip'
         ? (pickupEta(
-            newerEta(ride.destinationEta ?? null, liveDestinationEta),
+            newerEta(
+              etaFor(
+                ride.destinationEta
+                  ? { ...ride.destinationEta, stopIndex: ride.nextStopIndex ?? null }
+                  : null,
+                target.stopIndex,
+              ),
+              etaFor(liveDestinationEta, target.stopIndex),
+            ),
             car,
-            ride.dropoff,
+            target.point,
             now,
           )?.minutes ?? null)
         : null;
-  const eta = useSteadyEta(rawEta, screen.phase);
+  // the countdown starts over when the car drives on to the next stop
+  const eta = useSteadyEta(rawEta, `${screen.phase}:${target.stopIndex ?? 'end'}`);
   const carSilent =
     (screen.phase === 'assigned' || screen.phase === 'on_trip') &&
     fixIsStale(car?.at, now.getTime());
@@ -451,7 +480,15 @@ function PhaseHeader({
       ? t('ride.screen.arrivesIn', { eta: formatMinutes(eta) })
       : t('ride.screen.driverLeft');
   } else if (screen.phase === 'on_trip') {
-    line = `${placeLine(ride.dropoff)}${eta ? ` · ~${formatMinutes(eta)}` : ''}`;
+    const stop = target.stopIndex === null ? null : ride.stops?.[target.stopIndex];
+    const standing = Boolean(stop?.arrivedAt && !stop.leftAt);
+    const place =
+      stop && target.stopIndex !== null
+        ? t('ride.screen.nextStop', { n: target.stopIndex + 1, place: placeLine(stop) })
+        : placeLine(ride.dropoff);
+    line = standing
+      ? `${place} · ${stopStateText(stop!)}`
+      : `${place}${eta ? ` · ~${formatMinutes(eta)}` : ''}`;
   } else if (screen.phase === 'scheduled' && ride.scheduledFor) {
     line = t('ride.screen.scheduledAt', { when: formatDateTime(ride.scheduledFor) });
   }
@@ -656,6 +693,47 @@ function RouteBox({ ride }: { ride: Ride }) {
   );
 }
 
+/**
+ * The intermediate stops once a car is involved (the searching and scheduled panels list
+ * the whole route instead): each with its state, and the way to change them while the
+ * ride allows it (a cash taxi ride that is on; the price is confirmed first).
+ */
+function StopsBox({ ride }: { ride: Ride }) {
+  const { t } = useT();
+  const stops = ride.stops ?? [];
+  if (!stops.length && !ride.canChangeStops) return null;
+  return (
+    <View style={styles.stopsBox}>
+      {stops.length ? (
+        <View accessible style={styles.routeBox}>
+          {stops.map((stop, i) => (
+            <View key={i} style={styles.stopRow}>
+              <View style={styles.stopBadge}>
+                <T variant="caption" color={colors.onInk}>
+                  {i + 1}
+                </T>
+              </View>
+              <T variant="small" style={styles.flex} numberOfLines={2}>
+                {`${placeLine(stop)} · ${stopStateText(stop)}`}
+              </T>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {ride.canChangeStops ? (
+        <Button
+          title={stops.length ? t('ride.stops.edit') : t('ride.stops.add')}
+          icon="git-branch-outline"
+          variant="secondary"
+          size="sm"
+          onPress={() => router.push({ pathname: '/ride-stops', params: { id: ride.id } })}
+          style={styles.stopsButton}
+        />
+      ) : null}
+    </View>
+  );
+}
+
 function SearchingInfo({ ride }: { ride: Ride }) {
   const { t } = useT();
   const now = useNow(1000);
@@ -813,4 +891,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   routeBox: { gap: 2 },
+  // the rows stretch (a shrink-wrapped parent would give the flexed text no width)
+  stopsBox: { gap: space(2), alignSelf: 'stretch' },
+  stopsButton: { alignSelf: 'flex-start' },
+  stopRow: { flexDirection: 'row', alignItems: 'center', gap: space(2) },
+  stopBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.info,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

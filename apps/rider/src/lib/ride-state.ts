@@ -179,6 +179,19 @@ export function etaMinutes(car: LatLng | null, target: LatLng): number | null {
 export interface EtaReading {
   etaS: number;
   at: string;
+  /** On the trip: which intermediate stop it points to (null: the destination; absent: unknown). */
+  stopIndex?: number | null;
+}
+
+/**
+ * A trip ETA reading only when it points at the stop the screen shows (`stopIndex`): one
+ * that still counts down to a stop the car has left (or to the destination while the
+ * screen heads to a stop) is dropped in favour of the estimate. A reading without a stop
+ * (an older API) is taken as it is.
+ */
+export function etaFor(api: EtaReading | null, stopIndex: number | null): EtaReading | null {
+  if (!api || api.stopIndex === undefined || api.stopIndex === stopIndex) return api;
+  return null;
 }
 
 /** The newer of two ETA readings (the fetched ride's, the stream's). */

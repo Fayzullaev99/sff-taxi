@@ -1,6 +1,6 @@
 import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { driver } from '../api/driver';
 import type { DriverRide } from '../api/types';
@@ -12,7 +12,7 @@ import { headcountText, offerBadges, pinErrorText, poolRideIds, ridePool } from 
 import { optimisticStatus, runRideStep } from '../lib/ride-actions';
 import { canCancel, cashBreakdown, owedFeeNote, type RideAction } from '../lib/ride-flow';
 import { customerWord, depositLine, serviceOf, serviceStep } from '../lib/service';
-import { nextStop, stopList, stopsFromPool, viaAction } from '../lib/stops';
+import { nextStop, stopList, stopsChangeNotice, stopsFromPool, viaAction } from '../lib/stops';
 import type { WaitingRules } from '../lib/waiting';
 import { scheduledLabel } from '../lib/when';
 import { markRideEndedHere } from '../realtime/use-realtime';
@@ -232,6 +232,21 @@ function ActiveRide(props: {
   });
   const arrivedAt = arrivedAtOf(focus, optimistic === 'arrive' ? tappedAt.current : null);
   const waitingNow = status === 'driver_arrived' && arrivedAt !== null;
+
+  // the rider changed the intermediate stops (the price with them): say so once per change
+  const shownRoute = useRef<DriverRide | null>(null);
+  useEffect(() => {
+    const notice = stopsChangeNotice(
+      shownRoute.current,
+      props.ride,
+      cashBreakdown(props.ride).total,
+      som,
+    );
+    shownRoute.current = props.ride;
+    if (!notice) return;
+    haptics.warning();
+    Alert.alert(t('ride.stops.changedTitle'), notice);
+  }, [props.ride, t]);
 
   const run = (action: RideAction, pin?: string) =>
     act.mutate({ rideId: focus.id, action, ...(pin ? { pin } : {}) });

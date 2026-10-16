@@ -49,7 +49,7 @@ export const order: Shape<typeof uz> = {
     onTheWay: 'в пути ~{minutes}',
     pointA11y: '{label}: {text}. Изменить',
     stopRules:
-      'Каждая остановка — {perStop}. Ожидание там {minutes} мин бесплатно, затем {perMinute} за минуту. После заказа адреса не меняются.',
+      'Каждая остановка — {perStop}. Ожидание там {minutes} мин бесплатно, затем {perMinute} за минуту. В поездке за наличные остановки можно изменить и позже — цена пересчитается.',
     stopAhead: 'Впереди',
     stopWaitingHere: 'Машина ждёт здесь',
     stopPassed: 'Пройдена',

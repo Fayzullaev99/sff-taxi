@@ -76,8 +76,10 @@ export type RealtimeEvent =
       at: string;
       /** Road ETA to the pickup while the driver is on the way (refreshed every ~15 s). */
       etaS: number | null;
-      /** Road ETA to the destination during the trip (in_progress; refreshed likewise). */
+      /** Road ETA to the next stop during the trip (in_progress; refreshed likewise). */
       destinationEtaS: number | null;
+      /** Which intermediate stop that ETA points to (index), null: the destination. */
+      nextStopIndex?: number | null;
     };
 
 export interface RealtimeMessage {
@@ -231,6 +233,7 @@ export class RealtimePublisher implements OutboxHandler {
         });
       case 'ride.requested':
       case 'ride.changed':
+      case 'ride.stops_changed':
       case 'ride.status_changed':
         return this.rideUpdated(String(p.rideId), p.previousDriverId);
       case 'ride.message': {

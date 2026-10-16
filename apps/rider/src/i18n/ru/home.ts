@@ -85,6 +85,7 @@ export const home: Shape<typeof uz> = {
   },
   rideFallback: {
     toDestination: 'До места назначения {distance}',
+    toStop: 'До остановки {n} {distance}',
   },
   locate: {
     placeOnMap: 'поставьте метку на карте сами',

@@ -87,10 +87,26 @@ Yandex about price dynamics (MA §1.9). The engine is `src/lib/tariff.ts` (pure,
   the drop-off. The road distance is the sum of the legs through them (each leg routed and
   cached like a single route), the bands and the suburb part apply to that total (a stop
   outside the polygon counts twice: out and back), and each stop adds a flat fee (never the
-  night add-on). A fixed route price does not apply to a trip with stops. Stops are fixed at
-  order time (the price promise; to change them, cancel and order again) and are refused on
+  night add-on). A fixed route price does not apply to a trip with stops. Stops are refused on
   shared rides and route seats, cargo rides and the trip board (the database checks the
-  first two). During the trip the driver marks each stop "arrived" and "driving on"
+  first two). **Changing them after the order** (`src/lib/stop-changes.ts`): on a cash taxi
+  ride that is on (scheduled, searching, a car on the way or waiting, the trip itself) the
+  rider may add, replace or remove stops, up to two; stops the car already reached (the one
+  it stands at included, and any it skipped before) stay. `POST rides/:id/stops/preview`
+  prices the new road with the same fare logic on the ride's own tariff snapshot and the
+  night state of its order time (a route's fixed car price comes back when the last stop
+  goes) and figures the reserved discount again by the same rules (the code's percent and
+  cap or the welcome discount, then credit up to its share and the rider's balance; a code
+  that stops fitting drops out, the preview says why); `PUT rides/:id/stops` with
+  `confirmTotal` (the price the rider saw; 409 `price_changed` when it moved) saves the
+  stops, fare, distance and discount (credit changes are `adjustment` rows on the ride,
+  migration 0027), records `stops_changed`, and emits `ride.stops_changed`: every screen
+  refetches, the driver gets a push ("Yo‘lovchi manzillarni o‘zgartirdi") and an in-app
+  alert with the new cash. Card rides are not changed (the fare is prepaid: a second
+  charge or a partial refund mid-ride would be needed; cancel and order again, the
+  prepayment is refunded in full), nor shared rides, cargo or deliveries. The rider's ETA
+  on the trip and the map frame point at the next unvisited stop (`nextStopIndex`,
+  `driver.location.nextStopIndex`), not at the drop-off. During the trip the driver marks each stop "arrived" and "driving on"
   (`POST driver/rides/:id/stops/:index/arrive|leave`, in order; a skipped stop stays
   unvisited and the price stays): waiting beyond the free stop minutes is added to the ride's
   `waiting_fee`, so the final fare, cash to collect, receipts and earnings include it like

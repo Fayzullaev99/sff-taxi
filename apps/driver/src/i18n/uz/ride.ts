@@ -190,6 +190,10 @@ export const ride = {
     passed: 'o‘tildi',
     mapPoint: 'Xaritadagi nuqta',
     landmark: 'Mo‘ljal: {landmark}',
+    changedTitle: 'Yo‘lovchi manzillarni o‘zgartirdi',
+    changedCount: { other: 'Endi {count} ta oraliq manzil.' },
+    changedNone: 'Endi oraliq manzil yo‘q.',
+    changedCash: 'Yo‘lovchidan naqd {amount} olinadi. Yo‘nalish ro‘yxati yangilandi.',
   },
   tips: {
     cash: 'Yo‘lovchi {amount} choychaqa beradi (naqd)',

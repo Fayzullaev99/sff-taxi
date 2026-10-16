@@ -157,12 +157,15 @@ export function RideMapFallback({
   heading,
   bottomInset,
   service,
+  stopIndex = null,
 }: {
   car: LatLng | null;
   target: LatLng;
   heading: 'pickup' | 'dropoff' | null;
   bottomInset: number;
   service?: RideService;
+  /** On the trip: the target is intermediate stop N (index), not the destination. */
+  stopIndex?: number | null;
 }) {
   const { t } = useT();
   const away = car && heading ? distanceM(car, target) : null;
@@ -175,7 +178,9 @@ export function RideMapFallback({
         <T variant="h3" style={styles.center}>
           {heading === 'pickup'
             ? `${carAwayLabel(service)} ${formatDistance(away)}`
-            : t('home.rideFallback.toDestination', { distance: formatDistance(away) })}
+            : stopIndex !== null
+              ? t('home.rideFallback.toStop', { n: stopIndex + 1, distance: formatDistance(away) })
+              : t('home.rideFallback.toDestination', { distance: formatDistance(away) })}
         </T>
       ) : null}
     </View>

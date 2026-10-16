@@ -51,7 +51,7 @@ export const order = {
     onTheWay: 'yo‘lda ~{minutes}',
     pointA11y: '{label}: {text}. O‘zgartirish',
     stopRules:
-      'Har bir oraliq manzil {perStop}. U yerda {minutes} daqiqa kutish bepul, keyin har daqiqa {perMinute}. Manzillar buyurtmadan keyin o‘zgarmaydi.',
+      'Har bir oraliq manzil {perStop}. U yerda {minutes} daqiqa kutish bepul, keyin har daqiqa {perMinute}. Naqd safarda manzillarni keyin ham o‘zgartirish mumkin — narx qayta hisoblanadi.',
     stopAhead: 'Oldinda',
     stopWaitingHere: 'Mashina shu yerda kutmoqda',
     stopPassed: 'O‘tildi',

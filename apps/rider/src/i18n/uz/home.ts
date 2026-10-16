@@ -83,6 +83,7 @@ export const home = {
   },
   rideFallback: {
     toDestination: 'Manzilgacha {distance}',
+    toStop: '{n}-oraliq manzilgacha {distance}',
   },
   locate: {
     placeOnMap: 'pinni xaritada o‘zingiz qo‘ying',

@@ -126,6 +126,7 @@ export const common: Shape<typeof uz> = {
     bookings: 'Мои брони',
     booking: 'Бронь',
     payment: 'Оплата',
+    rideStops: 'Остановки',
   },
   app: {
     name: 'SFF Taxi',
