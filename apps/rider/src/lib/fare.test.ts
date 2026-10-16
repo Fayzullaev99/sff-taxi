@@ -6,6 +6,7 @@ import {
   cancelTerms,
   cashToPay,
   historyAmount,
+  historyAmountText,
   quoteOwedFee,
   fareLines,
   optionPriceLabel,
@@ -243,6 +244,33 @@ describe('owed cancellation fees', () => {
     expect(historyAmount({ status: 'searching', fare: { ...fare, total: null, pays: 4900 } })).toBe(
       4900,
     );
+  });
+
+  it('lists a cancelled ride by what it cost, not by its price (QA wave 5)', () => {
+    const fare = { quoted: 35_000, total: null, cancellationFee: 0 };
+    // cancelled free (before the driver arrived, or by the driver / the system): nothing paid
+    const free = { status: 'cancelled' as const, fare };
+    expect(historyAmount(free)).toBe(0);
+    expect(historyAmountText(free)).toEqual({ text: 'Bepul bekor qilindi', caption: null });
+    setLanguage('ru');
+    expect(historyAmountText(free).text).toBe('Отменён бесплатно');
+    setLanguage('uz');
+    // a waived fee was never paid either
+    expect(
+      historyAmount({
+        status: 'cancelled',
+        fare: { ...fare, cancellationFee: 3000, cancellationFeeStatus: 'waived' },
+      }),
+    ).toBe(0);
+    // a fee: the fee, named as such
+    const paid = {
+      status: 'cancelled' as const,
+      fare: { ...fare, cancellationFee: 3000, cancellationFeeStatus: 'owed' as const },
+    };
+    expect(historyAmountText(paid).caption).toBe('Bekor qilish puli');
+    expect(s(historyAmountText(paid).text)).toBe('3 000 so‘m');
+    // an open ride still shows the price it will cost
+    expect(s(historyAmountText({ status: 'searching', fare }).text)).toBe('35 000 so‘m');
   });
 
   it('counts the cash to hand over: fare, paid waiting, owed fees', () => {

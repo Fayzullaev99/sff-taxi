@@ -10,6 +10,8 @@ export const history = {
   },
   fromPlace: '{place} dan',
   rowA11y: '{when}, {from} dan {to} ga, {status}, {amount}',
+  cancelledFree: 'Bepul bekor qilindi',
+  cancelFee: 'Bekor qilish puli',
   scheduled: {
     cancelQuestion: 'Oldindan buyurtmani bekor qilasizmi?',
     keep: 'Qoldirish',

@@ -1,4 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Database } from '../src/core/db/database.js';
 import { api, createDriver, createTestApp, GULISTON, MID, signIn } from './helpers.js';
@@ -31,6 +32,28 @@ describe('emulator QA follow-ups', () => {
       .where('topic', '=', 'driver.licence_checked')
       .execute();
     expect(events.map((e) => e.payload)).toContainEqual({ driverId: driver.id, result: 'valid' });
+  });
+
+  it('lists a ride cancelled free in the history with no fee, its price kept apart (wave 5)', async () => {
+    const rider = api(app, (await signIn(app)).accessToken);
+    const quote = await rider
+      .post('/v1/rides/quote')
+      .send({ pickup: GULISTON, dropoff: MID })
+      .expect(200);
+    const ride = await rider
+      .post('/v1/rides')
+      .send({ quoteId: quote.body.quoteId, class: 'economy', clientRequestId: randomUUID() })
+      .expect(201);
+    await rider.post(`/v1/rides/${ride.body.id}/cancel`).send({}).expect(200);
+    const history = await rider.get('/v1/rides').expect(200);
+    const item = history.body.items.find((r: { id: string }) => r.id === ride.body.id);
+    // the apps show the fee (0 here: "Bepul bekor qilindi"), never `quoted`, for a cancelled ride
+    expect(item).toMatchObject({
+      status: 'cancelled',
+      cancelledBy: 'rider',
+      fare: { quoted: quote.body.fares.economy.total, cancellationFee: 0, total: null },
+    });
+    expect(item.fare.cancellationFeeStatus).toBeNull();
   });
 
   it('gives errors built from message templates the usual statusCode and error fields', async () => {

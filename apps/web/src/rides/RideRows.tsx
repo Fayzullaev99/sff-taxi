@@ -4,7 +4,7 @@ import type { AdminRideItem } from '../api/types';
 import { CLASSES, dateTime, RIDE_STATUS_SHORT, RIDE_STATUS_TONE, som } from '../lib/format';
 import { formatPhone } from '../lib/phone';
 import { rideTags } from '../lib/pool';
-import { needsDriver, placeLine } from '../lib/rides';
+import { cancelledFeeLine, needsDriver, placeLine } from '../lib/rides';
 import { Badge } from '../ui/controls';
 import { LoadMore } from '../ui/LoadMore';
 
@@ -67,9 +67,17 @@ function RideRow({
         </td>
       )}
       <td className="num">
-        {som(r.fare.total ?? r.fare.quoted)}
-        {r.fare.total === null && (r.fare.poolDiscount ?? 0) > 0 && (
-          <div className="muted small">to‘laydi {som(r.fare.pays ?? r.fare.quoted)}</div>
+        {/* a cancelled ride: its price was never paid, the line below says what was */}
+        <span className={r.status === 'cancelled' ? 'muted' : undefined}>
+          {som(r.fare.total ?? r.fare.quoted)}
+        </span>
+        {cancelledFeeLine(r) ? (
+          <div className="muted small">{cancelledFeeLine(r)}</div>
+        ) : (
+          r.fare.total === null &&
+          (r.fare.poolDiscount ?? 0) > 0 && (
+            <div className="muted small">to‘laydi {som(r.fare.pays ?? r.fare.quoted)}</div>
+          )
         )}
       </td>
     </tr>

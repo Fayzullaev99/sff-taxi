@@ -18,12 +18,28 @@ import {
   digits,
   distance,
   duration,
+  FEE_STATUS,
   OPTIONS,
   PROVIDERS,
   som,
   tashkentLocalToIso,
   time,
 } from './format';
+
+/**
+ * What a cancelled ride cost the rider, for the lists under its price: nothing ("bepul bekor
+ * qilindi") or the cancellation fee with its state; null for any other ride.
+ */
+export function cancelledFeeLine(
+  ride: Pick<AdminRideItem, 'status'> & {
+    fare: Pick<AdminRideItem['fare'], 'cancellationFee' | 'cancellationFeeStatus'>;
+  },
+): string | null {
+  if (ride.status !== 'cancelled') return null;
+  const status = ride.fare.cancellationFeeStatus ?? null;
+  if (ride.fare.cancellationFee <= 0 || status === 'waived') return 'bepul bekor qilindi';
+  return `bekor puli ${som(ride.fare.cancellationFee)}${status ? ` · ${FEE_STATUS[status]}` : ''}`;
+}
 
 /** An intermediate stop's state for operators: ahead, the car is there, or passed. */
 export function stopState(stop: RideStop): string {

@@ -12,6 +12,8 @@ export const history: Shape<typeof uz> = {
   },
   fromPlace: 'от {place}',
   rowA11y: '{when}, от {from} до {to}, {status}, {amount}',
+  cancelledFree: 'Отменён бесплатно',
+  cancelFee: 'Плата за отмену',
   scheduled: {
     cancelQuestion: 'Отменить предзаказ?',
     keep: 'Оставить',

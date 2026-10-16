@@ -179,8 +179,14 @@ Gradle was building timed two timing tests out at 20 s — the dispatch cascade 
    ("Madinaxon Abdulazizova Nurmuhammad qizi") in the driver's cards and the complete dialog;
    a one-off `UPDATE users SET full_name = regexp_replace(full_name, '\s+', ' ', 'g')` before
    launch cleans it (the dev accounts only, in production there are none yet).
-4. The history row of a ride cancelled free shows the ride's price ("Заказ отменён, 35 000 сум");
-   pre-existing wording, arguably it should show nothing.
+4. **Fixed (polish, 2026-10-16).** The history row of a ride cancelled free showed the ride's
+   price ("Заказ отменён, 35 000 сум"). The rider's history now shows what was paid:
+   "Bepul bekor qilindi" / "Отменён бесплатно" for a free (or waived) cancellation, the fee
+   with the caption "Bekor qilish puli" / "Плата за отмену" otherwise (`historyAmountText`,
+   unit-tested; the API's list already carried `cancellationFee` 0, now asserted in
+   `qa-followups.test.ts`). The driver's history names a card ride's fee too (it had no cash
+   state and was left out); the panel's ride tables grey a cancelled ride's price and say
+   "bepul bekor qilindi" or "bekor puli 3 000 so‘m · qarz …" under it (`cancelledFeeLine`).
 5. The uz `stopRules` sentence now says stops can be changed later on a cash ride; the API also
    allows it on a scheduled ride before its time — fine, but the deposit case (rides for later)
    refuses a new price below the deposit; not exercised on a device.

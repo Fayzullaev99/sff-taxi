@@ -27,14 +27,17 @@ const RideRow = memo(function RideRow({ item }: { item: DriverRide }) {
           {serviceOf(item) !== 'taxi' ? ' · ' + SERVICE_LABELS[serviceOf(item)] : ''}
           {!done && item.cancelReason ? ` · ${item.cancelReason}` : ''}
         </Text>
-        {!done && item.fare.cancellationFee > 0 && item.fare.cancellationFeeStatus ? (
+        {!done && item.fare.cancellationFee > 0 ? (
           <Text style={styles.meta}>
-            {t('money.rides.cancelFee', {
-              amount: som(item.fare.cancellationFee),
-              status:
-                CANCEL_FEE_STATUS[item.fare.cancellationFeeStatus] ??
-                item.fare.cancellationFeeStatus,
-            })}
+            {item.fare.cancellationFeeStatus
+              ? t('money.rides.cancelFee', {
+                  amount: som(item.fare.cancellationFee),
+                  status:
+                    CANCEL_FEE_STATUS[item.fare.cancellationFeeStatus] ??
+                    item.fare.cancellationFeeStatus,
+                })
+              : // a card ride's fee (or a lost deposit): already paid, no cash state to show
+                t('money.rides.cancelFeeOnly', { amount: som(item.fare.cancellationFee) })}
           </Text>
         ) : null}
       </View>

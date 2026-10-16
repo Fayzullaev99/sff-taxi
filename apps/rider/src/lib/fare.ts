@@ -436,28 +436,49 @@ export function cashToPay(ride: {
   return { total: fare + owedFee, fare, owedFee, deposit };
 }
 
-/**
- * The amount a ride shows in the history: what the rider paid for a completed ride (the
- * total less the promo / credit discount, plus owed fees collected with it), the fee of a
- * cancelled one, else the price to pay (after discounts).
- */
-export function historyAmount(ride: {
+/** The fields of a ride the history row's amount is read from. */
+export interface HistoryRide {
   status: RideStatus;
   fare: {
     quoted: number;
     total: number | null;
     cancellationFee: number;
+    cancellationFeeStatus?: 'owed' | 'collected' | 'waived' | null;
     owedFee?: number;
     pays?: number;
     discount?: number;
   };
-}): number {
+}
+
+/**
+ * The amount a ride shows in the history: what the rider paid. A completed ride: the total
+ * less the promo / credit discount, plus owed fees collected with it. A cancelled ride: its
+ * cancellation fee, 0 when it was cancelled free or the fee was waived (never the price the
+ * ride would have cost). An open ride: the price to pay (after discounts).
+ */
+export function historyAmount(ride: HistoryRide): number {
   if (ride.status === 'completed') {
     const total = ride.fare.total ?? ride.fare.quoted;
     return Math.max(0, total - (ride.fare.discount ?? 0)) + (ride.fare.owedFee ?? 0);
   }
-  if (ride.fare.cancellationFee > 0) return ride.fare.cancellationFee;
+  if (ride.status === 'cancelled') {
+    return ride.fare.cancellationFeeStatus === 'waived' ? 0 : ride.fare.cancellationFee;
+  }
   return ride.fare.pays ?? ride.fare.quoted;
+}
+
+/**
+ * The history row's amount in words: "Bepul bekor qilindi" for a ride cancelled without a
+ * fee, the fee of one cancelled with it (`caption` names it), else the money.
+ */
+export function historyAmountText(ride: HistoryRide): { text: string; caption: string | null } {
+  const amount = historyAmount(ride);
+  if (ride.status === 'cancelled') {
+    return amount > 0
+      ? { text: formatMoney(amount), caption: t('history.cancelFee') }
+      : { text: t('history.cancelledFree'), caption: null };
+  }
+  return { text: formatMoney(amount), caption: null };
 }
 
 /**

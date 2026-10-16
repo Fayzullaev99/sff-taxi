@@ -46,6 +46,7 @@ import {
   DEFAULT_LIVE_FILTERS,
   eventDetail,
   filterLive,
+  cancelledFeeLine,
   freshKeys,
   knownPlaces,
   needsDriver,
@@ -227,6 +228,22 @@ describe('dispatch helpers', () => {
     expect(freshKeys(new Set(['ride:w']), keys)).toEqual(['sos:s1']);
     expect(canAssign('searching') && canAssign('driver_assigned')).toBe(true);
     expect(canAssign('in_progress')).toBe(false);
+  });
+
+  it('says what a cancelled ride cost under its price (QA wave 5)', () => {
+    const cancelled = ride({ id: 'c', status: 'cancelled' });
+    expect(cancelledFeeLine(cancelled)).toBe('bepul bekor qilindi');
+    const fee = (status: 'owed' | 'collected' | 'waived' | null) =>
+      cancelledFeeLine({
+        ...cancelled,
+        fare: { ...cancelled.fare, cancellationFee: 3000, cancellationFeeStatus: status },
+      });
+    expect(fee('owed')).toBe('bekor puli 3 000 so‘m · qarz (keyingi naqd safarda olinadi)');
+    expect(fee('collected')).toBe('bekor puli 3 000 so‘m · olingan');
+    expect(fee('waived')).toBe('bepul bekor qilindi');
+    // a card ride's fee has no cash state
+    expect(fee(null)).toBe('bekor puli 3 000 so‘m');
+    expect(cancelledFeeLine(ride())).toBeNull();
   });
 
   it('puts waiting rides first, then searching ones, oldest first', () => {

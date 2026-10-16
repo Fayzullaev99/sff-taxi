@@ -71,6 +71,7 @@ export const money: Shape<typeof uz> = {
     history: 'История поездок',
     empty: 'Поездок пока нет',
     cancelFee: 'Плата за отмену {amount}: {status}',
+    cancelFeeOnly: 'Плата за отмену {amount}',
     net: 'чистыми {amount}',
   },
   topup: {

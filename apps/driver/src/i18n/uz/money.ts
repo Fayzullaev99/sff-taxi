@@ -64,6 +64,7 @@ export const money = {
     history: 'Safarlar tarixi',
     empty: 'Hali safarlar yo‘q',
     cancelFee: 'Bekor qilish haqi {amount}: {status}',
+    cancelFeeOnly: 'Bekor qilish haqi {amount}',
     net: 'sof {amount}',
   },
   topup: {

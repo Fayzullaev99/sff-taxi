@@ -12,8 +12,8 @@ import { useHistory } from '../api/queries';
 import type { RideSummary } from '../api/types';
 import { useT } from '../i18n';
 import { classLabel, SERVICE_NAMES } from '../lib/services';
-import { historyAmount } from '../lib/fare';
-import { formatDateTime, formatMoney, placeLine } from '../lib/format';
+import { historyAmountText } from '../lib/fare';
+import { formatDateTime, placeLine } from '../lib/format';
 import { rideScreen } from '../lib/ride-state';
 import { discountLine } from '../lib/sharing';
 import { Icon, T } from '../ui/primitives';
@@ -91,7 +91,8 @@ function Separator() {
 const RideRow = memo(function RideRow({ ride }: { ride: RideSummary }) {
   const { t } = useT();
   const screen = rideScreen(ride);
-  const amount = historyAmount(ride);
+  // what the rider paid: a ride cancelled free says so instead of showing its price
+  const amount = historyAmountText(ride);
   const statusText =
     ride.status === 'completed'
       ? t('history.status.completed')
@@ -110,7 +111,7 @@ const RideRow = memo(function RideRow({ ride }: { ride: RideSummary }) {
         from: placeLine(ride.pickup),
         to: placeLine(ride.dropoff),
         status: statusText,
-        amount: formatMoney(amount),
+        amount: amount.caption ? `${amount.caption} ${amount.text}` : amount.text,
       })}
       onPress={() => router.push({ pathname: '/ride/[id]', params: { id: ride.id } })}
       style={({ pressed }) => [styles.row, pressed ? { backgroundColor: colors.surface } : null]}
@@ -153,7 +154,20 @@ const RideRow = memo(function RideRow({ ride }: { ride: RideSummary }) {
           </T>
         ) : null}
       </View>
-      <T variant="bodyStrong">{formatMoney(amount)}</T>
+      <View style={styles.amount}>
+        {amount.caption ? (
+          <T variant="small" color={colors.textMuted}>
+            {amount.caption}
+          </T>
+        ) : null}
+        {ride.status === 'cancelled' && !amount.caption ? (
+          <T variant="smallStrong" color={colors.textMuted} align="right">
+            {amount.text}
+          </T>
+        ) : (
+          <T variant="bodyStrong">{amount.text}</T>
+        )}
+      </View>
     </Pressable>
   );
 });
@@ -184,4 +198,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   more: { marginVertical: space(4) },
+  amount: { alignItems: 'flex-end', maxWidth: 104 },
 });
