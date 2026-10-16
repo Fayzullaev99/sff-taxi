@@ -22,11 +22,17 @@ function emit() {
 }
 
 /** Keeps the newer reading; true when it changed. */
-function setEta(map: Map<string, EtaReading>, rideId: string, etaS: number | null, at: string) {
+function setEta(
+  map: Map<string, EtaReading>,
+  rideId: string,
+  etaS: number | null,
+  at: string,
+  stopIndex?: number | null,
+) {
   if (etaS === null) return false;
   const last = map.get(rideId);
   if (last && new Date(at).getTime() < new Date(last.at).getTime()) return false;
-  map.set(rideId, { etaS, at });
+  map.set(rideId, stopIndex === undefined ? { etaS, at } : { etaS, at, stopIndex });
   return true;
 }
 
@@ -35,9 +41,11 @@ export function pushFix(
   fix: TrackPoint,
   etaS: number | null = null,
   destinationEtaS: number | null = null,
+  /** Which intermediate stop the trip ETA points to (null: the destination; undefined: unknown). */
+  nextStopIndex: number | null | undefined = undefined,
 ): void {
   let changed = setEta(etas, rideId, etaS, fix.at);
-  if (setEta(destinationEtas, rideId, destinationEtaS, fix.at)) changed = true;
+  if (setEta(destinationEtas, rideId, destinationEtaS, fix.at, nextStopIndex)) changed = true;
   const current = tracks.get(rideId) ?? EMPTY;
   const last = current[current.length - 1] ?? null;
   const misses = rejected.get(rideId) ?? 0;

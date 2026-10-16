@@ -128,6 +128,7 @@ export const common = {
     bookings: 'Bronlarim',
     booking: 'Bron',
     payment: 'To‘lov',
+    rideStops: 'Oraliq manzillar',
   },
   app: {
     name: 'SFF Taxi',

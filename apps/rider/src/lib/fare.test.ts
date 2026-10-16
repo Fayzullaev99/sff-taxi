@@ -5,6 +5,7 @@ import {
   cancellationFeeNote,
   cancelTerms,
   cashToPay,
+  historyAmount,
   quoteOwedFee,
   fareLines,
   optionPriceLabel,
@@ -226,6 +227,22 @@ describe('owed cancellation fees', () => {
     expect(quoteOwedFee(null, 'cash')).toBeNull();
     expect(quoteOwedFee(undefined, 'cash')).toBeNull();
     expect(quoteOwedFee({ ...owed, amount: 0 }, 'cash')).toBeNull();
+  });
+
+  it('lists what the rider paid in the history: discounts off, owed fees on', () => {
+    const fare = { quoted: 9800, total: 9800, cancellationFee: 0 };
+    expect(historyAmount({ status: 'completed', fare })).toBe(9800);
+    // a promo ride: the full fare went to the driver, the rider paid the discounted part
+    expect(historyAmount({ status: 'completed', fare: { ...fare, discount: 4900 } })).toBe(4900);
+    expect(
+      historyAmount({ status: 'completed', fare: { ...fare, discount: 4900, owedFee: 3000 } }),
+    ).toBe(7900);
+    expect(
+      historyAmount({ status: 'cancelled', fare: { ...fare, total: null, cancellationFee: 3000 } }),
+    ).toBe(3000);
+    expect(historyAmount({ status: 'searching', fare: { ...fare, total: null, pays: 4900 } })).toBe(
+      4900,
+    );
   });
 
   it('counts the cash to hand over: fare, paid waiting, owed fees', () => {

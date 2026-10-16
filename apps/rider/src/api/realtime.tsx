@@ -153,6 +153,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
               { lat: event.lat, lng: event.lng, heading: event.heading, at: event.at },
               event.etaS,
               event.destinationEtaS,
+              event.nextStopIndex,
             );
           }
           if (event.type === 'intercity.updated') refreshBookings(event.bookingId, event.tripId);

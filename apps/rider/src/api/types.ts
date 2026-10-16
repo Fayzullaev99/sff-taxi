@@ -574,8 +574,12 @@ export interface Ride extends RideSummary {
   rules: RideRulesView;
   rated: boolean;
   driverEta: DriverEta | null;
-  /** On the trip: the car's road ETA to the destination (same shape as driverEta). */
+  /** On the trip: the car's road ETA to the next stop or the destination (same shape as driverEta). */
   destinationEta?: DriverEta | null;
+  /** Which intermediate stop the car heads to on the trip (index), null: the destination. */
+  nextStopIndex?: number | null;
+  /** The rider may still change the intermediate stops (a cash taxi ride that is on). */
+  canChangeStops?: boolean;
   trail: TrailFix[];
   events: RideEvent[];
   /** The 4-digit code the rider tells the driver before the trip starts (open rides). */
@@ -621,6 +625,28 @@ export interface OrderInput {
   passenger?: { name: string; phone: string } | null;
 }
 
+/** POST /rides/:id/stops/preview: the ride's price with other stops, nothing changed yet. */
+export interface StopsPreview {
+  stops: number;
+  distanceM: number;
+  durationS: number | null;
+  fare: { before: number; after: number; breakdown: Fare };
+  /** The rider's discount before and after; null: none on this ride. */
+  discount: {
+    before: number;
+    after: number;
+    promo: number;
+    credit: number;
+    /** Why the code no longer applies (it dropped out), else null. */
+    note: string | null;
+  } | null;
+  /** What the rider pays for the trip before and after (before waiting and owed fees). */
+  pays: { before: number; after: number };
+  deposit: number;
+  waiting: number;
+  stopRules: StopRules;
+}
+
 /** GET /rides/passengers: people the rider ordered for lately, newest first. */
 export interface RecentPassenger {
   name: string;
@@ -659,8 +685,10 @@ export type RealtimeEvent =
       at: string;
       /** Road ETA to the pickup while the driver is on the way (refreshed every ~15 s). */
       etaS: number | null;
-      /** Road ETA to the destination during the trip. */
+      /** Road ETA to the next stop (an intermediate stop, else the destination) during the trip. */
       destinationEtaS: number | null;
+      /** Which intermediate stop that ETA points to; null: the destination; absent: older API. */
+      nextStopIndex?: number | null;
     }
   | { type: 'ride.refund'; rideId: string; status: string; amount: number }
   | { type: 'intercity.updated'; tripId: string; bookingId: string | null; status: string }

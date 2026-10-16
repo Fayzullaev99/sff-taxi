@@ -1,8 +1,63 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { setLanguage } from '../i18n/dictionary';
-import { nextStop, stopList, type StopRide, stopsFromPool, viaAction } from './stops';
+import {
+  nextStop,
+  stopList,
+  type StopRide,
+  stopsChangeNotice,
+  stopsFromPool,
+  viaAction,
+} from './stops';
 
 const place = (name: string) => ({ lat: 40.49, lng: 68.78, address: name, landmark: null });
+
+describe('stopsChangeNotice', () => {
+  const money = (n: number) => `${n} so‘m`;
+  const one = { fare: { quoted: 8000 }, stops: [{ lat: 40.5, lng: 68.78 }] };
+
+  it('speaks up when the stops or the quoted price changed, not otherwise', () => {
+    expect(stopsChangeNotice(null, one, 8000, money)).toBeNull();
+    expect(stopsChangeNotice(one, { ...one, fare: { quoted: 8000 } }, 8500, money)).toBeNull();
+    expect(
+      stopsChangeNotice(
+        one,
+        { fare: { quoted: 9000 }, stops: [...one.stops, one.stops[0]!] },
+        9000,
+        money,
+      ),
+    ).toBe(
+      'Endi 2 ta oraliq manzil. Yo‘lovchidan naqd 9000 so‘m olinadi. Yo‘nalish ro‘yxati yangilandi.',
+    );
+    expect(stopsChangeNotice(one, { fare: { quoted: 7000 }, stops: [] }, 7000, money)).toBe(
+      'Endi oraliq manzil yo‘q. Yo‘lovchidan naqd 7000 so‘m olinadi. Yo‘nalish ro‘yxati yangilandi.',
+    );
+    // the same stop moved a little is a change; a waiting fee alone is not
+    expect(
+      stopsChangeNotice(
+        one,
+        { fare: { quoted: 8000 }, stops: [{ lat: 40.51, lng: 68.78 }] },
+        8000,
+        money,
+      ),
+    ).not.toBeNull();
+  });
+
+  it('counts the stops in Russian', () => {
+    setLanguage('ru');
+    try {
+      expect(
+        stopsChangeNotice(
+          one,
+          { fare: { quoted: 9000 }, stops: [...one.stops, one.stops[0]!] },
+          9000,
+          money,
+        ),
+      ).toBe('Теперь 2 остановки. Наличными с пассажира: 9000 so‘m. Список маршрута обновлён.');
+    } finally {
+      setLanguage('uz');
+    }
+  });
+});
 
 function ride(id: string, status: string): StopRide {
   return {

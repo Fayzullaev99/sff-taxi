@@ -694,6 +694,119 @@ export class PromosService {
     return total;
   }
 
+  /**
+   * The ride's fare changed (its stops were edited; the caller holds the ride's lock): the
+   * reserved discount is figured again by the same rules on the new fare: the code's
+   * percent and cap (or the welcome discount), then ride credit up to its share and what
+   * the rider has (the part reserved for this ride counts as theirs). A code that stopped
+   * fitting (the minimum fare) drops out with its reason in `note`; a discount that falls
+   * to nothing is released like a cancelled ride's. `dryRun` only computes (the preview).
+   * Null when the ride has no reserved discount.
+   */
+  async reprice(
+    db: Db,
+    rideId: string,
+    target: DiscountTarget,
+    opts: { dryRun: boolean },
+    now = new Date(),
+  ): Promise<{ before: number; after: DiscountPlan; note: string | null } | null> {
+    const query = db.selectFrom('ride_discounts').selectAll().where('ride_id', '=', rideId);
+    const row = opts.dryRun
+      ? await query.executeTakeFirst()
+      : await query.forUpdate().executeTakeFirst();
+    if (!row || row.status !== 'reserved') return null;
+    const rules = await this.settings.promo(db);
+    const before = row.promo_amount + row.credit_amount;
+    let promo = 0;
+    let note: string | null = null;
+    if (row.promo_id) {
+      const code = await db
+        .selectFrom('promo_codes')
+        .selectAll()
+        .where('id', '=', row.promo_id)
+        .executeTakeFirst();
+      const d = code
+        ? promoDiscount(toRule(code), {
+            total: target.fare,
+            service: target.service,
+            rideClass: target.rideClass,
+          })
+        : null;
+      if (d?.ok) promo = d.discount;
+      else if (d) note = d.message;
+    } else if (row.referral_id) {
+      promo = welcomeDiscount(target.fare, rules);
+    }
+    // credit only when the order used it: the balance plus this ride's own reservation
+    const balance =
+      row.credit_amount > 0 ? (await this.creditBalance(row.rider_id, db)) + row.credit_amount : 0;
+    const d = riderDiscount(target.fare, { promo, creditBalance: balance }, rules);
+    const after: DiscountPlan = {
+      promoId: d.promo > 0 ? row.promo_id : null,
+      referralId: d.promo > 0 ? row.referral_id : null,
+      promo: d.promo,
+      credit: d.credit,
+      total: d.total,
+    };
+    if (opts.dryRun || (after.promo === row.promo_amount && after.credit === row.credit_amount)) {
+      return { before, after, note };
+    }
+    const trx = db as Tx;
+    if (after.total <= 0) {
+      // nothing left: released like a cancelled ride's discount (the credit comes back)
+      await trx
+        .updateTable('ride_discounts')
+        .set({ status: 'released', released_at: now })
+        .where('ride_id', '=', rideId)
+        .execute();
+      if (row.credit_amount > 0) {
+        await this.releaseCredit(trx, row.rider_id, rideId, row.credit_amount);
+      }
+      return { before, after, note };
+    }
+    await trx
+      .updateTable('ride_discounts')
+      .set({
+        promo_id: after.promoId,
+        referral_id: after.referralId,
+        promo_amount: after.promo,
+        credit_amount: after.credit,
+      })
+      .where('ride_id', '=', rideId)
+      .execute();
+    // the ledger is append-only: the reservation's change is an adjustment on the ride
+    // (negative: more credit reserved; positive: some given back)
+    if (after.credit !== row.credit_amount) {
+      await trx
+        .insertInto('rider_credits')
+        .values({
+          id: uuidv7(),
+          user_id: row.rider_id,
+          kind: 'adjustment',
+          amount: row.credit_amount - after.credit,
+          ride_id: rideId,
+          note: 'Manzillar o‘zgardi: bonus qayta hisoblandi',
+        })
+        .execute();
+    }
+    return { before, after, note };
+  }
+
+  private async releaseCredit(trx: Tx, riderId: string, rideId: string, amount: number) {
+    await trx
+      .insertInto('rider_credits')
+      .values({
+        id: uuidv7(),
+        user_id: riderId,
+        kind: 'ride_release',
+        amount,
+        ride_id: rideId,
+        note: 'Safar bekor qilindi: bonus qaytarildi',
+      })
+      .onConflict((oc) => oc.doNothing())
+      .execute();
+  }
+
   /** The ride was cancelled: its discount is released and spent credit given back. */
   async onCancelled(trx: Tx, rideId: string, now = new Date()): Promise<void> {
     const row = await trx

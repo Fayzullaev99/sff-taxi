@@ -21,6 +21,7 @@ import { describePoint } from '../location/geo';
 import { LocationNotice, useLocator } from '../location/useLocator';
 import { NATIVE_MAP } from '../location/MapFallback';
 import { choosePickup, getDraft, orderPath, setStop, updateDraft, useDraft } from '../trip/draft';
+import { setEditStop } from '../trip/stop-edit';
 import { hideRecentPlace, savePicked, usePlaces } from '../trip/places-store';
 import { confirm } from '../lib/dialogs';
 import { Button, Icon, type IconName, IconButton, T } from '../ui/primitives';
@@ -36,10 +37,17 @@ type Field = 'pickup' | 'dropoff' | 'stop';
  */
 export default function SearchScreen() {
   const { t } = useT();
-  const params = useLocalSearchParams<{ field?: string; save?: string; index?: string }>();
+  const params = useLocalSearchParams<{
+    field?: string;
+    save?: string;
+    index?: string;
+    /** A stop of a ride that is on (the ride's stops screen), not of the order draft. */
+    ride?: string;
+  }>();
   const field: Field =
     params.field === 'pickup' ? 'pickup' : params.field === 'stop' ? 'stop' : 'dropoff';
   const stopIndex = Number(params.index ?? 0) || 0;
+  const rideEdit = field === 'stop' && typeof params.ride === 'string' ? params.ride : null;
   const save = parseSaveTarget(params.save);
   const config = useGeoConfig().data;
   const draft = useDraft();
@@ -80,8 +88,9 @@ export default function SearchScreen() {
       return;
     }
     if (field === 'stop') {
-      // back to the order sheet, which prices the route through the stop
-      setStop(stopIndex, point);
+      // back to the order sheet (or the ride's stops screen), which prices the new route
+      if (rideEdit) setEditStop(stopIndex, point);
+      else setStop(stopIndex, point);
       router.back();
       return;
     }
@@ -118,6 +127,7 @@ export default function SearchScreen() {
       params: {
         field,
         ...(field === 'stop' ? { index: String(stopIndex) } : {}),
+        ...(rideEdit ? { ride: rideEdit } : {}),
         ...(save ? { save } : {}),
       },
     });

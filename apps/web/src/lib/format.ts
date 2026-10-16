@@ -334,6 +334,7 @@ export const EVENTS: Record<string, string> = {
   owed_fee_added: 'Oldingi qarz qo‘shildi',
   stop_arrived: 'Oraliq manzilga yetdi',
   stop_left: 'Oraliq manzildan jo‘nadi',
+  stops_changed: 'Yo‘lovchi oraliq manzillarni o‘zgartirdi',
   fee_waived: 'Bekor qilish to‘lovi kechirildi',
   broadcast: 'Hammaga e’lon qilindi',
   attention: 'Operator e’tibori so‘raldi',

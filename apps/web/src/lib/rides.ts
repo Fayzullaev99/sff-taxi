@@ -182,6 +182,18 @@ export function eventDetail(
       ]
         .filter(Boolean)
         .join(', ');
+    case 'stops_changed':
+      return [
+        typeof d.stops === 'number' ? `endi ${d.stops} ta oraliq manzil` : null,
+        typeof d.fareBefore === 'number' && typeof d.fareAfter === 'number'
+          ? `narx ${digits(d.fareBefore)} → ${digits(d.fareAfter)} so‘m`
+          : null,
+        typeof d.discountAfter === 'number' && d.discountAfter !== d.discountBefore
+          ? `chegirma ${digits(Number(d.discountBefore ?? 0))} → ${digits(d.discountAfter)} so‘m`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(', ');
     case 'completed':
       return [
         typeof d.fare === 'number' ? `jami ${digits(d.fare)} so‘m` : null,

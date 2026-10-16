@@ -16,8 +16,11 @@ export interface PickupEta {
   at: string;
 }
 
-/** pickup: the car on its way to the rider; dropoff: the trip to the destination. */
-export type EtaLeg = 'pickup' | 'dropoff';
+/**
+ * pickup: the car on its way to the rider; dropoff: the trip to the destination; stop:N:
+ * the trip to intermediate stop N (its own key: the target changes when the car drives on).
+ */
+export type EtaLeg = 'pickup' | 'dropoff' | `stop:${number}`;
 
 const key = (rideId: string, leg: EtaLeg) =>
   leg === 'pickup' ? `eta:ride:${rideId}` : `eta:ride:${rideId}:${leg}`;

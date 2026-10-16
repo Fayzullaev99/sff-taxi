@@ -170,3 +170,29 @@ export function viaAction(
 export function nextStop(stops: readonly Stop[]): Stop | null {
   return stops.find((s) => s.current) ?? null;
 }
+
+/** What tells one version of a ride's stops and price from another (see stopsChangeNotice). */
+export function stopsSignature(ride: {
+  stops?: readonly Point[];
+  fare: { quoted: number };
+}): string {
+  const stops = (ride.stops ?? []).map((s) => `${s.lat.toFixed(5)},${s.lng.toFixed(5)}`);
+  return `${ride.fare.quoted}|${stops.join(';')}`;
+}
+
+/**
+ * The rider changed the stops (and so the price) of the ride the driver is on: the alert's
+ * text when a refetched ride differs from the one shown, in the stops or the quoted price;
+ * null when nothing of that changed (a waiting fee or a status step is not a route change).
+ */
+export function stopsChangeNotice(
+  prev: { stops?: readonly Point[]; fare: { quoted: number } } | null,
+  next: { stops?: readonly Point[]; fare: { quoted: number } },
+  cash: number,
+  money: (n: number) => string,
+): string | null {
+  if (!prev || stopsSignature(prev) === stopsSignature(next)) return null;
+  const count = next.stops?.length ?? 0;
+  const route = count ? t('ride.stops.changedCount', { count }) : t('ride.stops.changedNone');
+  return `${route} ${t('ride.stops.changedCash', { amount: money(cash) })}`;
+}

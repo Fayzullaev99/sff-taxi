@@ -1,8 +1,10 @@
 {
-  "CFBundleDisplayName": "SFF Taxi Haydovchi",
-  "NSLocationWhenInUseUsageDescription": "Геолокация нужна, чтобы предлагать вам ближайшие заказы и показывать пассажиру ваше приближение.",
-  "NSLocationAlwaysAndWhenInUseUsageDescription": "Пока вы на линии, геолокация отправляется даже при закрытом приложении — так вам приходят заказы рядом.",
-  "NSLocationAlwaysUsageDescription": "Пока вы на линии, геолокация отправляется даже при закрытом приложении — так вам приходят заказы рядом.",
-  "NSCameraUsageDescription": "Камера нужна для фото документов, автомобиля и вашего фото.",
-  "NSPhotoLibraryUsageDescription": "Выбор фото документов и автомобиля из галереи."
+  "ios": {
+    "CFBundleDisplayName": "SFF Taxi Haydovchi",
+    "NSLocationWhenInUseUsageDescription": "Геолокация нужна, чтобы предлагать вам ближайшие заказы и показывать пассажиру ваше приближение.",
+    "NSLocationAlwaysAndWhenInUseUsageDescription": "Пока вы на линии, геолокация отправляется даже при закрытом приложении — так вам приходят заказы рядом.",
+    "NSLocationAlwaysUsageDescription": "Пока вы на линии, геолокация отправляется даже при закрытом приложении — так вам приходят заказы рядом.",
+    "NSCameraUsageDescription": "Камера нужна для фото документов, автомобиля и вашего фото.",
+    "NSPhotoLibraryUsageDescription": "Выбор фото документов и автомобиля из галереи."
+  }
 }

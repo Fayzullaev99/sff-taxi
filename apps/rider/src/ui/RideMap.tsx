@@ -18,7 +18,7 @@ import { useAppActive, useSettledTracking } from '../lib/use-app-active';
 import { NATIVE_MAP, RideMapFallback } from '../location/MapFallback';
 import { Attribution, mapTypeFor, TileLayer } from '../location/map-layers';
 import { useT } from '../i18n';
-import { Icon } from './primitives';
+import { Icon, T } from './primitives';
 import { colors } from './theme';
 
 export interface RideMapProps {
@@ -32,6 +32,13 @@ export interface RideMapProps {
   bottomInset: number;
   /** Taxi, cargo or delivery: "Taksi sizdan …" / "Yuk mashinasi sizdan …" without a map. */
   service?: RideService;
+  /** Intermediate stops in order, numbered on the map (passed ones faded). */
+  stops?: readonly (LatLng & { passed?: boolean })[];
+  /**
+   * On the trip: where the car goes now, an intermediate stop (its index) or the drop-off
+   * (null). The camera frames the car with it; without a map the distance to it is shown.
+   */
+  nextStopIndex?: number | null;
 }
 
 /** After the rider pans or zooms, leave the camera alone for this long. */
@@ -51,19 +58,33 @@ const toCoord = (p: LatLng) => ({ latitude: p.lat, longitude: p.lng });
  */
 export const RideMap = memo(function RideMap(props: RideMapProps) {
   if (NATIVE_MAP) return <NativeRideMap {...props} />;
-  const { car, heading, pickup, dropoff, bottomInset } = props;
+  const { car, heading, pickup, bottomInset } = props;
+  const stopIndex = heading === 'dropoff' ? tripTarget(props) : null;
   return (
     <RideMapFallback
       car={car}
-      target={heading === 'dropoff' ? dropoff : pickup}
+      target={heading === 'dropoff' ? tripTargetPoint(props) : pickup}
       heading={heading}
       bottomInset={bottomInset}
       service={props.service}
+      stopIndex={stopIndex}
     />
   );
 });
 
-function NativeRideMap({ pickup, dropoff, car, trail, heading, bottomInset }: RideMapProps) {
+/** The index of the intermediate stop the trip heads to, null for the drop-off. */
+function tripTarget(p: Pick<RideMapProps, 'stops' | 'nextStopIndex'>): number | null {
+  const i = p.nextStopIndex ?? null;
+  return i !== null && p.stops?.[i] ? i : null;
+}
+
+function tripTargetPoint(p: Pick<RideMapProps, 'stops' | 'nextStopIndex' | 'dropoff'>): LatLng {
+  const i = tripTarget(p);
+  return i === null ? p.dropoff : p.stops![i]!;
+}
+
+function NativeRideMap(props: RideMapProps) {
+  const { pickup, dropoff, car, trail, heading, bottomInset, stops = [] } = props;
   const map = useRef<MapView>(null);
   const config = useGeoConfig().data;
   const touchedAt = useRef(0);
@@ -76,8 +97,9 @@ function NativeRideMap({ pickup, dropoff, car, trail, heading, bottomInset }: Ri
 
   const points: LatLng[] = [];
   if (heading === 'pickup') points.push(pickup);
-  else if (heading === 'dropoff') points.push(dropoff);
-  else points.push(pickup, dropoff);
+  // on the trip the camera frames the car with the stop it goes to, then the drop-off
+  else if (heading === 'dropoff') points.push(tripTargetPoint(props));
+  else points.push(pickup, ...stops, dropoff);
   if (car && heading) points.push(car);
   // ~10 m steps: GPS jitter of a waiting car does not move the camera
   const frameKey = points.map((p) => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`).join(';');
@@ -132,6 +154,9 @@ function NativeRideMap({ pickup, dropoff, car, trail, heading, bottomInset }: Ri
           <Polyline coordinates={path} strokeColor={colors.ink} strokeWidth={4} />
         ) : null}
         <PointMarker point={pickup} kind="pickup" />
+        {stops.map((stop, i) => (
+          <StopMarker key={i} point={stop} n={i + 1} passed={Boolean(stop.passed)} />
+        ))}
         <PointMarker point={dropoff} kind="dropoff" />
         {car ? <CarMarker car={car} animate={focused && active} /> : null}
       </MapView>
@@ -162,6 +187,38 @@ const PointMarker = memo(
     );
   },
   (a, b) => a.kind === b.kind && a.point.lat === b.point.lat && a.point.lng === b.point.lng,
+);
+
+/** An intermediate stop: its number in a pin, faded once the car drove on from it. */
+const StopMarker = memo(
+  function StopMarker({ point, n, passed }: { point: LatLng; n: number; passed: boolean }) {
+    const { t } = useT();
+    const tracking = useSettledTracking();
+    return (
+      <Marker
+        coordinate={toCoord(point)}
+        tracksViewChanges={tracking}
+        accessibilityLabel={t('ride.stops.stopN', { n })}
+      >
+        <View
+          style={[
+            styles.pin,
+            { backgroundColor: passed ? colors.surface : colors.info },
+            passed ? styles.pinPassed : null,
+          ]}
+        >
+          <T variant="smallStrong" color={passed ? colors.textMuted : colors.onInk}>
+            {n}
+          </T>
+        </View>
+      </Marker>
+    );
+  },
+  (a, b) =>
+    a.n === b.n &&
+    a.passed === b.passed &&
+    a.point.lat === b.point.lat &&
+    a.point.lng === b.point.lng,
 );
 
 interface Shown {
@@ -257,6 +314,7 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: colors.bg,
   },
+  pinPassed: { borderColor: colors.border, opacity: 0.8 },
   // a car seen from above, nose up (north at rotation 0): turned by the marker's rotation
   carWrap: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   carBody: {

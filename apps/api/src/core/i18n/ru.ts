@@ -93,6 +93,19 @@ export const RU: Record<string, string> = {
     'Остановки отличаются от рассчитанных: рассчитайте цену заново',
   'Oraliq manzillar {0} tadan ko‘p bo‘lmaydi': 'Остановок не может быть больше {0}',
   'Oraliq manzillar safar boshlangach belgilanadi': 'Остановки отмечаются после начала поездки',
+  'Oraliq manzil faqat taksi safarida o‘zgartiriladi':
+    'Остановки меняются только в поездке на такси',
+  'Karta orqali to‘langan safarda manzillar o‘zgarmaydi: bekor qilib qayta buyurtma bering, pul to‘liq qaytariladi':
+    'В поездке, оплаченной картой, адреса не меняются: отмените и закажите заново, деньги вернутся полностью',
+  'Bu bosqichda manzillar o‘zgarmaydi': 'На этом этапе адреса не меняются',
+  'Mashina yetib borgan oraliq manzil o‘zgarmaydi':
+    'Остановку, до которой машина уже доехала, изменить нельзя',
+  'Oraliq manzillar o‘zgarmadi': 'Остановки не изменились',
+  'Manzillar o‘zgardi: bonus qayta hisoblandi': 'Адреса изменились: бонус пересчитан',
+  'Narx o‘zgardi: yangi narxni qayta ko‘rib tasdiqlang':
+    'Цена изменилась: посмотрите и подтвердите новую цену',
+  'Yangi narx oldindan to‘langan depozitdan kam: bekor qilib qayta buyurtma bering':
+    'Новая цена меньше внесённого депозита: отмените и закажите заново',
   'Yuk tashishda oraliq manzil bo‘lmaydi': 'В грузоперевозке остановок нет',
   'Hamroh bilan safarda oraliq manzil bo‘lmaydi': 'В совместной поездке остановок нет',
   'Bunday oraliq manzil yo‘q': 'Такой остановки нет',

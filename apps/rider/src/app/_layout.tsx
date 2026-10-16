@@ -178,6 +178,7 @@ function Screens() {
         name="ride/[id]"
         options={{ headerShown: false, gestureEnabled: false, title: t('common.screens.ride') }}
       />
+      <Stack.Screen name="ride-stops" options={{ title: t('common.screens.rideStops') }} />
       <Stack.Screen name="history" options={{ title: t('common.screens.history') }} />
       <Stack.Screen name="scheduled" options={{ title: t('common.screens.scheduled') }} />
       <Stack.Screen name="profile" options={{ title: t('common.screens.profile') }} />

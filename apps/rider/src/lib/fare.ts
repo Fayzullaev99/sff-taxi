@@ -437,6 +437,30 @@ export function cashToPay(ride: {
 }
 
 /**
+ * The amount a ride shows in the history: what the rider paid for a completed ride (the
+ * total less the promo / credit discount, plus owed fees collected with it), the fee of a
+ * cancelled one, else the price to pay (after discounts).
+ */
+export function historyAmount(ride: {
+  status: RideStatus;
+  fare: {
+    quoted: number;
+    total: number | null;
+    cancellationFee: number;
+    owedFee?: number;
+    pays?: number;
+    discount?: number;
+  };
+}): number {
+  if (ride.status === 'completed') {
+    const total = ride.fare.total ?? ride.fare.quoted;
+    return Math.max(0, total - (ride.fare.discount ?? 0)) + (ride.fare.owedFee ?? 0);
+  }
+  if (ride.fare.cancellationFee > 0) return ride.fare.cancellationFee;
+  return ride.fare.pays ?? ride.fare.quoted;
+}
+
+/**
  * Paid waiting on an open ride: the driver collects it in cash on top of the price, so the
  * rider sees it (and the cash total) before the end, not only on the receipt. Null without
  * paid waiting, or when the owed-fee line already spells the cash total out.
