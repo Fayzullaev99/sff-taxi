@@ -128,6 +128,21 @@ jobs:
           # same origin, as in the production image
           VITE_API_URL: ''
 
+  landing:
+    name: Landing site tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test -w apps/landing
+      # type-checks, then renders every page with the texts and the launch tariff
+      - run: npm run build -w apps/landing
+
   mobile:
     name: ${{ matrix.app }} app
     needs: detect
@@ -177,6 +192,8 @@ jobs:
             file: Dockerfile
           - name: web
             file: Dockerfile.web
+          - name: landing
+            file: Dockerfile.landing
     steps:
       - uses: actions/checkout@v5
         if: matrix.name == 'api' || needs.detect.outputs.web == 'true'

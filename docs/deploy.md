@@ -17,22 +17,25 @@ Incidents: [runbook.md](runbook.md). Regulation-driven integrations:
 Internet ──443──> caddy ──┬── api.<domain>    ──> api (1..n instances) ──┬── postgres
                           ├── panel.<domain>  ──> web (operator panel)   ├── redis
                           │     └── /v1/*     ──> api                    ├── seaweedfs (S3, private)
-                          └── files.<domain>  ──> seaweedfs              └── osrm (road router)
+                          ├── taxi.<domain>   ──> landing (public site)  └── osrm (road router)
+                          │     └── /v1/*     ──> api
+                          └── files.<domain>  ──> seaweedfs
                                        worker (outbox, dispatch loop, housekeeping) ──┘
 ```
 
-| Service                                  | Image / source                    | Role                                                                                            |
-| ---------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `caddy`                                  | `caddy:2.10-alpine`               | HTTPS (Let's Encrypt, automatic renewal), proxy, security headers, SSE without buffering        |
-| `api`                                    | `Dockerfile` (`sff-taxi-api`)     | NestJS API on :3200, `API_REPLICAS` instances, runtime role `taxi_app`                          |
-| `worker`                                 | same image, `node dist/worker.js` | outbox (realtime, push/SMS, fiscal receipts, licence checks), dispatch loop (1 s), housekeeping |
-| `migrate`                                | same image, one-shot              | applies pending migrations as `taxi_owner`; api/worker start only after it succeeds             |
-| `web`                                    | `Dockerfile.web` (`sff-taxi-web`) | the built operator panel, served by Caddy as a non-root user                                    |
-| `postgres`                               | `pgvector/pgvector:pg17`          | PostgreSQL 17, tuned for this server size (`deploy/docker-compose.prod.yml`)                    |
-| `redis`                                  | `redis:7-alpine`                  | cache and short-lived state only (below); password, AOF, 384 MB, noeviction                     |
-| `seaweedfs`                              | profile `seaweedfs`               | private S3-compatible store for driver documents and photos behind `files.<domain>`             |
-| `osrm`                                   | profile `osrm`                    | road distances and ETAs for fares and dispatch (`deploy/osrm/prepare.sh`)                       |
-| `prometheus`, `grafana`, `node-exporter` | profile `monitoring`              | metrics, dashboard, alert rules (below); `redis-exporter` for Redis memory                      |
+| Service                                  | Image / source                                               | Role                                                                                                                  |
+| ---------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `caddy`                                  | `caddy:2.10-alpine`                                          | HTTPS (Let's Encrypt, automatic renewal), proxy, security headers, SSE without buffering                              |
+| `api`                                    | `Dockerfile` (`sff-taxi-api`)                                | NestJS API on :3200, `API_REPLICAS` instances, runtime role `taxi_app`                                                |
+| `worker`                                 | same image, `node dist/worker.js`                            | outbox (realtime, push/SMS, fiscal receipts, licence checks), dispatch loop (1 s), housekeeping                       |
+| `migrate`                                | same image, one-shot                                         | applies pending migrations as `taxi_owner`; api/worker start only after it succeeds                                   |
+| `web`                                    | `Dockerfile.web` (`sff-taxi-web`)                            | the built operator panel, served by Caddy as a non-root user                                                          |
+| `landing`                                | profile `landing`, `Dockerfile.landing` (`sff-taxi-landing`) | the public site: landing page, `/invite/CODE`, `/promo/CODE`, share-trip `/t/TOKEN`, privacy and terms (apps/landing) |
+| `postgres`                               | `pgvector/pgvector:pg17`                                     | PostgreSQL 17, tuned for this server size (`deploy/docker-compose.prod.yml`)                                          |
+| `redis`                                  | `redis:7-alpine`                                             | cache and short-lived state only (below); password, AOF, 384 MB, noeviction                                           |
+| `seaweedfs`                              | profile `seaweedfs`                                          | private S3-compatible store for driver documents and photos behind `files.<domain>`                                   |
+| `osrm`                                   | profile `osrm`                                               | road distances and ETAs for fares and dispatch (`deploy/osrm/prepare.sh`)                                             |
+| `prometheus`, `grafana`, `node-exporter` | profile `monitoring`                                         | metrics, dashboard, alert rules (below); `redis-exporter` for Redis memory                                            |
 
 Only Caddy publishes ports (80, 443/tcp, 443/udp). Grafana listens on `127.0.0.1` only.
 Every container has a restart policy, CPU/memory limits and rotated JSON logs (5 × 10 MB).
@@ -54,9 +57,11 @@ API relies on. Every key has a TTL.
 ## 1. Before you start
 
 - **Domain**: `api.<domain>`, `panel.<domain>`, `files.<domain>` (the last with the bundled
-  SeaweedFS), plus the share-trip page origin (`SHARE_BASE_URL`, e.g. `taxi.<domain>`: links
-  `…/t/<token>` must open a page that reads `GET /v1/share/<token>`). **A records** pointing at
-  the server before the first start (Let's Encrypt needs them).
+  SeaweedFS), and the public site `taxi.<domain>` (`LANDING_DOMAIN`, profile `landing`): it
+  serves the share-trip pages (`SHARE_BASE_URL` = `https://taxi.<domain>`, links `…/t/<token>`
+  read `GET /v1/share/<token>`), the invitation and promo-code pages the apps link to and the
+  legal texts. **A records** pointing at the server before the first start (Let's Encrypt
+  needs them).
 - **VPS** in an Uzbek data centre (UzCloud, Uztelecom DC, Sarkor, TPS…), Ubuntu 24.04, SSH key.
 - **Accounts and keys** (fill in `.env.prod`): SMS provider (Eskiz or Play Mobile, approved
   OTP template and the phone-order SMS templates), Payme and/or Click merchant (card rides and
@@ -172,6 +177,49 @@ Then, once:
 4. **Backups**: schedule them (next section) and run one by hand: `deploy/backup.sh`.
 5. **Monitoring**: an external uptime check and alerts (section 8).
 
+### Landing site
+
+The public site (`apps/landing`, [its README](../apps/landing/README.md)) runs as the
+`landing` service (profile `landing`) behind `LANDING_DOMAIN`. Its texts, store links, phone
+and legal entity are compiled in at image build time from the committed
+`apps/landing/.env.production` (public information, no secrets): fill the placeholders there
+(phone, office address, legal name, INN, App Store links once published, analytics if wanted),
+commit, tag, and the Images workflow builds `sff-taxi-landing` next to the other two. On the
+server: `TAXI_LANDING_IMAGE`, `landing` in `COMPOSE_PROFILES`, `LANDING_DOMAIN`, and
+`SHARE_BASE_URL=https://<LANDING_DOMAIN>` so share-trip links open the site's `/t/` page;
+then `deploy/update.sh` (it recreates the landing container like the panel's).
+
+The edge Caddy proxies `/v1/*` on the landing domain to the API (share-trip and tariff
+requests), so the site needs no CORS entry. App links: the site serves
+`/.well-known/assetlinks.json` and `/.well-known/apple-app-site-association` from
+`apps/landing/public/.well-known/`; put the Play App Signing SHA-256 fingerprint and the Apple
+team id there before the store release, else `https://taxi.<domain>/invite/CODE` opens in the
+browser (which still shows the code and the store buttons).
+
+Check after a deploy (the container's `/healthz` is internal): `curl -fsSI
+https://taxi.<domain>/ | head -1`, open `/invite/TEST123` (the code page with the store
+buttons) and `/t/x` (the share page says the link was not found).
+
+### Launch campaign
+
+The advertising campaign's promo code (`GULISTON`: 50% off the first ride, up to 10 000
+so'm, until 31 December 2026) and the referral settings (50% up to 10 000 for the invitee,
+10 000 so'm ride credit for the referrer, `invite_url` = `https://<LANDING_DOMAIN>/invite`)
+are defined in `apps/api/src/lib/launch-campaign.ts` and written by one idempotent script
+through the same services the panel uses. It never runs by itself:
+
+```bash
+# dry run: prints the plan, writes nothing
+deploy/compose.sh run --rm api node dist/scripts/launch-campaign.cli.js
+# write (the operator from ADMIN_PHONES must have signed in to the panel once)
+deploy/compose.sh run --rm api node dist/scripts/launch-campaign.cli.js --apply --production
+```
+
+Running it again updates the code in place (after a change of the definition) instead of
+creating a second one. Operators can still edit the code in the panel (Promokodlar) and the
+referral settings (Sozlamalar → Promo). The campaign texts for the stores and the ads are in
+[docs/store/](store/README.md).
+
 ## 6. Backups and the restore drill
 
 `deploy/backup.sh` (settings from `.env.prod`):
@@ -277,22 +325,24 @@ Rehearsal log: see the end of this file.
 
 ## Files
 
-| Path                                       | Purpose                                                          |
-| ------------------------------------------ | ---------------------------------------------------------------- |
-| `Dockerfile`                               | API image (API, worker, migrations), non-root, prod deps only    |
-| `Dockerfile.web`                           | operator panel image (static build served by Caddy, non-root)    |
-| `deploy/docker-compose.prod.yml`           | the production stack                                             |
-| `deploy/.env.prod.example`                 | every setting, grouped and documented                            |
-| `deploy/compose.sh`                        | `docker compose` with the right file and env file                |
-| `deploy/update.sh`                         | rolling deploy / rollback                                        |
-| `deploy/backup.sh`, `deploy/restore.sh`    | nightly backup (database and files), restore into a new database |
-| `deploy/gen-secrets.sh`                    | fresh secrets                                                    |
-| `deploy/Caddyfile`, `deploy/web.Caddyfile` | edge proxy (SSE, retries, private file host); panel file server  |
-| `deploy/postgres/init-roles.sh`            | creates the runtime role on first start                          |
-| `deploy/seaweedfs/storage-init.mjs`        | creates the private bucket                                       |
-| `deploy/osrm/prepare.sh`                   | builds/refreshes the Uzbekistan road graph                       |
-| `deploy/monitoring/`                       | Prometheus config, alert rules, Grafana provisioning/dashboard   |
-| `.github/workflows/ci.yml`, `images.yml`   | checks on every push/PR; image publishing on tags                |
+| Path                                             | Purpose                                                                                         |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `Dockerfile`                                     | API image (API, worker, migrations), non-root, prod deps only                                   |
+| `Dockerfile.web`                                 | operator panel image (static build served by Caddy, non-root)                                   |
+| `Dockerfile.landing`, `deploy/landing.Caddyfile` | public site image (static build served by Caddy, non-root); `/invite`, `/promo`, `/t` rewrites  |
+| `apps/api/src/scripts/launch-campaign.cli.ts`    | the launch promo code and referral settings, idempotent (`dist/scripts/launch-campaign.cli.js`) |
+| `deploy/docker-compose.prod.yml`                 | the production stack                                                                            |
+| `deploy/.env.prod.example`                       | every setting, grouped and documented                                                           |
+| `deploy/compose.sh`                              | `docker compose` with the right file and env file                                               |
+| `deploy/update.sh`                               | rolling deploy / rollback                                                                       |
+| `deploy/backup.sh`, `deploy/restore.sh`          | nightly backup (database and files), restore into a new database                                |
+| `deploy/gen-secrets.sh`                          | fresh secrets                                                                                   |
+| `deploy/Caddyfile`, `deploy/web.Caddyfile`       | edge proxy (SSE, retries, private file host); panel file server                                 |
+| `deploy/postgres/init-roles.sh`                  | creates the runtime role on first start                                                         |
+| `deploy/seaweedfs/storage-init.mjs`              | creates the private bucket                                                                      |
+| `deploy/osrm/prepare.sh`                         | builds/refreshes the Uzbekistan road graph                                                      |
+| `deploy/monitoring/`                             | Prometheus config, alert rules, Grafana provisioning/dashboard                                  |
+| `.github/workflows/ci.yml`, `images.yml`         | checks on every push/PR; image publishing on tags                                               |
 
 ## Rehearsal log
 

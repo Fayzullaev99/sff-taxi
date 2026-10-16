@@ -29,6 +29,9 @@ jobs:
             file: Dockerfile
           - name: web
             file: Dockerfile.web
+          # site texts and links come from the committed apps/landing/.env.production
+          - name: landing
+            file: Dockerfile.landing
     steps:
       - uses: actions/checkout@v5
       # GHCR image names must be lowercase; the account name may not be

@@ -92,6 +92,20 @@ services:
       resources:
         limits: { cpus: '0.5', memory: 128m }
 
+  # The public landing site (Dockerfile.landing): the marketing page, /invite/CODE and
+  # /promo/CODE from the apps' share texts, the share-trip page /t/TOKEN, privacy and terms.
+  # Profile "landing" and LANDING_DOMAIN switch it on; the edge Caddy routes the domain to it.
+  landing:
+    image: ${TAXI_LANDING_IMAGE:?set TAXI_LANDING_IMAGE, e.g. ghcr.io/<owner>/sff-taxi-landing:1.0.0}
+    profiles: [landing]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/config, /data]
+    logging: *logging
+    deploy:
+      resources:
+        limits: { cpus: '0.5', memory: 128m }
+
   caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped
@@ -104,6 +118,7 @@ services:
       API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN, e.g. api.example.uz}
       PANEL_DOMAIN: ${PANEL_DOMAIN:?set PANEL_DOMAIN, e.g. panel.example.uz}
       FILES_DOMAIN: ${FILES_DOMAIN:-}
+      LANDING_DOMAIN: ${LANDING_DOMAIN:-}
       PANEL_ORIGIN: ${PANEL_ORIGIN:-https://${PANEL_DOMAIN}}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro

@@ -104,6 +104,27 @@
 	}
 }
 
+# The public landing site (compose profile "landing"): the marketing page, the invitation and
+# promo-code pages the apps link to (/invite/CODE, /promo/CODE), the share-trip page
+# (/t/TOKEN) and the legal texts. /v1 on the same origin goes to the API (the share-trip and
+# tariff requests), so the site needs no CORS. Without LANDING_DOMAIN this site is a dummy.
+{$LANDING_DOMAIN:http://landing.invalid} {
+	import security_headers
+	header {
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+	handle /v1/* {
+		import api_routes
+	}
+	handle {
+		encode zstd gzip
+		reverse_proxy landing:8080 {
+			lb_try_duration 5s
+		}
+	}
+}
+
 # Private file storage (SeaweedFS, compose profile "seaweedfs"): driver documents and photos.
 # The apps PUT uploads and GET files only with URLs the API presigned for this host (the bucket
 # has no anonymous access); the Host header is passed through unchanged, which the signature
