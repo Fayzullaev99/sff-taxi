@@ -4,6 +4,7 @@
  * time the deposit comes back, late it is the waiting driver's (docs/payments.md).
  */
 import type { QuoteDeposit, RideClass } from '../api/types';
+import { t } from '../i18n/dictionary';
 import { formatDateTime, formatMoney } from './format';
 
 /** A ride for later: cancelled at least this long before its time, the deposit comes back. */
@@ -45,15 +46,18 @@ export function rideDepositRules(
   scheduledFor: string | null,
   freeMinutes = RIDE_FREE_CANCEL_MINUTES,
 ): string {
+  // the free-cancellation deadline, a parenthetical each language places itself
   const until = scheduledFor
-    ? ` (${formatDateTime(freeCancelUntil(scheduledFor, freeMinutes))} gacha)`
+    ? ` ${t('intercity.deposit.untilNote', {
+        datetime: formatDateTime(freeCancelUntil(scheduledFor, freeMinutes)),
+      })}`
     : '';
-  return (
-    `Buyurtma ${formatMoney(amount)} oldindan to‘lov (depozit) kartadan to‘langach tasdiqlanadi, ` +
-    `qolgan ${formatMoney(Math.max(0, price - amount))} naqd haydovchiga. ` +
-    `Vaqtidan ${freeMinutes} daqiqa oldingacha${until} bekor qilsangiz, depozit qaytariladi; ` +
-    `keyin bekor qilinsa, u kutgan haydovchiga qoladi.`
-  );
+  const hold = t('intercity.deposit.rideHold', {
+    amount: formatMoney(amount),
+    cash: formatMoney(Math.max(0, price - amount)),
+  });
+  const cancel = t('intercity.deposit.rideCancel', { count: freeMinutes, until });
+  return `${hold} ${cancel}`;
 }
 
 /**
@@ -69,10 +73,16 @@ export function rideDepositCancel(
   const free =
     scheduledFor !== null && now.getTime() < freeCancelUntil(scheduledFor, freeMinutes).getTime();
   return free
-    ? { refund: true, message: `Depozit ${formatMoney(deposit)} kartangizga qaytariladi.` }
+    ? {
+        refund: true,
+        message: t('intercity.deposit.rideRefund', { deposit: formatMoney(deposit) }),
+      }
     : {
         refund: false,
-        message: `Vaqtiga ${freeMinutes} daqiqadan kam qoldi: depozit ${formatMoney(deposit)} haydovchiga qoladi.`,
+        message: t('intercity.deposit.rideKept', {
+          count: freeMinutes,
+          deposit: formatMoney(deposit),
+        }),
       };
 }
 
@@ -98,10 +108,11 @@ export function bookingDepositRules(
   paymentMinutes: number,
   freeCancelMinutes: number,
 ): string {
-  return (
-    `Joy ${formatMoney(d.deposit)} oldindan to‘lov (depozit) kartadan ${paymentMinutes} daqiqa ichida ` +
-    `to‘langach band bo‘ladi, qolgan ${formatMoney(d.cash)} naqd haydovchiga. ` +
-    `Jo‘nashdan ${freeCancelMinutes} daqiqa oldingacha bekor qilsangiz, depozit qaytariladi; ` +
-    `keyin yoki kelmasangiz, haydovchiga qoladi.`
-  );
+  const hold = t('intercity.deposit.bookingHold', {
+    count: paymentMinutes,
+    deposit: formatMoney(d.deposit),
+    cash: formatMoney(d.cash),
+  });
+  const cancel = t('intercity.deposit.bookingCancel', { count: freeCancelMinutes });
+  return `${hold} ${cancel}`;
 }

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import {
   parseTipAmount,
   tipAmountError,
@@ -17,6 +18,19 @@ const RULES: TipRulesView = {
   open: true,
 };
 const plain = (s: string | null) => (s ? s.split(String.fromCharCode(160)).join(' ') : s);
+
+afterEach(() => setLanguage('uz'));
+
+describe('tips in Russian', () => {
+  it('words the amount errors and the status line in Russian', () => {
+    setLanguage('ru');
+    expect(plain(tipAmountError(500, RULES))).toBe('Не меньше 1 000 сум');
+    expect(tipAmountError(null, RULES)).toBe('Введите сумму цифрами');
+    expect(plain(tipStatusText({ amount: 5000, method: 'cash', status: 'recorded' }))).toBe(
+      'Спасибо! Передайте водителю 5 000 сум чаевых наличными.',
+    );
+  });
+});
 
 describe('tips on the rating screen', () => {
   it('reads typed amounts', () => {

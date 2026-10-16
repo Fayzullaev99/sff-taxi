@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import type { CargoClassRules } from '../api/types';
 import {
   carAwayLabel,
@@ -128,5 +129,30 @@ describe('carAwayLabel', () => {
     expect(carAwayLabel('delivery')).toBe('Mashina sizdan');
     expect(carAwayLabel('taxi')).toBe('Taksi sizdan');
     expect(carAwayLabel(undefined)).toBe('Taksi sizdan');
+  });
+});
+
+describe('in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('names classes, loaders and the ride screen', () => {
+    setLanguage('ru');
+    expect(classLabel('economy')).toBe('Эконом');
+    expect(classLabel('cargo_s')).toBe('Малый грузовик');
+    expect(loadersText(1, 30_000)).toBe(`1 грузчик · 30${N}000${N}сум за каждого`);
+    expect(loadersText(2, 30_000)).toBe(`2 грузчика · 30${N}000${N}сум за каждого`);
+    expect(cargoLimitsText(rules(700))).toBe(
+      `до 700 кг · 10 км и 20 мин включены в цену, далее 1${N}500${N}сум/км`,
+    );
+    expect(parseWeight('12', 10).error).toBe('Не более 10 кг');
+    expect(serviceTitle('cargo', 'assigned', 'x')).toBe('Грузовик в пути');
+    expect(
+      loadLine({
+        service: 'cargo',
+        cargo: { loaders: 5, riderRides: true, description: 'Диван', weightKg: 80 },
+      }),
+    ).toBe('Диван · 80 кг · 5 грузчиков · вы в кабине');
+    expect(carAwayLabel('taxi')).toBe('Такси от вас');
+    expect(checkRecipient('', '123').phoneError).toBe('Неверный номер телефона: +998 XX XXX XX XX');
   });
 });

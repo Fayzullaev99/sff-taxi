@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import type { Fare, Quote } from '../api/types';
 import { classMaxPassengers, orderableClass, quoteClasses } from './fare';
 import { clampPassengers, orderChoices } from './sharing';
@@ -77,5 +78,31 @@ describe('taxi classes on the order screen', () => {
       shareable: true,
       paymentMethod: 'cash',
     });
+  });
+});
+
+describe('in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('names the classes the app falls back to', () => {
+    setLanguage('ru');
+    const quote = { fares: { comfort: fare(8800), economy: fare(7000) } } as Pick<
+      Quote,
+      'fares' | 'classes'
+    >;
+    expect(quoteClasses(quote)).toEqual([
+      {
+        id: 'economy',
+        label: 'Эконом',
+        note: 'Cobalt, Nexia, Lacetti · до 3 чел.',
+        maxPassengers: 3,
+      },
+      {
+        id: 'comfort',
+        label: 'Комфорт',
+        note: 'Новые и просторные автомобили · до 3 чел.',
+        maxPassengers: 3,
+      },
+    ]);
   });
 });

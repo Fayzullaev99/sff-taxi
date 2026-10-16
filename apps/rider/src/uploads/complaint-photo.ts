@@ -10,6 +10,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { Linking } from 'react-native';
 import { endpoints } from '../api/endpoints';
+import { t } from '../i18n/dictionary';
 import { confirm } from '../lib/dialogs';
 import { COMPLAINT_PHOTO_MAX_BYTES, PHOTO_PASSES, resizeFor } from '../lib/complaint-photos';
 
@@ -38,9 +39,9 @@ async function permitted(source: PhotoSource): Promise<boolean> {
   const p = await ImagePicker.requestCameraPermissionsAsync();
   if (p.granted) return true;
   const open = await confirm({
-    title: 'Kameraga ruxsat kerak',
-    message: 'Telefon sozlamalarida SFF Taxi’ga ruxsat bering.',
-    confirmText: 'Sozlamalarni ochish',
+    title: t('support.photos.cameraPermissionTitle'),
+    message: t('support.photos.cameraPermissionMessage'),
+    confirmText: t('support.photos.openSettings'),
   });
   if (open) await Linking.openSettings().catch(() => undefined);
   return false;
@@ -74,8 +75,8 @@ export async function pickPhoto(source: PhotoSource): Promise<PreparedPhoto | nu
     last = { uri: saved.uri, sizeBytes: sizeOf(saved.uri) };
     if (last.sizeBytes > 0 && last.sizeBytes <= COMPLAINT_PHOTO_MAX_BYTES) return last;
   }
-  if (!last || last.sizeBytes <= 0) throw new PhotoError('Rasmni o‘qib bo‘lmadi');
-  throw new PhotoError('Rasm juda katta (5 MB dan oshmasin)');
+  if (!last || last.sizeBytes <= 0) throw new PhotoError(t('support.photos.errors.unreadable'));
+  throw new PhotoError(t('support.photos.errors.tooBig'));
 }
 
 /** Sends a prepared photo and returns the ready upload's id. */
@@ -99,7 +100,7 @@ export async function uploadPhoto(photo: PreparedPhoto): Promise<string> {
     );
   if (status < 200 || status >= 300) {
     throw new PhotoError(
-      status === 0 ? 'Aloqa yo‘q: rasm yuborilmadi' : 'Rasm yuborilmadi, qayta urinib ko‘ring',
+      status === 0 ? t('support.photos.errors.offline') : t('support.photos.errors.sendFailed'),
     );
   }
   const done = await endpoints.completeUpload(created.id);

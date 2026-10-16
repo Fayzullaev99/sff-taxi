@@ -4,6 +4,7 @@ import { StyleSheet, View } from 'react-native';
 import { describeError } from '../api/client';
 import { promoEndpoints, promoKeys } from '../api/promo-api';
 import type { AddedCode } from '../api/promo-types';
+import { useT } from '../i18n';
 import { installId } from '../lib/install-id';
 import { codeReady, normalizeCode } from '../lib/promo';
 import { Banner, Button, TextField } from '../ui/primitives';
@@ -23,6 +24,7 @@ export function PromoCodeEntry({
   autoFocus?: boolean;
   initial?: string;
 }) {
+  const { t } = useT();
   const queryClient = useQueryClient();
   const [code, setCode] = useState(initial);
   const [busy, setBusy] = useState(false);
@@ -41,8 +43,8 @@ export function PromoCodeEntry({
         ok: true,
         text:
           added.added.kind === 'referral'
-            ? 'Taklif kodi qabul qilindi: birinchi safaringizga chegirma'
-            : `${added.added.code} qo‘shildi: mos safarda chegirma o‘zi qo‘llanadi`,
+            ? t('order.promo.referralAdded')
+            : t('order.promo.codeAdded', { code: added.added.code }),
       });
       setCode('');
       onAdded?.(added);
@@ -58,12 +60,12 @@ export function PromoCodeEntry({
       <View style={styles.row}>
         <TextField
           style={styles.flex}
-          placeholder="Promokod yoki taklif kodi"
-          accessibilityLabel="Promokod yoki taklif kodi"
+          placeholder={t('order.promo.codePlaceholder')}
+          accessibilityLabel={t('order.promo.codePlaceholder')}
           value={code}
-          onChangeText={(t) => {
+          onChangeText={(text) => {
             setResult(null);
-            setCode(t.toUpperCase());
+            setCode(text.toUpperCase());
           }}
           autoCapitalize="characters"
           autoCorrect={false}
@@ -73,7 +75,7 @@ export function PromoCodeEntry({
           onSubmitEditing={() => void apply()}
         />
         <Button
-          title="Qo‘llash"
+          title={t('order.promo.apply')}
           variant="dark"
           loading={busy}
           disabled={!codeReady(code)}

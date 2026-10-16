@@ -3,6 +3,7 @@ import { describeError } from '../api/client';
 import { endpoints } from '../api/endpoints';
 import { keys, queryClient, useRecentPlaces, useSavedPlaces } from '../api/queries';
 import type { RecentPlace, SavedPlace } from '../api/types';
+import { t } from '../i18n/dictionary';
 import { notify } from '../lib/dialogs';
 import {
   groupSaved,
@@ -70,7 +71,7 @@ export async function savePicked(kind: 'home' | 'work' | 'other', place: Place):
     await savePlace(kind, place);
     return true;
   } catch (e) {
-    notify('Manzil saqlanmadi', describeError(e));
+    notify(t('order.places.saveFailed'), describeError(e));
     return false;
   }
 }
@@ -98,7 +99,7 @@ export async function hideRecentPlace(key: string): Promise<boolean> {
     return true;
   } catch (e) {
     queryClient.setQueryData(keys.recentPlaces, before);
-    notify('Manzil yashirilmadi', describeError(e));
+    notify(t('order.places.hideFailed'), describeError(e));
     return false;
   } finally {
     void queryClient.invalidateQueries({ queryKey: keys.recentPlaces });
@@ -111,7 +112,7 @@ export async function unhideRecentPlaces(): Promise<boolean> {
     await endpoints.unhideRecentPlaces();
     return true;
   } catch (e) {
-    notify('Bajarilmadi', describeError(e));
+    notify(t('order.places.failed'), describeError(e));
     return false;
   } finally {
     void queryClient.invalidateQueries({ queryKey: keys.recentPlaces });

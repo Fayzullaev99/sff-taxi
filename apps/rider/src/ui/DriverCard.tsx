@@ -1,5 +1,6 @@
 import { StyleSheet, View } from 'react-native';
 import type { RideDriver, RideVehicle } from '../api/types';
+import { useT } from '../i18n';
 import { callPhone } from '../lib/links';
 import { IconButton, T } from './primitives';
 import { formatRating, RatingBadge } from './Rating';
@@ -16,6 +17,7 @@ export function DriverCard({
   driver: RideDriver | null;
   vehicle: RideVehicle | null;
 }) {
+  const { t } = useT();
   return (
     <View style={styles.root}>
       {vehicle ? (
@@ -23,7 +25,9 @@ export function DriverCard({
           <View
             style={styles.plate}
             accessible
-            accessibilityLabel={`Davlat raqami ${vehicle.plateFormatted.split('').join(' ')}`}
+            accessibilityLabel={t('ride.driverCard.plateA11y', {
+              plate: vehicle.plateFormatted.split('').join(' '),
+            })}
           >
             <T variant="plate" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
               {vehicle.plateFormatted}
@@ -44,7 +48,11 @@ export function DriverCard({
           <View
             style={styles.flex}
             accessible
-            accessibilityLabel={`Haydovchi ${driver.name}, reyting ${formatRating(driver.rating)}, ${driver.ridesCompleted} ta safar`}
+            accessibilityLabel={t('ride.driverCard.driverA11y', {
+              name: driver.name,
+              rating: formatRating(driver.rating),
+              count: driver.ridesCompleted,
+            })}
           >
             <T variant="bodyStrong" numberOfLines={1}>
               {driver.name}
@@ -52,14 +60,14 @@ export function DriverCard({
             <View style={styles.meta}>
               <RatingBadge rating={driver.rating} />
               <T variant="small" color={colors.textMuted} numberOfLines={1}>
-                · {driver.ridesCompleted} ta safar
+                · {t('ride.driverCard.rides', { count: driver.ridesCompleted })}
               </T>
             </View>
           </View>
           {driver.phone ? (
             <IconButton
               name="call"
-              label={`Haydovchiga qo‘ng‘iroq qilish: ${driver.name}`}
+              label={t('ride.driverCard.callA11y', { name: driver.name })}
               size={52}
               color={colors.ink}
               background={colors.brand}

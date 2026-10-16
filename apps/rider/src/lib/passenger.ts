@@ -1,4 +1,5 @@
 import type { RecentPassenger } from '../api/types';
+import { t } from '../i18n/dictionary';
 import { formatPhone, normalizePhone } from './format';
 
 /**
@@ -22,13 +23,13 @@ export function checkPassenger(
 ): PassengerCheck {
   const n = name.trim();
   const p = normalizePhone(phone);
-  const nameError = n.length === 0 ? 'Yo‘lovchining ismini yozing' : null;
+  const nameError = n.length === 0 ? t('order.passenger.nameRequired') : null;
   const phoneError = !phone.trim()
-    ? 'Yo‘lovchining telefonini yozing'
+    ? t('order.passenger.phoneRequired')
     : p === null
-      ? 'Telefon raqami noto‘g‘ri: +998 XX XXX XX XX'
+      ? t('order.phone.invalid')
       : ownPhone && p === ownPhone
-        ? 'Bu sizning raqamingiz: o‘zingiz uchun bo‘lsa, bu tanlovni o‘chiring'
+        ? t('order.passenger.ownPhone')
         : null;
   return { ok: !nameError && !phoneError, name: n, phone: p, nameError, phoneError };
 }
@@ -44,5 +45,6 @@ export function passengerLine(
 ): string | null {
   if (!passenger) return null;
   const phone = passenger.phone ? ` · ${formatPhone(passenger.phone)}` : '';
-  return `Yo‘lovchi: ${passenger.name ?? 'boshqa odam'}${phone}`;
+  const name = passenger.name ?? t('order.passenger.someoneElse');
+  return `${t('order.passenger.line', { name })}${phone}`;
 }

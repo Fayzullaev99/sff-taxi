@@ -4,6 +4,7 @@
  * the phone, which are moved to the account once (see places/migrate.ts).
  */
 import type { LatLng, PlaceInput, RecentPlace, SavedPlace } from '../api/types';
+import { t } from '../i18n/dictionary';
 import { distanceM } from './ride-state';
 
 /** A place as the search and the map use it: a point and the line that names it. */
@@ -16,7 +17,20 @@ export interface Place extends LatLng {
 
 export type SavedKind = 'home' | 'work';
 
-export const SAVED_LABELS: Record<SavedKind, string> = { home: 'Uy', work: 'Ish' };
+/** "Uy" / "Ish" in the current language. */
+export function savedLabel(kind: SavedKind): string {
+  return kind === 'home' ? t('history.places.home') : t('history.places.work');
+}
+
+/** The same as a table, read in the current language (kept for `SAVED_LABELS[kind]` callers). */
+export const SAVED_LABELS: Record<SavedKind, string> = {
+  get home() {
+    return savedLabel('home');
+  },
+  get work() {
+    return savedLabel('work');
+  },
+};
 
 /** What the search / map screens save a pick as (`?save=`). */
 export type SaveTarget = SavedKind | 'other';
@@ -26,7 +40,8 @@ export function parseSaveTarget(value: string | undefined): SaveTarget | null {
 }
 
 export function saveTitle(target: SaveTarget): string {
-  return target === 'other' ? 'Yangi manzil' : `${SAVED_LABELS[target]} manzili`;
+  if (target === 'other') return t('history.places.newPlace');
+  return target === 'home' ? t('history.places.homeTitle') : t('history.places.workTitle');
 }
 
 /** Closer than this, two places are the same (a pin dropped twice on one gate). */

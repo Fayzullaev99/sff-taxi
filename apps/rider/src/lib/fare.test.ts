@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { Fare } from '../api/types';
+import { setLanguage } from '../i18n/dictionary';
 import {
   cancellationFeeNote,
   cancelTerms,
@@ -15,6 +16,8 @@ import {
 } from './fare';
 
 const s = (text: string) => text.replace(/\u00a0/g, ' ');
+
+afterEach(() => setLanguage('uz'));
 
 const cityFare: Fare = {
   kind: 'city',
@@ -327,5 +330,32 @@ describe('owed cancellation fees', () => {
     );
     expect(t.fee).toBe(5000);
     expect(t.message).toContain('keyingi naqd safaringiz');
+  });
+});
+
+describe('in Russian', () => {
+  it('words the fare lines, the waiting rule and the cancel terms', () => {
+    setLanguage('ru');
+    const lines = fareLines(cityFare).map((l) => s(l.label));
+    expect(lines).toEqual([
+      'По городу, 4,2 км',
+      'За городом, 2,0 км',
+      'Ночная надбавка',
+      'Детское кресло',
+      'Кондиционер',
+    ]);
+    const rules = { waiting: { free_minutes: 2, per_minute: 500 }, cancellationFee: 3000 };
+    expect(s(waitingRuleText(rules))).toBe(
+      'После подачи 2 мин ожидания бесплатно, затем 500 сум за минуту. После этого отмена — 3 000 сум.',
+    );
+    const now = new Date('2026-09-26T10:03:00Z');
+    expect(
+      cancelTerms({ status: 'scheduled', arrivedAt: null, cancelFeeNow: 0 }, null, now),
+    ).toEqual({ fee: 0, message: 'Отмена предзаказа бесплатна.' });
+    const owed = quoteOwedFee({ amount: 5000, rides: [{ number: 41 }] }, 'cash');
+    expect(s(owed!.note)).toContain(
+      'За прошлую отменённую поездку (#41) плата за отмену: 5 000 сум',
+    );
+    expect(optionPriceLabel(0)).toBe('Бесплатно');
   });
 });

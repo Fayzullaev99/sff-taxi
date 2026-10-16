@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { FlatList, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { useT } from '../i18n';
 import { formatDateTime } from '../lib/format';
 import { SCHEDULE_DISPATCH_BEFORE_MIN, scheduleSlots } from '../lib/schedule';
 import { RadioMark, T } from '../ui/primitives';
@@ -21,6 +22,7 @@ export function ScheduleSheet({
   onClose: () => void;
   onPick: (iso: string) => void;
 }) {
+  const { t } = useT();
   // recomputed each time the sheet opens, so the first slot is always still valid
   const slots = useMemo(
     () => (visible ? scheduleSlots(new Date()).map((d) => d.toISOString()) : []),
@@ -34,11 +36,10 @@ export function ScheduleSheet({
     <Sheet visible={visible} onClose={onClose}>
       <View style={styles.head}>
         <T variant="h2" accessibilityRole="header">
-          Qachon olib ketamiz?
+          {t('order.schedule.title')}
         </T>
         <T variant="small" color={colors.textMuted}>
-          Haydovchi qidiruvi {SCHEDULE_DISPATCH_BEFORE_MIN} daqiqa oldin boshlanadi. Narx shu vaqt
-          uchun hisoblanadi va o‘zgarmaydi.
+          {t('order.schedule.hint', { minutes: SCHEDULE_DISPATCH_BEFORE_MIN })}
         </T>
       </View>
       <FlatList

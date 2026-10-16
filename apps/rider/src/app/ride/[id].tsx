@@ -11,11 +11,12 @@ import { keys, useRide } from '../../api/queries';
 import { useLiveRides } from '../../api/realtime';
 import { carPosition, mergeTrail, type TrackPoint } from '../../api/realtime-logic';
 import type { Ride, SosResult } from '../../api/types';
+import { useT } from '../../i18n';
 import { confirm, notify } from '../../lib/dialogs';
 import {
   cashToPay,
   waitingCashLine,
-  OWED_FEE_LABEL,
+  owedFeeLabel,
   type RideRules,
   rideRules,
   stopStateText,
@@ -67,6 +68,7 @@ import { colors, radius, shadow, space } from '../../ui/theme';
  */
 export default function RideScreenRoute() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { t } = useT();
   const queryClient = useQueryClient();
   const [streamWanted, setStreamWanted] = useState(true);
   const connected = useLiveRides(streamWanted);
@@ -97,7 +99,7 @@ export default function RideScreenRoute() {
         {query.isError ? (
           <ErrorView error={query.error} onRetry={() => void query.refetch()} />
         ) : (
-          <LoadingView label="Safar yuklanmoqda…" />
+          <LoadingView label={t('ride.screen.loading')} />
         )}
       </View>
     );
@@ -124,6 +126,7 @@ export default function RideScreenRoute() {
 }
 
 function TopBar({ ride, overMap = false }: { ride: Ride; overMap?: boolean }) {
+  const { t } = useT();
   const insets = useSafeAreaInsets();
   return (
     <View
@@ -136,7 +139,7 @@ function TopBar({ ride, overMap = false }: { ride: Ride; overMap?: boolean }) {
     >
       <IconButton
         name="arrow-back"
-        label="Orqaga"
+        label={t('common.actions.back')}
         size={46}
         // the order form was replaced by this screen: back leads to the map or the history
         onPress={() => (router.canGoBack() ? router.back() : router.replace('/home'))}
@@ -161,6 +164,7 @@ function LiveRide({
   updatedAt: number;
   onCheck: () => Promise<unknown>;
 }) {
+  const { t } = useT();
   const online = useOnline();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
@@ -209,10 +213,13 @@ function LiveRide({
     setSharing(true);
     try {
       const link = await endpoints.share(ride.id);
-      const plate = ride.vehicle ? ` (${ride.vehicle.plateFormatted})` : '';
-      await shareText(`SFF Taxi: safarimni jonli kuzating${plate}`, link.url);
+      const plate = ride.vehicle?.plateFormatted;
+      await shareText(
+        plate ? t('ride.screen.shareTextPlate', { plate }) : t('ride.screen.shareText'),
+        link.url,
+      );
     } catch (e) {
-      notify('Havola olinmadi', describeError(e));
+      notify(t('ride.screen.shareFailed'), describeError(e));
     } finally {
       setSharing(false);
     }
@@ -220,11 +227,10 @@ function LiveRide({
 
   const startSos = async () => {
     const ok = await confirm({
-      title: 'SOS — favqulodda holat',
-      message:
-        'SFF Taxi operatorlariga signal va joylashuvingiz yuboriladi. Keyin 112/102/103 raqamlariga qo‘ng‘iroq qilishingiz mumkin.',
-      confirmText: 'Signal yuborish',
-      cancelText: 'Yo‘q',
+      title: t('ride.sos.confirmTitle'),
+      message: t('ride.sos.confirmMessage'),
+      confirmText: t('ride.sos.confirmSend'),
+      cancelText: t('common.actions.no'),
       destructive: true,
     });
     if (!ok) return;
@@ -290,8 +296,9 @@ function LiveRide({
 
           {!online && updatedAt ? (
             <T variant="small" color={colors.textMuted}>
-              Internet yo‘q: {formatTime(new Date(updatedAt).toISOString())} holatidagi ma’lumot
-              ko‘rsatilmoqda.
+              {t('ride.screen.offlineAsOf', {
+                time: formatTime(new Date(updatedAt).toISOString()),
+              })}
             </T>
           ) : null}
 
@@ -315,7 +322,9 @@ function LiveRide({
               <SeatIcons car={ride.car} />
               <T variant="smallStrong" style={styles.flex}>
                 {occupancyText(ride.car)}
-                {ride.passengers && ride.passengers > 1 ? ` · siz ${ride.passengers} kishi` : ''}
+                {ride.passengers && ride.passengers > 1
+                  ? ` · ${t('ride.screen.yourParty', { count: ride.passengers })}`
+                  : ''}
               </T>
             </View>
           ) : null}
@@ -326,7 +335,12 @@ function LiveRide({
 
           {ride.pickup.landmark || ride.comment ? (
             <T variant="small" color={colors.textMuted} numberOfLines={3}>
-              {[ride.pickup.landmark ? `Mo‘ljal: ${ride.pickup.landmark}` : null, ride.comment]
+              {[
+                ride.pickup.landmark
+                  ? t('ride.screen.landmark', { landmark: ride.pickup.landmark })
+                  : null,
+                ride.comment,
+              ]
                 .filter(Boolean)
                 .join(' · ')}
             </T>
@@ -336,7 +350,7 @@ function LiveRide({
             <View style={styles.actions}>
               {screen.canShare ? (
                 <Button
-                  title="Safarni ulashish"
+                  title={t('ride.screen.share')}
                   icon="share-social-outline"
                   variant="secondary"
                   loading={sharing}
@@ -346,11 +360,11 @@ function LiveRide({
               ) : null}
               {screen.canSos ? (
                 <Button
-                  title="SOS"
+                  title={t('ride.sos.button')}
                   icon="warning"
                   variant="sos"
                   onPress={() => void startSos()}
-                  accessibilityLabel="SOS, favqulodda yordam"
+                  accessibilityLabel={t('ride.sos.buttonA11y')}
                   style={styles.sos}
                 />
               ) : null}
@@ -367,8 +381,8 @@ function LiveRide({
             <Button
               title={
                 screen.phase === 'scheduled'
-                  ? 'Oldindan buyurtmani bekor qilish'
-                  : 'Buyurtmani bekor qilish'
+                  ? t('ride.cancel.buttonScheduled')
+                  : t('ride.cancel.button')
               }
               variant="ghost"
               onPress={() => {
@@ -411,6 +425,7 @@ function PhaseHeader({
   car: TrackPoint | null;
   rules: RideRules | null;
 }) {
+  const { t } = useT();
   const now = useNow(15_000);
   const liveEta = useLiveEta(ride.id);
   const liveDestinationEta = useLiveDestinationEta(ride.id);
@@ -432,11 +447,13 @@ function PhaseHeader({
     fixIsStale(car?.at, now.getTime());
   let line: string | null = null;
   if (screen.phase === 'assigned') {
-    line = eta ? `Taxminan ${formatMinutes(eta)}da yetib keladi` : 'Haydovchi yo‘lga chiqdi';
+    line = eta
+      ? t('ride.screen.arrivesIn', { eta: formatMinutes(eta) })
+      : t('ride.screen.driverLeft');
   } else if (screen.phase === 'on_trip') {
     line = `${placeLine(ride.dropoff)}${eta ? ` · ~${formatMinutes(eta)}` : ''}`;
   } else if (screen.phase === 'scheduled' && ride.scheduledFor) {
-    line = `${formatDateTime(ride.scheduledFor)} ga`;
+    line = t('ride.screen.scheduledAt', { when: formatDateTime(ride.scheduledFor) });
   }
   return (
     <View style={styles.header}>
@@ -454,7 +471,7 @@ function PhaseHeader({
       ) : null}
       {carSilent ? (
         <T variant="small" color={colors.warning}>
-          Mashina joylashuvi yangilanmayapti — aloqa kutilmoqda…
+          {t('ride.screen.carSilent')}
         </T>
       ) : null}
       {screen.phase === 'arrived' ? <WaitingClock ride={ride} rules={rules} /> : null}
@@ -484,6 +501,7 @@ function useSteadyEta(minutes: number | null, phase: string): number | null {
  * earlier cancelled rides says the total to hand over and what the extra is.
  */
 function FareLine({ ride }: { ride: Ride }) {
+  const { t } = useT();
   const cash = cashToPay(ride);
   const waiting = waitingCashLine(ride);
   // a shared ride: the quoted price is the ceiling, co-riders lower it (live)
@@ -500,8 +518,8 @@ function FareLine({ ride }: { ride: Ride }) {
           </T>
         ) : null}
         <T variant="smallStrong">
-          {formatMoney(price.pays)} · {cashRide ? 'naqd' : 'karta orqali to‘langan'} ·{' '}
-          {price.discount > 0 ? 'hamroh bilan arzonroq' : 'narx o‘zgarmaydi'}
+          {formatMoney(price.pays)} · {cashRide ? t('ride.fare.cash') : t('ride.fare.paidByCard')} ·{' '}
+          {price.discount > 0 ? t('ride.fare.cheaperWithCoRider') : t('ride.fare.fixedPrice')}
         </T>
       </View>
       {promoLines.length ? (
@@ -515,12 +533,15 @@ function FareLine({ ride }: { ride: Ride }) {
         </T>
       ) : ride.shareable && ride.fareMode !== 'seat' ? (
         <T variant="small" color={colors.textMuted}>
-          Hamroh qo‘shilsa, narx arzonlashadi — sizga xabar beramiz.
+          {t('ride.fare.coRiderNote')}
         </T>
       ) : null}
       {price.deposit > 0 && cashRide ? (
         <T variant="small" color={colors.textMuted}>
-          Oldindan to‘langan {formatMoney(price.deposit)} · qolgan {formatMoney(cash.fare)} naqd
+          {t('ride.fare.depositLine', {
+            deposit: formatMoney(price.deposit),
+            rest: formatMoney(cash.fare),
+          })}
         </T>
       ) : null}
       {waiting ? (
@@ -530,8 +551,12 @@ function FareLine({ ride }: { ride: Ride }) {
       ) : null}
       {cash.owedFee > 0 ? (
         <T variant="small" color={colors.textMuted}>
-          Naqd jami {formatMoney(cash.total)}: safar {formatMoney(cash.fare)} +{' '}
-          {OWED_FEE_LABEL.toLowerCase()} {formatMoney(cash.owedFee)} (bekor qilish to‘lovi)
+          {t('ride.fare.cashTotal', {
+            total: formatMoney(cash.total),
+            fare: formatMoney(cash.fare),
+            owedLabel: owedFeeLabel().toLowerCase(),
+            owed: formatMoney(cash.owedFee),
+          })}
         </T>
       ) : null}
     </View>
@@ -543,17 +568,18 @@ function FareLine({ ride }: { ride: Ride }) {
  * (at night, shared, a woman driver, between towns) — the right rider in the right car.
  */
 function StartPin({ pin }: { pin: string }) {
+  const { t } = useT();
   return (
     <View
       style={styles.pin}
       accessible
       accessibilityRole="text"
-      accessibilityLabel={`Boshlash kodi: ${pin.split('').join(' ')}. Haydovchiga ayting.`}
+      accessibilityLabel={t('ride.screen.pinA11y', { digits: pin.split('').join(' ') })}
     >
       <Icon name="key-outline" size={22} color={colors.ink} />
       <View style={styles.flex}>
         <T variant="small" color={colors.textMuted}>
-          Haydovchiga ayting — safar shu kod bilan boshlanadi
+          {t('ride.screen.pinHint')}
         </T>
         <T variant="plate">{pinDigits(pin)}</T>
       </View>
@@ -563,35 +589,41 @@ function StartPin({ pin }: { pin: string }) {
 
 /** Free waiting counts down; after it, the paid minutes and their price count up. */
 function WaitingClock({ ride, rules }: { ride: Ride; rules: RideRules | null }) {
+  const { t } = useT();
   const now = useNow(1000);
   if (!ride.arrivedAt) return null;
   if (!rules) {
     return (
       <T variant="body" color={colors.textMuted}>
-        Iltimos, chiqing — haydovchi kutmoqda.
+        {t('ride.waiting.pleaseComeOut')}
       </T>
     );
   }
+  const cargo = ride.service === 'cargo';
   const w = waitingState(ride.arrivedAt, rules.waiting, now);
   if (w.freeLeftS > 0) {
+    const time = formatClock(w.freeLeftS);
     return (
       <View style={[styles.clock, { backgroundColor: colors.successSoft }]}>
         <Icon name="time-outline" size={20} color={colors.success} />
         <T variant="bodyStrong" style={styles.flex}>
-          {ride.service === 'cargo' ? 'Bepul yuklash' : 'Bepul kutish'}: {formatClock(w.freeLeftS)}
+          {cargo
+            ? t('ride.waiting.freeLoading', { time })
+            : t('ride.waiting.freeWaiting', { time })}
         </T>
       </View>
     );
   }
+  const paid = { minutes: w.paidMinutes, fee: formatMoney(w.fee) };
   return (
     <View style={[styles.clock, { backgroundColor: colors.warningSoft }]}>
       <Icon name="hourglass-outline" size={20} color={colors.warning} />
       <T variant="bodyStrong" style={styles.flex}>
-        {ride.service === 'cargo' ? 'Pullik yuklash' : 'Pullik kutish'}: {w.paidMinutes} daq ·{' '}
-        {formatMoney(w.fee)}
+        {cargo ? t('ride.waiting.paidLoading', paid) : t('ride.waiting.paidWaiting', paid)}
       </T>
       <T variant="small" color={colors.textMuted}>
-        {formatMoney(rules.waiting.per_minute)}/daq
+        {formatMoney(rules.waiting.per_minute)}
+        {t('common.units.perMin')}
       </T>
     </View>
   );
@@ -625,27 +657,24 @@ function RouteBox({ ride }: { ride: Ride }) {
 }
 
 function SearchingInfo({ ride }: { ride: Ride }) {
+  const { t } = useT();
   const now = useNow(1000);
   const elapsed = (now.getTime() - new Date(ride.requestedAt).getTime()) / 1000;
   return (
     <View style={styles.searchInfo}>
       <T variant="body" color={colors.textMuted}>
-        Yaqin atrofdagi haydovchilarga taklif yuborilmoqda · {formatClock(elapsed)}
+        {t('ride.searching.offering', { time: formatClock(elapsed) })}
       </T>
       <RouteBox ride={ride} />
       <FareLine ride={ride} />
-      {elapsed > 180 ? (
-        <Banner
-          tone="info"
-          message="Qidiruv odatdagidan uzoq davom etmoqda. Operatorlar ham buyurtmangizni ko‘rib turibdi."
-        />
-      ) : null}
+      {elapsed > 180 ? <Banner tone="info" message={t('ride.searching.long')} /> : null}
     </View>
   );
 }
 
 /** A ride for later: when, where, the fixed price; the search starts 15 minutes before. */
 function ScheduledInfo({ ride, rules }: { ride: Ride; rules: RideRules | null }) {
+  const { t } = useT();
   return (
     <View style={styles.searchInfo}>
       <RouteBox ride={ride} />
@@ -654,15 +683,20 @@ function ScheduledInfo({ ride, rules }: { ride: Ride; rules: RideRules | null })
         <Banner
           tone="info"
           icon="notifications-outline"
-          message={`Haydovchi qidiruvi soat ${formatTime(searchStartsAt(ride.scheduledFor))} da boshlanadi. Mashina topilganda xabar beramiz.`}
+          message={t('ride.scheduled.searchStarts', {
+            time: formatTime(searchStartsAt(ride.scheduledFor)),
+          })}
         />
       ) : null}
       {rules ? (
         <T variant="small" color={colors.textMuted}>
           {waitingRuleText(rules)}{' '}
           {(ride.fare.deposit ?? 0) > 0 && ride.scheduledFor
-            ? `Depozit ${formatMoney(ride.fare.deposit!)} to‘langan. ${formatTime(freeCancelUntil(ride.scheduledFor).toISOString())} gacha bekor qilsangiz, u qaytariladi; keyin haydovchiga qoladi.`
-            : 'Oldindan buyurtmani bekor qilish bepul.'}
+            ? t('ride.scheduled.depositRule', {
+                amount: formatMoney(ride.fare.deposit!),
+                time: formatTime(freeCancelUntil(ride.scheduledFor).toISOString()),
+              })
+            : t('ride.scheduled.cancelFree')}
         </T>
       ) : null}
     </View>
@@ -671,6 +705,7 @@ function ScheduledInfo({ ride, rules }: { ride: Ride; rules: RideRules | null })
 
 /** A cargo ride's load or a delivery's parcel and its recipient (whom the driver calls). */
 function LoadInfo({ ride }: { ride: Ride }) {
+  const { t } = useT();
   const line = loadLine(ride);
   if (!line) return null;
   const phone = ride.service === 'delivery' ? ride.delivery?.recipientPhone : null;
@@ -687,7 +722,7 @@ function LoadInfo({ ride }: { ride: Ride }) {
         </T>
         {phone ? (
           <T variant="small" color={colors.textMuted}>
-            Qabul qiluvchi: {formatPhone(phone)}
+            {t('ride.screen.recipient', { phone: formatPhone(phone) })}
           </T>
         ) : null}
       </View>

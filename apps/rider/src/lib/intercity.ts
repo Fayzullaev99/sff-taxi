@@ -5,6 +5,7 @@
  * GET /config and the trip / booking views; 60 minutes and 30% are the launch defaults).
  */
 import type { BookingStatus, TripStatus } from '../api/types';
+import { t } from '../i18n/dictionary';
 import { formatDay, formatDistance, formatMoney, formatTime, tashkentDay } from './format';
 
 export const MAX_SEATS = 4;
@@ -89,7 +90,7 @@ export function bookingCancelTerms(
   } = {},
 ): BookingCancelTerms {
   if (server.unpaid) {
-    return { fee: 0, freeUntil: null, message: 'Depozit hali to‘lanmagan: bekor qilish bepul.' };
+    return { fee: 0, freeUntil: null, message: t('intercity.booking.cancel.unpaidFree') };
   }
   const freeUntil = server.freeUntil
     ? new Date(server.freeUntil)
@@ -101,12 +102,18 @@ export function bookingCancelTerms(
       ? {
           fee: 0,
           freeUntil,
-          message: `Soat ${formatTime(freeUntil)} gacha bekor qilsangiz, depozit ${formatMoney(deposit)} kartangizga qaytariladi. Keyin u haydovchiga qoladi.`,
+          message: t('intercity.booking.cancel.depositRefundUntil', {
+            time: formatTime(freeUntil),
+            deposit: formatMoney(deposit),
+          }),
         }
       : {
           fee: deposit,
           freeUntil: null,
-          message: `Jo‘nashga ${rules.freeCancelMinutes} daqiqadan kam qoldi: bekor qilsangiz, depozit ${formatMoney(deposit)} haydovchiga qoladi.`,
+          message: t('intercity.booking.cancel.depositKept', {
+            count: rules.freeCancelMinutes,
+            deposit: formatMoney(deposit),
+          }),
         };
   }
   if (now < freeUntil) {
@@ -115,27 +122,31 @@ export function bookingCancelTerms(
       freeUntil,
       message:
         percent > 0
-          ? `Soat ${formatTime(freeUntil)} gacha bekor qilish bepul. Keyin bron narxining ${percent}% i to‘lanadi.`
-          : 'Bekor qilish bepul.',
+          ? t('intercity.booking.cancel.freeUntil', { time: formatTime(freeUntil), percent })
+          : t('intercity.booking.cancel.free'),
     };
   }
   const computed = Math.round((price * percent) / 100 / 100) * 100;
   const fee = server.feeNow && server.feeNow > 0 ? server.feeNow : computed;
-  if (fee <= 0) return { fee: 0, freeUntil: null, message: 'Bekor qilish bepul.' };
+  if (fee <= 0) return { fee: 0, freeUntil: null, message: t('intercity.booking.cancel.free') };
   return {
     fee,
     freeUntil: null,
-    message: `Jo‘nashga ${rules.freeCancelMinutes} daqiqadan kam qoldi: bekor qilsangiz ${formatMoney(fee)} (${percent}%) haydovchiga yoziladi.`,
+    message: t('intercity.booking.cancel.lateFee', {
+      count: rules.freeCancelMinutes,
+      fee: formatMoney(fee),
+      percent,
+    }),
   };
 }
 
 /** The general rule, for the trip and booking screens. */
 export function cancelRuleText(rules: CancelRules = DEFAULT_CANCEL_RULES): string {
-  if (rules.lateCancelFeePercent <= 0) return 'Bronni istalgan vaqtda bepul bekor qilish mumkin.';
-  return (
-    `Jo‘nashdan ${rules.freeCancelMinutes} daqiqa oldingacha bepul bekor qilish mumkin. ` +
-    `Undan keyin bron narxining ${rules.lateCancelFeePercent}% i haydovchiga yoziladi.`
-  );
+  if (rules.lateCancelFeePercent <= 0) return t('intercity.booking.rules.freeAnytime');
+  return t('intercity.booking.rules.freeBefore', {
+    count: rules.freeCancelMinutes,
+    percent: rules.lateCancelFeePercent,
+  });
 }
 
 export interface DateOption {
@@ -148,26 +159,23 @@ export interface DateOption {
 export function searchDates(now: Date, days = 8): DateOption[] {
   return Array.from({ length: days }, (_, i) => {
     const value = tashkentDay(new Date(now.getTime() + i * 86_400_000));
-    return { value, label: i === 0 ? 'Bugun' : i === 1 ? 'Ertaga' : formatDay(value) };
+    return {
+      value,
+      label:
+        i === 0 ? t('common.time.today') : i === 1 ? t('common.time.tomorrow') : formatDay(value),
+    };
   });
 }
 
-export const BOOKING_STATUS_LABELS: Record<BookingStatus, string> = {
-  awaiting_payment: 'Depozit kutilmoqda',
-  booked: 'Band qilingan',
-  boarded: 'Mashinadasiz',
-  completed: 'Yetib keldi',
-  cancelled: 'Bekor qilingan',
-  no_show: 'Kelmadingiz',
-};
+/** A booking's status in the rider's words ("Band qilingan", "Забронировано"). */
+export function bookingStatusLabel(status: BookingStatus): string {
+  return t(`intercity.status.booking.${status}`);
+}
 
-export const TRIP_STATUS_LABELS: Record<TripStatus, string> = {
-  scheduled: 'Jo‘nashni kutmoqda',
-  boarding: 'Yo‘lovchilar o‘tirmoqda',
-  departed: 'Yo‘lda',
-  arrived: 'Yetib keldi',
-  cancelled: 'Qatnov bekor qilindi',
-};
+/** A trip's status in the rider's words ("Yo‘lda", "В пути"). */
+export function tripStatusLabel(status: TripStatus): string {
+  return t(`intercity.status.trip.${status}`);
+}
 
 /** Why a booking ended, in the rider's words. */
 export function bookingCancelledText(b: {
@@ -177,26 +185,34 @@ export function bookingCancelledText(b: {
   cancellationFee: number;
   depositAmount?: number;
 }): string | null {
-  if (b.status === 'no_show') {
-    return 'Mashina jo‘nab ketganda siz yo‘q edingiz: bron yopildi.';
-  }
+  if (b.status === 'no_show') return t('intercity.booking.ended.noShow');
   if (b.status !== 'cancelled') return null;
-  const reason = b.cancelReason ? `: ${b.cancelReason}` : '';
-  const fee =
-    b.cancellationFee > 0 ? ` Bekor qilish to‘lovi: ${formatMoney(b.cancellationFee)}.` : '';
+  const reason = b.cancelReason;
   switch (b.cancelledBy) {
-    case 'rider':
-      return `Siz bronni bekor qildingiz.${fee}`;
+    case 'rider': {
+      const fee =
+        b.cancellationFee > 0
+          ? ` ${t('intercity.booking.ended.feeNote', { fee: formatMoney(b.cancellationFee) })}`
+          : '';
+      return `${t('intercity.booking.ended.byRider')}${fee}`;
+    }
     case 'driver':
-      return `Haydovchi qatnovni bekor qildi${reason}.`;
+      return reason
+        ? t('intercity.booking.ended.byDriverReason', { reason })
+        : t('intercity.booking.ended.byDriver');
     case 'operator':
-      return `Operator bronni bekor qildi${reason}.`;
+      return reason
+        ? t('intercity.booking.ended.byOperatorReason', { reason })
+        : t('intercity.booking.ended.byOperator');
     case 'system':
-      return (b.depositAmount ?? 0) > 0 && !b.cancelReason
-        ? 'Depozit o‘z vaqtida to‘lanmadi: bron bekor qilindi, joylar bo‘shatildi. Kartadan pul yechilmadi.'
-        : `Bron bekor qilindi${reason}.`;
+      if ((b.depositAmount ?? 0) > 0 && !reason) return t('intercity.booking.ended.depositUnpaid');
+      return reason
+        ? t('intercity.booking.ended.genericReason', { reason })
+        : t('intercity.booking.ended.generic');
     default:
-      return `Bron bekor qilindi${reason}.`;
+      return reason
+        ? t('intercity.booking.ended.genericReason', { reason })
+        : t('intercity.booking.ended.generic');
   }
 }
 
@@ -235,16 +251,24 @@ export function stopLines(
   const b = view.boardingPoint;
   if (!view.alongTheWay || !b) {
     return [
-      { label: 'Uchrashuv joyi', value: trip.meetingPoint },
-      { label: 'Masofa', value: formatDistance(trip.distanceM) },
+      { label: t('intercity.trip.stops.meetingPoint'), value: trip.meetingPoint },
+      { label: t('intercity.trip.stops.distance'), value: formatDistance(trip.distanceM) },
     ];
   }
   const a = view.alightingPoint;
   return [
-    { label: 'O‘tirish joyi', value: b.name + ': ' + b.meetingPoint },
-    { label: 'Vaqti', value: 'taxminan ' + formatTime(b.estimatedAt) },
-    ...(a ? [{ label: 'Tushish joyi', value: a.name + ': ' + a.meetingPoint }] : []),
-    { label: 'Masofa', value: formatDistance(view.partDistanceM ?? trip.distanceM) },
+    { label: t('intercity.trip.stops.boardingPoint'), value: b.name + ': ' + b.meetingPoint },
+    {
+      label: t('intercity.trip.stops.time'),
+      value: t('intercity.trip.stops.about', { time: formatTime(b.estimatedAt) }),
+    },
+    ...(a
+      ? [{ label: t('intercity.trip.stops.alightingPoint'), value: a.name + ': ' + a.meetingPoint }]
+      : []),
+    {
+      label: t('intercity.trip.stops.distance'),
+      value: formatDistance(view.partDistanceM ?? trip.distanceM),
+    },
   ];
 }
 
@@ -252,7 +276,7 @@ export function stopLines(
 export function boardingHint(view: TripStops & { alongTheWay?: boolean }): string | null {
   const b = view.boardingPoint;
   if (!view.alongTheWay || !b) return null;
-  return b.name + ' · taxminan ' + formatTime(b.estimatedAt);
+  return `${b.name} · ${t('intercity.trip.stops.about', { time: formatTime(b.estimatedAt) })}`;
 }
 
 /** Route params for a search result (strings; only along-the-way results carry any). */

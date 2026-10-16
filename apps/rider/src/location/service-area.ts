@@ -1,5 +1,6 @@
 /** Rider-facing wording for service areas (pure, unit-tested). */
 import type { GeoResolve, GeoSuggestion } from '../api/types';
+import { t } from '../i18n/dictionary';
 import { formatDistance } from '../lib/format';
 
 export interface AreaNotice {
@@ -14,24 +15,24 @@ export interface AreaNotice {
  */
 export function areaNotice(resolve: GeoResolve | undefined, withMap = true): AreaNotice {
   // without a map (Android build without a Maps key) there is no pin to move
-  const move = withMap
-    ? 'Pinni o‘sha tomonga suring.'
-    : 'Olib ketish joyini «Qayerdan» qatoridan tanlang.';
-  const elsewhere = withMap
-    ? 'Pinni boshqa joyga qo‘yib ko‘ring.'
-    : 'Olib ketish joyini «Qayerdan» qatoridan tanlang.';
+  const move = withMap ? t('home.area.movePin') : t('home.area.pickFromSearch');
+  const elsewhere = withMap ? t('home.area.tryElsewhere') : t('home.area.pickFromSearch');
   if (resolve && resolve.status === 'upcoming') {
     return {
-      title: `${resolve.city.name} — tez orada`,
-      message: `${resolve.city.name} shahrida tez orada ishga tushamiz. Hozircha bu yerdan buyurtma berib bo‘lmaydi.`,
+      title: t('home.area.upcomingTitle', { city: resolve.city.name }),
+      message: t('home.area.upcomingMessage', { city: resolve.city.name }),
     };
   }
   const nearest = resolve && resolve.status === 'outside' ? resolve.nearestActive : null;
   return {
-    title: 'Bu hududda hozircha ishlamaymiz',
+    title: t('home.area.outsideTitle'),
     message: nearest
-      ? `Eng yaqin xizmat hududi: ${nearest.city.name}, ${formatDistance(nearest.distanceM)} uzoqlikda. ${move}`
-      : `Xizmat hududlari tez orada kengayadi. ${elsewhere}`,
+      ? t('home.area.nearest', {
+          city: nearest.city.name,
+          distance: formatDistance(nearest.distanceM),
+          advice: move,
+        })
+      : t('home.area.expanding', { advice: elsewhere }),
   };
 }
 

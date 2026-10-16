@@ -3,8 +3,9 @@ import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from 'r
 import { useBookings } from '../../api/queries';
 import { useLiveRides } from '../../api/realtime';
 import type { IntercityBooking } from '../../api/types';
+import { useT } from '../../i18n';
 import { formatDateTime, formatMoney } from '../../lib/format';
-import { BOOKING_STATUS_LABELS } from '../../lib/intercity';
+import { bookingStatusLabel } from '../../lib/intercity';
 import { Icon, PressableRow, T } from '../../ui/primitives';
 import { EmptyView, ErrorView, LoadingView } from '../../ui/states';
 import { colors, radius, space } from '../../ui/theme';
@@ -20,6 +21,7 @@ const STATUS_COLOR: Record<IntercityBooking['status'], string> = {
 
 /** The rider's intercity bookings, newest first; changes arrive live. */
 export default function BookingsScreen() {
+  const { t } = useT();
   useLiveRides();
   const bookings = useBookings();
   const items = bookings.data?.pages.flatMap((p) => p.items) ?? [];
@@ -53,9 +55,9 @@ export default function BookingsScreen() {
       ListEmptyComponent={
         <EmptyView
           icon="bus-outline"
-          title="Bronlar yo‘q"
-          message="Shaharlararo qatnovlardan joy band qiling: narx oldindan ma’lum, joy kichik oldindan to‘lov bilan band qilinadi, qolgani naqd."
-          actionTitle="Qatnovlarni ko‘rish"
+          title={t('intercity.bookings.emptyTitle')}
+          message={t('intercity.bookings.emptyMessage')}
+          actionTitle={t('intercity.bookings.viewTrips')}
           onAction={() => router.replace('/intercity')}
         />
       }
@@ -64,27 +66,36 @@ export default function BookingsScreen() {
 }
 
 function BookingRow({ booking }: { booking: IntercityBooking }) {
-  const t = booking.trip;
+  const { t } = useT();
+  const trip = booking.trip;
+  const status = bookingStatusLabel(booking.status);
   return (
     <PressableRow
       style={styles.row}
       onPress={() =>
         router.push({ pathname: '/intercity/booking/[id]', params: { id: booking.id } })
       }
-      accessibilityLabel={`${t.from.nameUz} dan ${t.to.nameUz} ga, ${formatDateTime(t.departureAt)}, ${BOOKING_STATUS_LABELS[booking.status]}`}
+      accessibilityLabel={t('intercity.bookings.rowA11y', {
+        from: trip.from.nameUz,
+        to: trip.to.nameUz,
+        when: formatDateTime(trip.departureAt),
+        status,
+      })}
     >
       <View style={styles.icon}>
         <Icon name="bus" size={18} color={colors.ink} />
       </View>
       <View style={styles.flex}>
         <T variant="bodyStrong" numberOfLines={1}>
-          {t.from.nameUz} → {t.to.nameUz}
+          {trip.from.nameUz} → {trip.to.nameUz}
         </T>
         <T variant="small" color={colors.textMuted}>
-          {formatDateTime(t.departureAt)} · {booking.seats} joy{booking.front ? ' (old)' : ''}
+          {formatDateTime(trip.departureAt)} ·{' '}
+          {t('intercity.bookings.seats', { count: booking.seats })}
+          {booking.front ? ` ${t('intercity.bookings.frontMark')}` : ''}
         </T>
         <T variant="smallStrong" color={STATUS_COLOR[booking.status]}>
-          {BOOKING_STATUS_LABELS[booking.status]}
+          {status}
         </T>
       </View>
       <T variant="bodyStrong">{formatMoney(booking.price)}</T>

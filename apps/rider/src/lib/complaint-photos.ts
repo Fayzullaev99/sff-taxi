@@ -4,6 +4,7 @@
  * complete) and the complaint or a reply carries the ready ids (`photoUploadIds`). The API
  * takes at most three per complaint, JPEG / PNG / WebP up to 5 MB.
  */
+import { t } from '../i18n/dictionary';
 
 export const MAX_COMPLAINT_PHOTOS = 3;
 /** The API's limit for complaint photos (GET /uploads/config says it too). */
@@ -74,7 +75,7 @@ export function updatePhoto(
 
 /** A line under the photo buttons. */
 export function photoHint(left: number, uploadsOn: boolean): string {
-  if (!uploadsOn) return 'Rasm yuklash hozircha ishlamayapti — vaziyatni matnda yozing.';
-  if (left <= 0) return `Bitta murojaatga ko‘pi bilan ${MAX_COMPLAINT_PHOTOS} ta rasm.`;
-  return `Rasm qo‘shishingiz mumkin (yana ${left} ta): masalan, qolgan narsa yoki mashina holati.`;
+  if (!uploadsOn) return t('support.photos.uploadsOff');
+  if (left <= 0) return t('support.photos.maxPerComplaint', { max: MAX_COMPLAINT_PHOTOS });
+  return t('support.photos.canAdd', { left });
 }

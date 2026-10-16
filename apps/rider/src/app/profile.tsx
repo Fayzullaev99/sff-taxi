@@ -11,7 +11,7 @@ import { APP_VERSION, useFeature, useSupport } from '../api/support';
 import { changeLanguage, type Language, LANGUAGES, useT } from '../i18n';
 import { confirm } from '../lib/dialogs';
 import { formatPhone } from '../lib/format';
-import { GENDER_LABELS, genderLock } from '../lib/sharing';
+import { genderLock } from '../lib/sharing';
 import type { Gender, Me } from '../api/types';
 import { callPhone, openLink } from '../lib/links';
 import { usePushPermission } from '../notifications/PushManager';
@@ -35,6 +35,7 @@ import { colors, space } from '../ui/theme';
  * (the API answers 409 before that and says until when).
  */
 function GenderCard({ me }: { me: Me }) {
+  const { t } = useT();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<Gender | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,11 +44,10 @@ function GenderCard({ me }: { me: Me }) {
   const choose = async (gender: Gender) => {
     if (gender === me.gender || busy) return;
     const ok = await confirm({
-      title: `Jins: ${GENDER_LABELS[gender]}`,
-      message:
-        'Jinsni 30 kunda bir marta o‘zgartirish mumkin. Ayol haydovchi tanlovi faqat ayollar uchun.',
-      confirmText: 'Saqlash',
-      cancelText: 'Yo‘q',
+      title: t('profile.gender.confirmTitle', { gender: t(`common.gender.${gender}`) }),
+      message: t('profile.gender.confirmMessage'),
+      confirmText: t('common.actions.save'),
+      cancelText: t('common.actions.no'),
     });
     if (!ok) return;
     setBusy(gender);
@@ -70,10 +70,10 @@ function GenderCard({ me }: { me: Me }) {
   return (
     <Card style={styles.card}>
       <T variant="h3" accessibilityRole="header">
-        Jinsingiz
+        {t('profile.gender.title')}
       </T>
       <T variant="small" color={colors.textMuted}>
-        Ayollar buyurtmada «Ayol haydovchi»ni tanlashi mumkin.
+        {t('profile.gender.hint')}
       </T>
       <Segmented
         value={(me.gender ?? '') as Gender}
@@ -82,7 +82,7 @@ function GenderCard({ me }: { me: Me }) {
         }}
         options={(['female', 'male'] as const).map((g) => ({
           value: g,
-          label: busy === g ? 'Saqlanmoqda…' : GENDER_LABELS[g],
+          label: busy === g ? t('common.actions.saving') : t(`common.gender.${g}`),
           icon: g === 'female' ? 'woman-outline' : 'man-outline',
           disabled: lock.locked && me.gender !== g,
         }))}
@@ -122,6 +122,7 @@ function LanguageCard() {
 
 /** Name, the rider's places and lists, notifications, support contacts, sign-out. */
 export default function ProfileScreen() {
+  const { t } = useT();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const me = useMe();
@@ -145,7 +146,7 @@ export default function ProfileScreen() {
     try {
       const updated = await endpoints.updateMe(fullName);
       queryClient.setQueryData(keys.me, updated);
-      setMessage({ tone: 'success', text: 'Ism saqlandi' });
+      setMessage({ tone: 'success', text: t('profile.nameSaved') });
     } catch (e) {
       setMessage({ tone: 'danger', text: describeError(e) });
     } finally {
@@ -155,9 +156,9 @@ export default function ProfileScreen() {
 
   const doSignOut = async () => {
     const ok = await confirm({
-      title: 'Hisobdan chiqasizmi?',
-      message: 'Saqlangan manzillar va safarlar hisobingizda qoladi: qayta kirganda ko‘rasiz.',
-      confirmText: 'Chiqish',
+      title: t('profile.signOut.title'),
+      message: t('profile.signOut.message'),
+      confirmText: t('profile.signOut.confirm'),
       destructive: true,
     });
     if (!ok) return;
@@ -167,10 +168,10 @@ export default function ProfileScreen() {
 
   const pushText =
     push.permission === 'granted'
-      ? 'Yoqilgan: haydovchi topilganda va yetib kelganda xabar beramiz.'
+      ? t('profile.push.on')
       : push.permission === 'unsupported'
-        ? 'Bu qurilmada bildirishnomalar mavjud emas.'
-        : 'O‘chirilgan. Haydovchi yetib kelganini bilish uchun yoqing.';
+        ? t('profile.push.unsupported')
+        : t('profile.push.off');
 
   return (
     <ScrollView
@@ -180,7 +181,7 @@ export default function ProfileScreen() {
     >
       <Card style={styles.card}>
         <T variant="small" color={colors.textMuted}>
-          Telefon
+          {t('profile.phone')}
         </T>
         <T variant="h3">{me.data ? formatPhone(me.data.phone) : me.isError ? '—' : '…'}</T>
         {me.isError && !me.data ? (
@@ -189,7 +190,7 @@ export default function ProfileScreen() {
             message={describeError(me.error)}
             action={
               <Button
-                title="Qayta urinish"
+                title={t('common.actions.retry')}
                 size="sm"
                 variant="secondary"
                 onPress={() => void me.refetch()}
@@ -198,12 +199,12 @@ export default function ProfileScreen() {
           />
         ) : null}
         <TextField
-          label="Ism"
-          placeholder="Haydovchi sizga shu ism bilan murojaat qiladi"
+          label={t('profile.nameLabel')}
+          placeholder={t('profile.namePlaceholder')}
           value={name}
-          onChangeText={(t) => {
+          onChangeText={(text) => {
             setMessage(null);
-            setName(t);
+            setName(text);
           }}
           maxLength={100}
           autoComplete="name"
@@ -212,7 +213,7 @@ export default function ProfileScreen() {
         />
         {message ? <Banner tone={message.tone} message={message.text} /> : null}
         <Button
-          title="Saqlash"
+          title={t('common.actions.save')}
           variant="dark"
           loading={saving}
           disabled={!name.trim() || name.trim() === me.data?.fullName}
@@ -227,20 +228,20 @@ export default function ProfileScreen() {
       <Card style={styles.menu}>
         <MenuRow
           icon="pricetag-outline"
-          title="Promokod va bonuslar"
-          subtitle="Do‘stni taklif qiling — bonus oling"
+          title={t('common.screens.promos')}
+          subtitle={t('profile.menu.promosSubtitle')}
           onPress={() => router.push('/promos')}
         />
         <Divider />
         <MenuRow
           icon="location-outline"
-          title="Saqlangan manzillar"
+          title={t('common.screens.places')}
           onPress={() => router.push('/places')}
         />
         <Divider />
         <MenuRow
           icon="time-outline"
-          title="Safarlar tarixi"
+          title={t('common.screens.history')}
           onPress={() => router.push('/history')}
         />
         {scheduledOn ? (
@@ -248,7 +249,7 @@ export default function ProfileScreen() {
             <Divider />
             <MenuRow
               icon="calendar-outline"
-              title="Oldindan buyurtmalar"
+              title={t('common.screens.scheduled')}
               onPress={() => router.push('/scheduled')}
             />
           </>
@@ -258,7 +259,7 @@ export default function ProfileScreen() {
             <Divider />
             <MenuRow
               icon="bus-outline"
-              title="Shaharlararo bronlarim"
+              title={t('profile.menu.intercityBookings')}
               onPress={() => router.push('/intercity/bookings')}
             />
           </>
@@ -266,18 +267,18 @@ export default function ProfileScreen() {
         <Divider />
         <MenuRow
           icon="chatbubbles-outline"
-          title="Murojaatlarim"
-          subtitle="Shikoyatlar va unutilgan narsalar"
+          title={t('common.screens.support')}
+          subtitle={t('profile.menu.supportSubtitle')}
           onPress={() => router.push('/support')}
         />
       </Card>
 
-      <SectionTitle>Bildirishnomalar</SectionTitle>
+      <SectionTitle>{t('profile.push.title')}</SectionTitle>
       <Card style={styles.card}>
         <T variant="body">{pushText}</T>
         {push.permission !== 'granted' && push.permission !== 'unsupported' ? (
           <Button
-            title="Bildirishnomalarni yoqish"
+            title={t('profile.push.enable')}
             variant="secondary"
             icon="notifications-outline"
             onPress={() => void push.request()}
@@ -285,15 +286,12 @@ export default function ProfileScreen() {
         ) : null}
       </Card>
 
-      <SectionTitle>Yordam</SectionTitle>
+      <SectionTitle>{t('profile.help.title')}</SectionTitle>
       <Card style={styles.card}>
-        <T variant="body">
-          Narxlar oldindan belgilanadi va yo‘lda o‘zgarmaydi. Haydovchi yetib kelgach bir necha
-          daqiqa kutish bepul.
-        </T>
+        <T variant="body">{t('profile.help.text')}</T>
         {support.phone ? (
           <Button
-            title={`Operator: ${formatPhone(support.phone)}`}
+            title={t('common.app.operatorWithPhone', { phone: formatPhone(support.phone) })}
             variant="secondary"
             icon="call-outline"
             onPress={() => void callPhone(support.phone!)}
@@ -301,7 +299,9 @@ export default function ProfileScreen() {
         ) : null}
         {support.telegramUrl ? (
           <Button
-            title={`Telegram: ${support.telegramHandle ?? 'yordam'}`}
+            title={t('common.app.telegram', {
+              handle: support.telegramHandle ?? t('common.app.telegramDefault'),
+            })}
             variant="secondary"
             icon="paper-plane-outline"
             onPress={() => void openLink(support.telegramUrl!)}
@@ -309,13 +309,13 @@ export default function ProfileScreen() {
         ) : null}
         {support.officeAddress ? (
           <T variant="small" color={colors.textMuted}>
-            Ofis: {support.officeAddress}
+            {t('common.app.office', { address: support.officeAddress })}
           </T>
         ) : null}
       </Card>
 
       <Button
-        title="Hisobdan chiqish"
+        title={t('common.actions.signOut')}
         variant="danger"
         icon="log-out-outline"
         onPress={() => void doSignOut()}

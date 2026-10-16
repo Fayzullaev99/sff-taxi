@@ -6,11 +6,12 @@ import { ApiError, describeError } from '../api/client';
 import { useAppConfig, useMe, useQuote, useTariffAt } from '../api/queries';
 import { useFeature } from '../api/support';
 import type { Quote, RideClass } from '../api/types';
+import { useT } from '../i18n';
 import {
-  CLASS_LABELS,
-  OWED_FEE_LABEL,
   orderableClass,
+  owedFeeLabel,
   quoteOwedFee,
+  rideClassLabel,
   seatShareText,
   stopRulesText,
 } from '../lib/fare';
@@ -40,12 +41,15 @@ import { KeyboardAvoider } from '../ui/KeyboardAvoider';
 /** Stable, so the memoised class cards re-render only when their quote or choice changes. */
 const selectClass = (rideClass: RideClass) => updateDraft({ rideClass });
 
+type Translate = ReturnType<typeof useT>['t'];
+
 /**
  * Tariff choice: fixed prices of every class switched on for this route (quoted by the
  * API, no surge; a horizontal row of class cards), options, the landmark and a comment for the driver, the payment method, then
  * the order — with one clientRequestId per attempt, so retries never order twice.
  */
 export default function OrderScreen() {
+  const { t } = useT();
   const insets = useSafeAreaInsets();
   const draft = useDraft();
   const { pickup, dropoff } = draft;
@@ -145,7 +149,7 @@ export default function OrderScreen() {
   const submit = async (current: Quote) => {
     if (!pickup || !dropoff || busy) return;
     if (later && !schedulable(later, new Date())) {
-      setError('Tanlangan vaqt juda yaqin qoldi. Boshqa vaqtni tanlang.');
+      setError(t('order.schedule.tooSoon'));
       return;
     }
     if (passenger && !passenger.ok) {
@@ -215,7 +219,7 @@ export default function OrderScreen() {
 
   return (
     <KeyboardAvoider style={styles.root} keyboardVerticalOffset={90}>
-      {delivery ? <Stack.Screen options={{ title: 'Yetkazib berish' }} /> : null}
+      {delivery ? <Stack.Screen options={{ title: t('common.services.delivery') }} /> : null}
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <RouteCard
           pickup={pickup}
@@ -242,14 +246,16 @@ export default function OrderScreen() {
                 else setPickingTime(true);
               }}
               options={[
-                { value: 'now', label: 'Hozir', icon: 'flash-outline' },
-                { value: 'later', label: 'Keyinroq', icon: 'calendar-outline' },
+                { value: 'now', label: t('common.time.now'), icon: 'flash-outline' },
+                { value: 'later', label: t('order.schedule.later'), icon: 'calendar-outline' },
               ]}
             />
             {later ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`Olib ketish vaqti: ${formatDateTime(later)}. O‘zgartirish`}
+                accessibilityLabel={t('order.schedule.pickupTimeA11y', {
+                  time: formatDateTime(later),
+                })}
                 onPress={() => setPickingTime(true)}
                 style={({ pressed }) => [styles.whenRow, pressed ? { opacity: 0.6 } : null]}
               >
@@ -257,8 +263,12 @@ export default function OrderScreen() {
                 <View style={styles.flex}>
                   <T variant="bodyStrong">{formatDateTime(later)}</T>
                   <T variant="small" color={colors.textMuted}>
-                    Qidiruv {SCHEDULE_DISPATCH_BEFORE_MIN} daqiqa oldin boshlanadi ·{' '}
-                    {deposit ? 'oldindan to‘lov kartadan, qolgani naqd' : 'naqd to‘lov'}
+                    {t(
+                      deposit
+                        ? 'order.schedule.searchStartsDeposit'
+                        : 'order.schedule.searchStartsCash',
+                      { minutes: SCHEDULE_DISPATCH_BEFORE_MIN },
+                    )}
                   </T>
                 </View>
                 <Icon name="create-outline" size={18} color={colors.textMuted} />
@@ -279,13 +289,13 @@ export default function OrderScreen() {
             {quote.error instanceof ApiError && quote.error.status === 422 ? (
               <Banner
                 tone="warning"
-                title="Bu hududda hozircha ishlamaymiz"
+                title={t('order.quote.noServiceHere')}
                 message={describeError(quote.error)}
               />
             ) : quote.error instanceof ApiError && quote.error.status === 400 ? (
               <Banner
                 tone="warning"
-                title="Manzilni tekshiring"
+                title={t('order.quote.checkAddress')}
                 message={describeError(quote.error)}
               />
             ) : (
@@ -299,7 +309,7 @@ export default function OrderScreen() {
             <View style={styles.fixed} accessible accessibilityRole="text">
               <Icon name="lock-closed" size={16} color={colors.ink} />
               <T variant="smallStrong" style={styles.flex}>
-                Narx o‘zgarmaydi — tirbandlik va talabdan qat’i nazar
+                {t('order.fare.fixedBanner')}
               </T>
             </View>
 
@@ -307,7 +317,7 @@ export default function OrderScreen() {
               <Banner
                 tone="info"
                 icon="swap-horizontal"
-                title={`Shaharlararo safar · ${formatDistance(q.distanceM)}`}
+                title={t('order.fare.intercityTitle', { distance: formatDistance(q.distanceM) })}
                 message={seatText ?? undefined}
               />
             ) : null}
@@ -332,24 +342,19 @@ export default function OrderScreen() {
               useCredit={useCredit}
               onUseCredit={setUseCredit}
               unavailable={
-                later
-                  ? 'Promokod va bonus oldindan buyurtmaga qo‘llanmaydi.'
-                  : shared
-                    ? 'Promokod va bonus hamroh bilan safarga qo‘llanmaydi.'
-                    : null
+                later ? t('order.promo.notForLater') : shared ? t('order.promo.notForShared') : null
               }
             />
             {fare && fare.night > 0 && !seatPrice ? (
               <T variant="small" color={colors.textMuted}>
-                Tungi vaqt: narxga {formatMoney(fare.night)} qo‘shilgan (oldindan ma’lum,
-                o‘zgarmaydi).
+                {t('order.fare.nightNote', { amount: formatMoney(fare.night) })}
               </T>
             ) : null}
             {owed ? (
               <Card style={styles.owed}>
                 <View style={styles.owedRow}>
                   <T variant="bodyStrong" style={styles.flex}>
-                    {OWED_FEE_LABEL}
+                    {owedFeeLabel()}
                   </T>
                   <T variant="bodyStrong">
                     {owed.collectedNow ? '+' : ''}
@@ -362,7 +367,7 @@ export default function OrderScreen() {
                 {owed.collectedNow && fare ? (
                   <View style={styles.owedRow}>
                     <T variant="smallStrong" style={styles.flex}>
-                      Jami naqd
+                      {t('order.fare.cashTotal')}
                     </T>
                     <T variant="smallStrong">{formatMoney(toPay ?? fare.total)}</T>
                   </View>
@@ -371,7 +376,7 @@ export default function OrderScreen() {
             ) : null}
             {stale ? (
               <T variant="small" color={colors.textMuted}>
-                Narx yangilanmoqda…
+                {t('order.quote.updating')}
               </T>
             ) : null}
             {quote.isError ? (
@@ -380,7 +385,7 @@ export default function OrderScreen() {
                 message={describeError(quote.error)}
                 action={
                   <Button
-                    title="Qayta hisoblash"
+                    title={t('order.quote.recalculate')}
                     size="sm"
                     variant="secondary"
                     onPress={() => void quote.refetch()}
@@ -396,7 +401,7 @@ export default function OrderScreen() {
         ) : (
           <>
             <T variant="h3" accessibilityRole="header" style={styles.section}>
-              Qo‘shimcha
+              {t('order.options.title')}
             </T>
             <OrderOptions selected={draft.options} prices={optionPrices} onToggle={toggleOption}>
               {q && wave4 && choices ? (
@@ -415,14 +420,13 @@ export default function OrderScreen() {
         )}
         {!delivery && draft.options.length ? (
           <T variant="small" color={colors.textMuted}>
-            Tanlangan qulayliklar mos mashinalarni kamaytiradi — qidiruv biroz uzoqroq bo‘lishi
-            mumkin.
+            {t('order.options.fewerCars')}
           </T>
         ) : null}
 
         <TextField
-          label="Izoh"
-          placeholder="Masalan: bolali aravacha bor, podyezd oldida kutaman"
+          label={t('order.comment.label')}
+          placeholder={t('order.comment.placeholder')}
           value={draft.comment}
           onChangeText={(comment) => updateDraft({ comment })}
           maxLength={500}
@@ -430,20 +434,20 @@ export default function OrderScreen() {
         />
 
         <T variant="h3" accessibilityRole="header" style={styles.section}>
-          To‘lov
+          {t('common.screens.payment')}
         </T>
         <Segmented
           value={draft.paymentMethod}
           onChange={(paymentMethod) => updateDraft({ paymentMethod })}
           options={[
-            { value: 'cash', label: 'Naqd', icon: 'cash-outline' },
+            { value: 'cash', label: t('common.payment.cash'), icon: 'cash-outline' },
             {
               value: 'card',
               label: cardAvailable
                 ? cardLabel(providers)
                 : later || shared
-                  ? 'Karta'
-                  : 'Karta (tez orada)',
+                  ? t('common.payment.card')
+                  : t('order.payment.cardSoon'),
               icon: 'card-outline',
               disabled: !cardAvailable,
             },
@@ -451,14 +455,14 @@ export default function OrderScreen() {
         />
         {shared && !later ? (
           <T variant="small" color={colors.textMuted}>
-            Hamroh bilan safar hozircha faqat naqd to‘lov bilan.
+            {t('order.payment.sharedCashOnly')}
           </T>
         ) : null}
         {deposit && tripPrice !== null ? (
           <Banner
             tone="info"
             icon="card-outline"
-            title="Oldindan to‘lov (depozit)"
+            title={t('order.payment.depositTitle')}
             message={rideDepositRules(
               deposit,
               tripPrice,
@@ -469,20 +473,25 @@ export default function OrderScreen() {
         ) : null}
         {draft.paymentMethod === 'card' && cardAvailable ? (
           <T variant="small" color={colors.textMuted}>
-            Buyurtmadan keyin {formatMoney((tripPrice ?? 0) - discountTotal)}ni 10 daqiqa ichida
-            to‘laysiz, shundan so‘ng haydovchi qidiriladi. Bekor qilsangiz, pul to‘liq qaytariladi.
+            {t('order.payment.cardNote', {
+              amount: formatMoney((tripPrice ?? 0) - discountTotal),
+            })}
           </T>
         ) : null}
         {later && !deposit ? (
           <T variant="small" color={colors.textMuted}>
-            Oldindan buyurtma hozircha faqat naqd to‘lov bilan.
+            {t('order.payment.laterCashOnly')}
           </T>
         ) : null}
         {waiting ? (
           <T variant="small" color={colors.textMuted}>
-            Haydovchi yetib kelgach {waiting.free_minutes} daqiqa kutish bepul, keyin har daqiqa{' '}
-            {formatMoney(waiting.per_minute)}.
-            {q ? ` Kutish tugagach bekor qilish ${formatMoney(q.cancellationFee)}.` : ''}
+            {t('order.fare.waitingNote', {
+              minutes: waiting.free_minutes,
+              perMinute: formatMoney(waiting.per_minute),
+            })}
+            {q
+              ? ` ${t('order.fare.cancelAfterWaiting', { fee: formatMoney(q.cancellationFee) })}`
+              : ''}
           </T>
         ) : null}
       </ScrollView>
@@ -493,12 +502,16 @@ export default function OrderScreen() {
           <View style={styles.summary} accessible accessibilityRole="summary">
             <View style={styles.flex}>
               <T variant="bodyStrong" numberOfLines={1}>
-                {delivery ? 'Posilka · ' : ''}
-                {CLASS_LABELS[draft.rideClass]}
-                {later ? ` · ${formatDateTime(later)}` : ''}
+                {[
+                  delivery ? t('order.parcel.title') : null,
+                  rideClassLabel(draft.rideClass),
+                  later ? formatDateTime(later) : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
               </T>
               <T variant="small" color={colors.textMuted} numberOfLines={2}>
-                {footerNote({
+                {footerNote(t, {
                   later: Boolean(later),
                   deposit,
                   seats: seatPrice ? choices!.passengers : null,
@@ -519,10 +532,10 @@ export default function OrderScreen() {
         <Button
           title={
             later
-              ? 'Oldindan buyurtma berish'
+              ? t('order.submit.later')
               : draft.paymentMethod === 'card' && cardAvailable
-                ? 'Buyurtma va to‘lov'
-                : 'Buyurtma berish'
+                ? t('order.submit.orderAndPay')
+                : t('order.submit.order')
           }
           size="lg"
           loading={busy}
@@ -546,25 +559,28 @@ export default function OrderScreen() {
 }
 
 /** The line under the class in the footer: what the price means, or the nearest car. */
-function footerNote(n: {
-  later: boolean;
-  deposit: number | null;
-  seats: number | null;
-  sharedFloor: number | null;
-  womenOnly: boolean;
-  availability: string | null;
-}): string {
+function footerNote(
+  t: Translate,
+  n: {
+    later: boolean;
+    deposit: number | null;
+    seats: number | null;
+    sharedFloor: number | null;
+    womenOnly: boolean;
+    availability: string | null;
+  },
+): string {
   if (n.later) {
     return n.deposit
-      ? `Oldindan to‘lov ${formatMoney(n.deposit)} kartadan, qolgani naqd`
-      : 'Oldindan buyurtma · naqd';
+      ? t('order.submit.noteDeposit', { amount: formatMoney(n.deposit) })
+      : t('order.submit.noteLaterCash');
   }
-  if (n.seats) return `O‘rindiq × ${n.seats} · mashina hamroh bilan`;
+  if (n.seats) return t('order.submit.noteSeats', { count: n.seats });
   if (n.sharedFloor !== null) {
-    return `Hamroh bilan: ${formatMoney(n.sharedFloor)}gacha arzonlashishi mumkin`;
+    return t('order.submit.noteShared', { amount: formatMoney(n.sharedFloor) });
   }
-  if (n.womenOnly) return 'Ayol haydovchi';
-  return n.availability ?? 'Narx o‘zgarmaydi';
+  if (n.womenOnly) return t('order.sharing.womanDriver');
+  return n.availability ?? t('order.fare.fixed');
 }
 
 const styles = StyleSheet.create({

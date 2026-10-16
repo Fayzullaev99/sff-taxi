@@ -8,18 +8,19 @@ import { ApiError, describeError, isOffline } from '../../../api/client';
 import { endpoints } from '../../../api/endpoints';
 import { keys, useIntercityTrip } from '../../../api/queries';
 import { useIntercityRules } from '../../../api/support';
-import { CLASS_LABELS } from '../../../lib/fare';
+import { useT } from '../../../i18n';
 import { formatDateTime, formatMoney } from '../../../lib/format';
 import {
+  alongParams,
   bookingPrice,
   cancelRulesFrom,
   cancelRuleText,
   frontSurcharge,
   MAX_SEATS,
-  TRIP_STATUS_LABELS,
+  stopLines,
+  tripStatusLabel,
 } from '../../../lib/intercity';
 import { OrderAttempts } from '../../../lib/order-attempt';
-import { alongParams, stopLines } from '../../../lib/intercity';
 import { bookingDeposit, bookingDepositRules } from '../../../lib/deposit';
 import { Banner, Button, Card, KeyValue, Stepper, T, TextField } from '../../../ui/primitives';
 import { formatRating } from '../../../ui/Rating';
@@ -51,6 +52,7 @@ export default function TripScreen() {
     alightMeet?: string;
     partM?: string;
   }>();
+  const { t } = useT();
   const along = alongParams(params);
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
@@ -111,11 +113,7 @@ export default function TripScreen() {
       if (isOffline(e) || (e instanceof ApiError && e.status >= 500)) {
         // the booking may exist: the same clientRequestId returns it, never a second one
         attempts.settle('unknown');
-        setError(
-          isOffline(e)
-            ? 'Aloqa yo‘q. Qayta bosing — joy ikki marta band qilinmaydi.'
-            : describeError(e),
-        );
+        setError(isOffline(e) ? t('intercity.trip.offlineRetry') : describeError(e));
       } else {
         attempts.settle('rejected');
         setError(describeError(e));
@@ -137,12 +135,12 @@ export default function TripScreen() {
           <T variant="h3">{formatDateTime(trip.departureAt)}</T>
           {along ? (
             <T variant="smallStrong" color={colors.brandText}>
-              Yo‘l-yo‘lakay: {along.fromName} → {along.toName} · narx sizning qismingiz uchun
+              {t('intercity.trip.alongLine', { from: along.fromName, to: along.toName })}
             </T>
           ) : null}
           {!open ? (
             <T variant="smallStrong" color={colors.warning}>
-              {TRIP_STATUS_LABELS[trip.status]}
+              {tripStatusLabel(trip.status)}
             </T>
           ) : null}
         </View>
@@ -150,10 +148,10 @@ export default function TripScreen() {
         {trip.myBookingId ? (
           <Banner
             tone="info"
-            title="Bu qatnovda broningiz bor"
+            title={t('intercity.trip.hasBooking')}
             action={
               <Button
-                title="Bronni ko‘rish"
+                title={t('intercity.trip.viewBooking')}
                 size="sm"
                 variant="secondary"
                 onPress={() =>
@@ -172,12 +170,12 @@ export default function TripScreen() {
             <KeyValue key={line.label} label={line.label} value={line.value} />
           ))}
           <KeyValue
-            label="Mashina"
-            value={`${trip.vehicle.colour} ${trip.vehicle.make} ${trip.vehicle.model} · ${CLASS_LABELS[trip.class]}`}
+            label={t('intercity.trip.car')}
+            value={`${trip.vehicle.colour} ${trip.vehicle.make} ${trip.vehicle.model} · ${t(`common.classes.${trip.class}`)}`}
           />
           <KeyValue
-            label="Haydovchi"
-            value={`${trip.driver.name} · ★ ${formatRating(trip.driver.rating)} · ${trip.driver.ridesCompleted} safar`}
+            label={t('intercity.trip.driver')}
+            value={`${trip.driver.name} · ★ ${formatRating(trip.driver.rating)} · ${t('intercity.trip.rides', { count: trip.driver.ridesCompleted })}`}
           />
           {trip.comment ? (
             <T variant="small" color={colors.textMuted}>
@@ -185,7 +183,7 @@ export default function TripScreen() {
             </T>
           ) : null}
           <T variant="small" color={colors.textMuted}>
-            Haydovchi telefoni va mashina raqami joy band qilingach ko‘rinadi.
+            {t('intercity.trip.contactAfterBooking')}
           </T>
         </Card>
 
@@ -194,9 +192,9 @@ export default function TripScreen() {
             <Card style={styles.card}>
               <View style={styles.row}>
                 <View style={styles.flex}>
-                  <T variant="bodyStrong">Joylar soni</T>
+                  <T variant="bodyStrong">{t('intercity.seats.count')}</T>
                   <T variant="small" color={colors.textMuted}>
-                    {free} ta bo‘sh · orqada {formatMoney(prices.rear)}
+                    {t('intercity.seats.freeRear', { count: free, rear: formatMoney(prices.rear) })}
                   </T>
                 </View>
                 <Stepper
@@ -210,17 +208,25 @@ export default function TripScreen() {
                 <Pressable
                   accessibilityRole="switch"
                   accessibilityState={{ checked: front, disabled: !frontFree }}
-                  accessibilityLabel={`Old o‘rindiq, ${formatMoney(prices.front)}${frontFree ? '' : ', band'}`}
+                  accessibilityLabel={t(
+                    frontFree ? 'intercity.seats.frontA11y' : 'intercity.seats.frontA11yTaken',
+                    { price: formatMoney(prices.front) },
+                  )}
                   disabled={!frontFree}
                   onPress={() => setFront(!front)}
                   style={[styles.row, !frontFree ? styles.dim : null]}
                 >
                   <View style={styles.flex}>
-                    <T variant="bodyStrong">Old o‘rindiq</T>
+                    <T variant="bodyStrong">{t('intercity.seats.front')}</T>
                     <T variant="small" color={colors.textMuted}>
-                      {frontFree
-                        ? `${formatMoney(prices.front)}${surcharge ? ` (+${formatMoney(surcharge)})` : ''} — bitta joy oldinda`
-                        : 'Band qilingan'}
+                      {!frontFree
+                        ? t('intercity.seats.frontTaken')
+                        : surcharge
+                          ? t('intercity.seats.frontPriceSurcharge', {
+                              price: formatMoney(prices.front),
+                              surcharge: formatMoney(surcharge),
+                            })
+                          : t('intercity.seats.frontPrice', { price: formatMoney(prices.front) })}
                     </T>
                   </View>
                   <Switch
@@ -236,8 +242,8 @@ export default function TripScreen() {
             </Card>
 
             <TextField
-              label="Haydovchi uchun izoh (ixtiyoriy)"
-              placeholder="Masalan: katta sumkam bor, avtovokzal oldida kutaman"
+              label={t('intercity.trip.noteLabel')}
+              placeholder={t('intercity.trip.notePlaceholder')}
               value={note}
               onChangeText={setNote}
               maxLength={300}
@@ -248,7 +254,7 @@ export default function TripScreen() {
               <Banner
                 tone="info"
                 icon="card-outline"
-                title="Oldindan to‘lov (depozit)"
+                title={t('intercity.deposit.title')}
                 message={bookingDepositRules(
                   deposit,
                   trip.depositRules?.paymentMinutes ?? 15,
@@ -263,13 +269,11 @@ export default function TripScreen() {
               />
             )}
             <T variant="small" color={colors.textMuted}>
-              {deposit
-                ? 'Narx qatnovda belgilangan va o‘zgarmaydi.'
-                : 'To‘lov naqd, haydovchiga. Narx qatnovda belgilangan va o‘zgarmaydi.'}
+              {deposit ? t('intercity.trip.fixedPrice') : t('intercity.trip.cashFixedPrice')}
             </T>
           </>
         ) : (
-          <Banner tone="warning" message="Bu qatnovga bron yopilgan." />
+          <Banner tone="warning" message={t('intercity.trip.closed')} />
         )}
       </ScrollView>
 
@@ -279,10 +283,10 @@ export default function TripScreen() {
           <Button
             title={
               deposit
-                ? `Band qilish · depozit ${formatMoney(deposit.deposit)}`
+                ? t('intercity.trip.bookWithDeposit', { deposit: formatMoney(deposit.deposit) })
                 : seats > 1
-                  ? `${seats} ta joyni band qilish`
-                  : 'Joy band qilish'
+                  ? t('intercity.trip.bookSeats', { count: seats })
+                  : t('intercity.trip.book')
             }
             size="lg"
             trailing={deposit ? undefined : formatMoney(price)}

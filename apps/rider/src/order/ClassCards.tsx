@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import type { Quote, RideClass } from '../api/types';
+import { useT } from '../i18n';
 import { type ClassChoice, quoteClasses } from '../lib/fare';
 import { formatMoney } from '../lib/format';
 import { availabilityShort, availabilityText } from '../lib/ride-state';
@@ -33,6 +34,7 @@ export function ClassCards({
   /** The rider's promo / credit discount on a class (so'm): the old price struck through. */
   discountOf?: (rideClass: RideClass) => number;
 }) {
+  const { t } = useT();
   const classes = quoteClasses(quote);
   return (
     <ScrollView
@@ -40,7 +42,7 @@ export function ClassCards({
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.row}
       accessibilityRole="radiogroup"
-      accessibilityLabel="Tarif"
+      accessibilityLabel={t('order.classes.tariff')}
     >
       {classes.map((c) => (
         <ClassCard
@@ -70,6 +72,7 @@ const ClassCard = memo(function ClassCard({
   /** The rider's promo / credit discount on this class: the old price struck through. */
   discount?: number;
 }) {
+  const { t } = useT();
   const fare = quote.fares[choice.id];
   if (!fare) return null;
   const availability = availabilityText(quote.availability?.[choice.id]);
@@ -77,11 +80,16 @@ const ClassCard = memo(function ClassCard({
   const noCar = quote.availability?.[choice.id]?.etaS === null;
   // a fixed route seat price (Yangiyer → Guliston 10 000) is the seat price to show
   const routeSeat = routePrices(quote, choice.id)?.seat ?? null;
+  const a11y = t('order.classes.cardA11y', {
+    label: choice.label,
+    note: choice.note,
+    price: formatMoney(fare.total - discount),
+  });
   return (
     <Pressable
       accessibilityRole="radio"
       accessibilityState={{ checked: selected }}
-      accessibilityLabel={`${choice.label}, ${choice.note}, ${formatMoney(fare.total - discount)}, narx o‘zgarmaydi${availability ? `. ${availability}` : ''}`}
+      accessibilityLabel={availability ? `${a11y}. ${availability}` : a11y}
       onPress={() => onSelect(choice.id)}
       style={[styles.card, selected ? styles.cardOn : null]}
     >
@@ -106,7 +114,7 @@ const ClassCard = memo(function ClassCard({
       </T>
       {routeSeat || fare.seat ? (
         <T variant="caption" color={colors.textMuted} numberOfLines={1}>
-          o‘rindiq {formatMoney(routeSeat ?? fare.seat!.rear)}
+          {t('order.classes.seatPrice', { price: formatMoney(routeSeat ?? fare.seat!.rear) })}
         </T>
       ) : null}
       {short ? (

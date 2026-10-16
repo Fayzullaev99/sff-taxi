@@ -10,6 +10,7 @@ import type {
   ReferralCard,
   SavedPromo,
 } from '../api/promo-types';
+import { t } from '../i18n/dictionary';
 import { formatMoney } from './format';
 
 export interface AppliedDiscount {
@@ -55,49 +56,55 @@ export function orderDiscount(d: AppliedDiscount | null): {
 
 /** "20% chegirma, 5 000 so‘mgacha" or "3 000 so‘m chegirma". */
 export function promoValueText(p: Pick<SavedPromo, 'kind' | 'value' | 'maxDiscount'>): string {
-  if (p.kind === 'fixed') return `${formatMoney(p.value)} chegirma`;
+  if (p.kind === 'fixed') return t('profile.promo.fixedDiscount', { amount: formatMoney(p.value) });
   return p.maxDiscount
-    ? `${p.value}% chegirma, ${formatMoney(p.maxDiscount)}gacha`
-    : `${p.value}% chegirma`;
+    ? t('profile.promo.percentDiscountCapped', {
+        percent: p.value,
+        amount: formatMoney(p.maxDiscount),
+      })
+    : t('profile.promo.percentDiscount', { percent: p.value });
 }
 
-const CLASS_NAMES: Record<string, string> = {
-  economy: 'Ekonom',
-  comfort: 'Komfort',
-  minivan: 'Miniven',
-  business: 'Biznes',
-  cargo_s: 'Kichik yuk',
-  cargo_m: 'O‘rta yuk',
-};
-const SERVICE_NAMES: Record<string, string> = {
-  taxi: 'taksi',
-  delivery: 'yetkazish',
-  cargo: 'yuk tashish',
-};
+/** A class a code is limited to, in words; an unknown class as the API named it. */
+function promoClassName(c: string): string {
+  switch (c) {
+    case 'economy':
+    case 'comfort':
+    case 'minivan':
+    case 'business':
+      return t(`common.classes.${c}`);
+    case 'cargo_s':
+      return t('profile.promo.cargoS');
+    case 'cargo_m':
+      return t('profile.promo.cargoM');
+    default:
+      return c;
+  }
+}
+
+function promoServiceName(s: string): string {
+  return s === 'taxi' || s === 'delivery' || s === 'cargo' ? t(`profile.promo.services.${s}`) : s;
+}
 
 /** The conditions riders should know: "Komfort · 10 000 so‘mdan · 31.10 gacha". */
 export function promoConditions(p: SavedPromo): string {
   const parts: string[] = [];
-  if (p.classes.length) parts.push(p.classes.map((c) => CLASS_NAMES[c] ?? c).join(', '));
-  if (p.services.length) parts.push(p.services.map((s) => SERVICE_NAMES[s] ?? s).join(', '));
-  if (p.minFare > 0) parts.push(`${formatMoney(p.minFare)}dan`);
-  if (p.firstRideOnly) parts.push('birinchi safar uchun');
+  if (p.classes.length) parts.push(p.classes.map(promoClassName).join(', '));
+  if (p.services.length) parts.push(p.services.map(promoServiceName).join(', '));
+  if (p.minFare > 0) parts.push(t('profile.promo.minFare', { amount: formatMoney(p.minFare) }));
+  if (p.firstRideOnly) parts.push(t('profile.promo.firstRideOnly'));
   if (p.validUntil) {
-    const t = new Date(Date.parse(p.validUntil) + 5 * 3600_000);
-    parts.push(
-      `${String(t.getUTCDate()).padStart(2, '0')}.${String(t.getUTCMonth() + 1).padStart(2, '0')} gacha`,
-    );
+    const until = new Date(Date.parse(p.validUntil) + 5 * 3600_000);
+    const date = `${String(until.getUTCDate()).padStart(2, '0')}.${String(until.getUTCMonth() + 1).padStart(2, '0')}`;
+    parts.push(t('profile.promo.validUntil', { date }));
   }
   return parts.join(' · ');
 }
 
-export const CREDIT_KIND_LABELS: Record<CreditEntry['kind'], string> = {
-  referral_bonus: 'Do‘stingiz uchun bonus',
-  ride: 'Safarda ishlatildi',
-  ride_release: 'Bekor qilingan safar: qaytarildi',
-  revoke: 'Bonus bekor qilindi',
-  adjustment: 'Tuzatish',
-};
+/** A credit entry's kind in words: "Do‘stingiz uchun bonus", "Safarda ishlatildi". */
+export function creditKindLabel(kind: CreditEntry['kind']): string {
+  return t(`profile.promo.credit.${kind}`);
+}
 
 /** The invitation as one share message: the API's text already carries the code and link. */
 export function inviteMessage(card: Pick<ReferralCard, 'shareText' | 'url' | 'code'>): string {
@@ -110,9 +117,12 @@ export function inviteMessage(card: Pick<ReferralCard, 'shareText' | 'url' | 'co
 export function inviteOffer(card: ReferralCard): string {
   const gift =
     card.inviteeDiscountPercent > 0
-      ? `${card.inviteeDiscountPercent}% chegirma (${formatMoney(card.inviteeMaxDiscount)}gacha)`
-      : 'chegirma';
-  return `Do‘stingizga birinchi safarga ${gift}, sizga u safarni yakunlagach ${formatMoney(card.referrerBonus)} bonus.`;
+      ? t('profile.promo.inviteGift', {
+          percent: card.inviteeDiscountPercent,
+          amount: formatMoney(card.inviteeMaxDiscount),
+        })
+      : t('profile.promo.inviteGiftPlain');
+  return t('profile.promo.inviteOffer', { gift, bonus: formatMoney(card.referrerBonus) });
 }
 
 /** A ride's discount lines: "Promokod KUZ20" 1 400, "Bonus" 2 000. */
@@ -120,11 +130,16 @@ export function rideDiscountLines(fare: FareDiscount): { label: string; amount: 
   const lines: { label: string; amount: number }[] = [];
   if (fare.promo && fare.promo.amount > 0) {
     lines.push({
-      label: fare.promo.source === 'referral' ? 'Do‘st taklifi' : `Promokod ${fare.promo.code}`,
+      label:
+        fare.promo.source === 'referral'
+          ? t('profile.promo.referralLine')
+          : t('profile.promo.promoLine', { code: fare.promo.code }),
       amount: fare.promo.amount,
     });
   }
-  if ((fare.credit ?? 0) > 0) lines.push({ label: 'Bonus', amount: fare.credit! });
+  if ((fare.credit ?? 0) > 0) {
+    lines.push({ label: t('profile.promo.bonusLine'), amount: fare.credit! });
+  }
   return lines;
 }
 

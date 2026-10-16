@@ -4,6 +4,7 @@
  * about (7 days after it ended, as the API allows).
  */
 import type { ComplaintResolution, ComplaintStatus, ComplaintType } from '../api/types';
+import { t } from '../i18n/dictionary';
 
 export const COMPLAINT_WINDOW_DAYS = 7;
 
@@ -18,42 +19,26 @@ export const COMPLAINT_TYPES: readonly ComplaintType[] = [
   'other',
 ];
 
-/** The API's labels (it also sends `typeLabel`). */
-export const COMPLAINT_TYPE_LABELS: Record<ComplaintType, string> = {
-  lost_item: 'Mashinada narsa qoldi',
-  driver_behaviour: 'Haydovchining xulqi',
-  route: 'Yo‘l / manzil',
-  price: 'Narx',
-  car_condition: 'Mashina holati',
-  safety: 'Xavfsizlik',
-  other: 'Boshqa',
-};
+/** The type's label in the current language (the API also sends `typeLabel`). */
+export function complaintTypeLabel(type: ComplaintType): string {
+  // "other" is also the name of a plural form, so its texts carry another key
+  if (type === 'other') return t('support.complaints.types.otherType');
+  return t(`support.complaints.types.${type}` as const);
+}
 
 /** What to write, per type: a placeholder that asks for the useful details. */
-export const COMPLAINT_HINTS: Record<ComplaintType, string> = {
-  lost_item: 'Nima qoldi, qayerda (orqa o‘rindiq, yukxona), qanday ko‘rinishda?',
-  driver_behaviour: 'Nima bo‘ldi? Qisqacha yozing.',
-  route: 'Haydovchi qaysi yo‘ldan yurdi, nima noto‘g‘ri bo‘ldi?',
-  price: 'Qancha so‘radi va nima uchun?',
-  car_condition: 'Mashinada nima nosoz yoki iflos edi?',
-  safety: 'Nima bo‘ldi? Xavf hozir ham bo‘lsa, 112 ga qo‘ng‘iroq qiling.',
-  other: 'Muammoni yozing.',
-};
+export function complaintHint(type: ComplaintType): string {
+  if (type === 'other') return t('support.complaints.hints.otherHint');
+  return t(`support.complaints.hints.${type}` as const);
+}
 
-export const COMPLAINT_STATUS_LABELS: Record<ComplaintStatus, string> = {
-  open: 'Qabul qilindi',
-  in_progress: 'Ko‘rib chiqilmoqda',
-  resolved: 'Yopildi',
-};
+export function complaintStatusLabel(status: ComplaintStatus): string {
+  return t(`support.complaints.status.${status}` as const);
+}
 
-export const RESOLUTION_LABELS: Record<ComplaintResolution, string> = {
-  item_returned: 'Narsangiz qaytarildi',
-  refund: 'Pul qaytarildi',
-  driver_warned: 'Haydovchiga ogohlantirish berildi',
-  driver_blocked: 'Haydovchi bloklandi',
-  rejected: 'Murojaat asossiz deb topildi',
-  no_action: 'Chora ko‘rish talab etilmadi',
-};
+export function resolutionLabel(resolution: ComplaintResolution): string {
+  return t(`support.complaints.resolution.${resolution}` as const);
+}
 
 /** The API accepts 3..2000 characters. */
 export const COMPLAINT_TEXT_MIN = 3;

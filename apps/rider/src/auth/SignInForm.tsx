@@ -4,7 +4,8 @@ import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { ApiError, describeError } from '../api/client';
 import { endpoints } from '../api/endpoints';
 import { keys } from '../api/queries';
-import { formatLocalPhoneInput, formatPhone, normalizePhone } from '../lib/format';
+import { useT } from '../i18n';
+import { formatClock, formatLocalPhoneInput, formatPhone, normalizePhone } from '../lib/format';
 import { useCountdown } from '../lib/hooks';
 import { Banner, Button, T, TextField } from '../ui/primitives';
 import { colors, radius, space } from '../ui/theme';
@@ -18,6 +19,7 @@ const CODE_LENGTH = 6;
  * `onDone` runs once the rider is signed in.
  */
 export function SignInForm({ onDone, compact = false }: { onDone: () => void; compact?: boolean }) {
+  const { t } = useT();
   const queryClient = useQueryClient();
   const [step, setStep] = useState<Step>('phone');
   const [local, setLocal] = useState('');
@@ -33,7 +35,7 @@ export function SignInForm({ onDone, compact = false }: { onDone: () => void; co
 
   const requestCode = async () => {
     if (!phone) {
-      setError('Telefon raqamini to‘liq kiriting');
+      setError(t('auth.phoneIncomplete'));
       return;
     }
     setBusy(true);
@@ -105,22 +107,21 @@ export function SignInForm({ onDone, compact = false }: { onDone: () => void; co
           {!compact ? (
             <>
               <T variant="h1" accessibilityRole="header">
-                SFF Taxi
+                {t('common.app.name')}
               </T>
               <T variant="body" color={colors.textMuted}>
-                Telefon raqamingizni kiriting — tasdiqlash kodini SMS orqali yuboramiz. Narx
-                oldindan belgilanadi va o‘zgarmaydi.
+                {t('auth.intro')}
               </T>
             </>
           ) : null}
           <TextField
-            label="Telefon raqami"
+            label={t('auth.phoneLabel')}
             prefix="+998"
-            placeholder="90 123 45 67"
+            placeholder={t('auth.phonePlaceholder')}
             value={local}
-            onChangeText={(t) => {
+            onChangeText={(text) => {
               setError(null);
-              setLocal(formatLocalPhoneInput(t));
+              setLocal(formatLocalPhoneInput(text));
             }}
             keyboardType="phone-pad"
             autoComplete="tel"
@@ -132,7 +133,7 @@ export function SignInForm({ onDone, compact = false }: { onDone: () => void; co
           />
           {error ? <Banner tone="danger" message={error} /> : null}
           <Button
-            title="Kod olish"
+            title={t('auth.getCode')}
             size="lg"
             loading={busy}
             disabled={!phone}
@@ -143,9 +144,9 @@ export function SignInForm({ onDone, compact = false }: { onDone: () => void; co
 
       {step === 'code' ? (
         <>
-          {!compact ? <T variant="h1">Kodni kiriting</T> : null}
+          {!compact ? <T variant="h1">{t('auth.enterCode')}</T> : null}
           <T variant="body" color={colors.textMuted}>
-            Kod {phone ? formatPhone(phone) : ''} raqamiga yuborildi.{' '}
+            {t('auth.codeSentTo', { phone: phone ? formatPhone(phone) : '' })}{' '}
             <T
               variant="bodyStrong"
               color={colors.brandText}
@@ -154,7 +155,7 @@ export function SignInForm({ onDone, compact = false }: { onDone: () => void; co
                 setError(null);
               }}
             >
-              Raqamni o‘zgartirish
+              {t('auth.changeNumber')}
             </T>
           </T>
           <Pressable onPress={() => codeInput.current?.focus()} style={styles.codeBoxes}>
@@ -173,8 +174,8 @@ export function SignInForm({ onDone, compact = false }: { onDone: () => void; co
             <TextInput
               ref={codeInput}
               value={code}
-              onChangeText={(t) => {
-                const digits = t.replace(/\D/g, '').slice(0, CODE_LENGTH);
+              onChangeText={(text) => {
+                const digits = text.replace(/\D/g, '').slice(0, CODE_LENGTH);
                 setError(null);
                 setCode(digits);
                 if (digits.length === CODE_LENGTH) void verify(digits);
@@ -186,12 +187,12 @@ export function SignInForm({ onDone, compact = false }: { onDone: () => void; co
               style={styles.hiddenInput}
               caretHidden
               autoFocus
-              accessibilityLabel="Tasdiqlash kodi"
+              accessibilityLabel={t('auth.codeLabel')}
             />
           </Pressable>
           {error ? <Banner tone="danger" message={error} /> : null}
           <Button
-            title="Tasdiqlash"
+            title={t('common.actions.confirm')}
             size="lg"
             loading={busy}
             disabled={code.length !== CODE_LENGTH}
@@ -200,8 +201,8 @@ export function SignInForm({ onDone, compact = false }: { onDone: () => void; co
           <Button
             title={
               secondsLeft > 0
-                ? `Kodni qayta yuborish (${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, '0')})`
-                : 'Kodni qayta yuborish'
+                ? t('auth.resendIn', { time: formatClock(secondsLeft) })
+                : t('auth.resend')
             }
             variant="ghost"
             disabled={secondsLeft > 0 || busy}
@@ -212,13 +213,13 @@ export function SignInForm({ onDone, compact = false }: { onDone: () => void; co
 
       {step === 'name' ? (
         <>
-          <T variant="h2">Ismingiz qanday?</T>
+          <T variant="h2">{t('auth.nameTitle')}</T>
           <T variant="body" color={colors.textMuted}>
-            Haydovchi sizga shu ism bilan murojaat qiladi.
+            {t('auth.nameHint')}
           </T>
           <TextField
-            label="Ism"
-            placeholder="Masalan, Aziz"
+            label={t('auth.nameLabel')}
+            placeholder={t('auth.namePlaceholder')}
             value={name}
             onChangeText={setName}
             autoComplete="name"
@@ -229,8 +230,8 @@ export function SignInForm({ onDone, compact = false }: { onDone: () => void; co
             onSubmitEditing={saveName}
           />
           {error ? <Banner tone="danger" message={error} /> : null}
-          <Button title="Davom etish" size="lg" loading={busy} onPress={saveName} />
-          <Button title="O‘tkazib yuborish" variant="ghost" disabled={busy} onPress={onDone} />
+          <Button title={t('common.actions.next')} size="lg" loading={busy} onPress={saveName} />
+          <Button title={t('auth.skip')} variant="ghost" disabled={busy} onPress={onDone} />
         </>
       ) : null}
     </View>

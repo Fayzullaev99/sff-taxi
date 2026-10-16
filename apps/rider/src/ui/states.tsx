@@ -9,6 +9,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { describeError, isOffline } from '../api/client';
+import { useT } from '../i18n';
 import { Button, Icon, type IconName, T } from './primitives';
 import { colors, radius, space } from './theme';
 
@@ -59,13 +60,14 @@ export function EmptyView({
 }
 
 export function ErrorView({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+  const { t } = useT();
   const offline = isOffline(error);
   return (
     <EmptyView
       icon={offline ? 'cloud-offline-outline' : 'alert-circle-outline'}
-      title={offline ? 'Aloqa yo‘q' : 'Nimadir xato ketdi'}
+      title={offline ? t('home.states.offlineTitle') : t('home.states.errorTitle')}
       message={describeError(error)}
-      actionTitle={onRetry ? 'Qayta urinish' : undefined}
+      actionTitle={onRetry ? t('common.actions.retry') : undefined}
       onAction={onRetry}
     />
   );

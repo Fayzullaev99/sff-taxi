@@ -6,15 +6,16 @@ import { ApiError, describeError } from '../api/client';
 import { useAppConfig, useCargoQuote } from '../api/queries';
 import { useFeature } from '../api/support';
 import type { CargoClass, CargoQuote } from '../api/types';
+import { useT } from '../i18n';
 import { formatDateTime, formatMoney } from '../lib/format';
 import { cardLabel } from '../lib/payment';
 import { availabilityShort, availabilityText } from '../lib/ride-state';
 import { schedulable, SCHEDULE_DISPATCH_BEFORE_MIN } from '../lib/schedule';
 import {
-  CARGO_CLASS_LABELS,
-  CARGO_CLASS_NOTES,
   CARGO_CLASSES,
   cargoClassFor,
+  cargoClassLabel,
+  cargoClassNote,
   cargoFits,
   cargoLimitsText,
   loadersText,
@@ -40,6 +41,7 @@ const MAX_TYPED_KG = 20_000;
  * payload). Ordered like a taxi ride (one clientRequestId per attempt).
  */
 export default function CargoScreen() {
+  const { t } = useT();
   const insets = useSafeAreaInsets();
   const draft = useDraft();
   const { pickup, dropoff } = draft;
@@ -91,13 +93,13 @@ export default function CargoScreen() {
   const submit = async (current: CargoQuote) => {
     if (!pickup || !dropoff || order.busy) return;
     if (later && !schedulable(later, new Date())) {
-      order.setError('Tanlangan vaqt juda yaqin qoldi. Boshqa vaqtni tanlang.');
+      order.setError(t('order.schedule.tooSoon'));
       return;
     }
     if (weight.error || !fits) {
       order.setError(
         weight.error ??
-          `Yuk ${CARGO_CLASS_LABELS[rideClass].toLowerCase()} mashinaga sig‘maydi: kattaroq sinfni tanlang.`,
+          t('order.cargo.doesNotFitClass', { class: cargoClassLabel(rideClass).toLowerCase() }),
       );
       return;
     }
@@ -116,7 +118,7 @@ export default function CargoScreen() {
 
   return (
     <KeyboardAvoider style={styles.root} keyboardVerticalOffset={90}>
-      <Stack.Screen options={{ title: 'Yuk tashish' }} />
+      <Stack.Screen options={{ title: t('common.screens.cargo') }} />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <RouteCard
           pickup={pickup}
@@ -124,7 +126,7 @@ export default function CargoScreen() {
           landmark={draft.landmark}
           distanceM={q?.distanceM}
           durationS={q?.durationS}
-          landmarkPlaceholder="Mo‘ljal: ombor darvozasi"
+          landmarkPlaceholder={t('order.cargo.landmarkPlaceholder')}
         />
 
         {schedulingOn ? (
@@ -136,14 +138,16 @@ export default function CargoScreen() {
                 else setPickingTime(true);
               }}
               options={[
-                { value: 'now', label: 'Hozir', icon: 'flash-outline' },
-                { value: 'later', label: 'Keyinroq', icon: 'calendar-outline' },
+                { value: 'now', label: t('common.time.now'), icon: 'flash-outline' },
+                { value: 'later', label: t('order.schedule.later'), icon: 'calendar-outline' },
               ]}
             />
             {later ? (
               <T variant="small" color={colors.textMuted}>
-                {formatDateTime(later)} · qidiruv {SCHEDULE_DISPATCH_BEFORE_MIN} daqiqa oldin
-                boshlanadi
+                {t('order.schedule.laterLine', {
+                  time: formatDateTime(later),
+                  minutes: SCHEDULE_DISPATCH_BEFORE_MIN,
+                })}
               </T>
             ) : null}
           </View>
@@ -157,7 +161,11 @@ export default function CargoScreen() {
         ) : null}
         {quote.isError && !q ? (
           quote.error instanceof ApiError && quote.error.status < 500 ? (
-            <Banner tone="warning" title="Yuk tashish" message={describeError(quote.error)} />
+            <Banner
+              tone="warning"
+              title={t('common.screens.cargo')}
+              message={describeError(quote.error)}
+            />
           ) : (
             <View style={styles.errorBox}>
               <ErrorView error={quote.error} onRetry={() => void quote.refetch()} />
@@ -180,23 +188,23 @@ export default function CargoScreen() {
         ) : null}
         {stale ? (
           <T variant="small" color={colors.textMuted}>
-            Narx yangilanmoqda…
+            {t('order.quote.updating')}
           </T>
         ) : null}
 
         <T variant="h3" accessibilityRole="header" style={styles.section}>
-          Yuk
+          {t('common.services.cargoShort')}
         </T>
         <TextField
-          label="Nima tashiladi"
-          placeholder="Masalan: divan va 10 ta quti, sement 20 qop"
+          label={t('order.cargo.whatLabel')}
+          placeholder={t('order.cargo.whatPlaceholder')}
           value={draft.loadDescription}
           onChangeText={(loadDescription) => updateDraft({ loadDescription })}
           maxLength={300}
         />
         <TextField
-          label="Taxminiy og‘irligi, kg (ixtiyoriy)"
-          placeholder="Masalan: 300"
+          label={t('order.cargo.weightLabel')}
+          placeholder={t('order.cargo.weightPlaceholder')}
           keyboardType="number-pad"
           value={draft.loadWeight}
           onChangeText={(loadWeight) => updateDraft({ loadWeight })}
@@ -204,7 +212,10 @@ export default function CargoScreen() {
           error={
             weight.error ??
             (!fits && classes
-              ? `${CARGO_CLASS_LABELS[rideClass]} mashina ${classes[rideClass].maxPayloadKg} kg gacha oladi`
+              ? t('order.cargo.classTakesUpTo', {
+                  class: cargoClassLabel(rideClass),
+                  kg: classes[rideClass].maxPayloadKg,
+                })
               : null)
           }
         />
@@ -212,7 +223,7 @@ export default function CargoScreen() {
         <View style={styles.group}>
           <View style={styles.loaders}>
             <View style={styles.flex}>
-              <T variant="bodyStrong">Yukchilar</T>
+              <T variant="bodyStrong">{t('order.cargo.loaders')}</T>
               <T variant="small" color={colors.textMuted}>
                 {loadersText(draft.loaders, q?.cargo.loaderPrice ?? 30_000)}
               </T>
@@ -228,16 +239,16 @@ export default function CargoScreen() {
             />
           </View>
           <PreferenceRow
-            label="O‘zim ham boraman"
-            hint="Kabinada bitta joy: yuk bilan birga borasiz"
+            label={t('order.cargo.riderRides')}
+            hint={t('order.cargo.riderRidesHint')}
             value={draft.riderRides}
             onChange={(riderRides) => updateDraft({ riderRides })}
           />
         </View>
 
         <TextField
-          label="Izoh"
-          placeholder="Masalan: 3-qavat, lift yo‘q"
+          label={t('order.comment.label')}
+          placeholder={t('order.cargo.commentPlaceholder')}
           value={draft.comment}
           onChangeText={(comment) => updateDraft({ comment })}
           maxLength={500}
@@ -245,16 +256,16 @@ export default function CargoScreen() {
         />
 
         <T variant="h3" accessibilityRole="header" style={styles.section}>
-          To‘lov
+          {t('common.screens.payment')}
         </T>
         <Segmented
           value={cardAvailable ? draft.paymentMethod : 'cash'}
           onChange={(paymentMethod) => updateDraft({ paymentMethod })}
           options={[
-            { value: 'cash', label: 'Naqd', icon: 'cash-outline' },
+            { value: 'cash', label: t('common.payment.cash'), icon: 'cash-outline' },
             {
               value: 'card',
-              label: cardAvailable ? cardLabel(providers) : 'Karta',
+              label: cardAvailable ? cardLabel(providers) : t('common.payment.card'),
               icon: 'card-outline',
               disabled: !cardAvailable,
             },
@@ -262,8 +273,10 @@ export default function CargoScreen() {
         />
         {fare ? (
           <T variant="small" color={colors.textMuted}>
-            Narxga {fare.cargo.includedMinutes} daqiqa yuklash kiradi, keyin har daqiqa{' '}
-            {formatMoney(fare.cargo.perMinute)}. Narx buyurtmada belgilanadi va o‘zgarmaydi.
+            {t('order.cargo.loadingNote', {
+              minutes: fare.cargo.includedMinutes,
+              perMinute: formatMoney(fare.cargo.perMinute),
+            })}
           </T>
         ) : null}
       </ScrollView>
@@ -278,7 +291,7 @@ export default function CargoScreen() {
             message={describeError(quote.error)}
             action={
               <Button
-                title="Qayta hisoblash"
+                title={t('order.quote.recalculate')}
                 size="sm"
                 variant="secondary"
                 onPress={() => void quote.refetch()}
@@ -290,13 +303,13 @@ export default function CargoScreen() {
           <View style={styles.summary} accessible accessibilityRole="summary">
             <View style={styles.flex}>
               <T variant="bodyStrong" numberOfLines={1}>
-                {CARGO_CLASS_LABELS[rideClass]} yuk mashinasi
+                {t('common.classes.cargoCar', { name: cargoClassLabel(rideClass) })}
                 {later ? ` · ${formatDateTime(later)}` : ''}
               </T>
               <T variant="small" color={colors.textMuted} numberOfLines={1}>
                 {later
-                  ? 'Oldindan buyurtma'
-                  : (availabilityText(q.availability?.[rideClass]) ?? 'Narx o‘zgarmaydi')}
+                  ? t('order.schedule.preorder')
+                  : (availabilityText(q.availability?.[rideClass]) ?? t('order.fare.fixed'))}
               </T>
             </View>
             <T variant="price" style={stale ? styles.stalePrice : null}>
@@ -305,7 +318,7 @@ export default function CargoScreen() {
           </View>
         ) : null}
         <Button
-          title={later ? 'Oldindan buyurtma berish' : 'Yuk mashinasini chaqirish'}
+          title={later ? t('order.submit.later') : t('order.submit.callCargo')}
           size="lg"
           loading={order.busy}
           disabled={!q || stale || quote.isError || !fits || Boolean(weight.error)}
@@ -341,16 +354,21 @@ const CargoClassCard = memo(function CargoClassCard({
   weightKg: number | null;
   selected: boolean;
 }) {
+  const { t } = useT();
   const fare = quote.fares[cargoClass];
   const rules = quote.cargo.classes[cargoClass];
   const fits = cargoFits(rules, weightKg);
   const availability = availabilityShort(quote.availability?.[cargoClass]);
   const noCar = quote.availability?.[cargoClass]?.etaS === null;
+  const a11y = {
+    car: t('common.classes.cargoCar', { name: cargoClassLabel(cargoClass) }),
+    price: formatMoney(fare.total),
+  };
   return (
     <Pressable
       accessibilityRole="radio"
       accessibilityState={{ checked: selected, disabled: !fits }}
-      accessibilityLabel={`${CARGO_CLASS_LABELS[cargoClass]} yuk mashinasi, ${formatMoney(fare.total)}${fits ? '' : ', yuk sig‘maydi'}`}
+      accessibilityLabel={t(fits ? 'order.cargo.cardA11y' : 'order.cargo.cardA11yNoFit', a11y)}
       disabled={!fits}
       onPress={() => selectCargoClass(cargoClass)}
       style={[styles.card, selected ? styles.cardOn : null, !fits ? styles.cardOff : null]}
@@ -359,9 +377,9 @@ const CargoClassCard = memo(function CargoClassCard({
         <Icon name={cargoClass === 'cargo_m' ? 'bus' : 'car'} size={24} color={colors.ink} />
       </View>
       <View style={styles.flex}>
-        <T variant="h3">{CARGO_CLASS_LABELS[cargoClass]}</T>
+        <T variant="h3">{cargoClassLabel(cargoClass)}</T>
         <T variant="small" color={colors.textMuted} numberOfLines={1}>
-          {CARGO_CLASS_NOTES[cargoClass]}
+          {cargoClassNote(cargoClass)}
         </T>
         {rules ? (
           <T variant="small" color={colors.textMuted} numberOfLines={3}>
@@ -370,7 +388,7 @@ const CargoClassCard = memo(function CargoClassCard({
         ) : null}
         {!fits ? (
           <T variant="smallStrong" color={colors.warning}>
-            Yuk sig‘maydi
+            {t('order.cargo.doesNotFit')}
           </T>
         ) : availability ? (
           <T
@@ -386,11 +404,11 @@ const CargoClassCard = memo(function CargoClassCard({
         <T variant="price">{formatMoney(fare.total)}</T>
         {fare.cargo.loadersTotal > 0 ? (
           <T variant="caption" color={colors.textMuted}>
-            yukchilar bilan
+            {t('order.cargo.withLoaders')}
           </T>
         ) : (
           <T variant="caption" color={colors.textMuted}>
-            aniq narx
+            {t('order.cargo.exactPrice')}
           </T>
         )}
       </View>

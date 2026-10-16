@@ -5,11 +5,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { describeError } from '../api/client';
 import { promoEndpoints, promoKeys, useCredits, useWallet } from '../api/promo-api';
 import type { PromoWallet, SavedPromo } from '../api/promo-types';
+import { useT } from '../i18n';
 import { confirm, notify } from '../lib/dialogs';
 import { formatDateTime, formatMoney } from '../lib/format';
 import { installId } from '../lib/install-id';
 import {
-  CREDIT_KIND_LABELS,
+  creditKindLabel,
   inviteMessage,
   inviteOffer,
   promoConditions,
@@ -25,6 +26,7 @@ import { colors, radius, space } from '../ui/theme';
  * credit with its history, and "Do'stni taklif qil": the rider's own code to share.
  */
 export default function PromosScreen() {
+  const { t } = useT();
   const insets = useSafeAreaInsets();
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -50,25 +52,29 @@ export default function PromosScreen() {
     >
       <Card style={styles.card}>
         <T variant="h3" accessibilityRole="header">
-          Promokod
+          {t('profile.promos.codeTitle')}
         </T>
         <T variant="small" color={colors.textMuted}>
-          Kodni kiriting: mos safarda chegirma buyurtmada o‘zi ko‘rinadi.
-          {w.canEnterReferral ? ' Do‘stingizning taklif kodi ham shu yerga.' : ''}
+          {[
+            t('profile.promos.codeHint'),
+            w.canEnterReferral ? t('profile.promos.codeHintReferral') : null,
+          ]
+            .filter(Boolean)
+            .join(' ')}
         </T>
         <PromoCodeEntry />
         {w.invitedBy && w.invitedBy.welcomeRidesLeft > 0 ? (
           <Banner
             tone="success"
             icon="gift-outline"
-            message={`Do‘st taklifi (${w.invitedBy.code}): birinchi safaringizga chegirma`}
+            message={t('profile.promos.invitedBy', { code: w.invitedBy.code })}
           />
         ) : null}
       </Card>
 
       {w.promos.length ? (
         <>
-          <SectionTitle>Promokodlarim</SectionTitle>
+          <SectionTitle>{t('profile.promos.myCodes')}</SectionTitle>
           <Card style={styles.list}>
             {w.promos.map((p, i) => (
               <View key={p.id}>
@@ -80,19 +86,19 @@ export default function PromosScreen() {
         </>
       ) : null}
 
-      <SectionTitle>Bonus</SectionTitle>
+      <SectionTitle>{t('profile.promos.bonusTitle')}</SectionTitle>
       <Card style={styles.card}>
         <View style={styles.balanceRow}>
           <Icon name="wallet-outline" size={24} color={colors.ink} />
           <View style={styles.flex}>
             <T variant="h2">{formatMoney(w.credit.balance)}</T>
             <T variant="small" color={colors.textMuted}>
-              Keyingi safarlarda o‘zi ishlatiladi: safar narxining {w.credit.maxPercent}% gacha.
+              {t('profile.promos.bonusHint', { percent: w.credit.maxPercent })}
             </T>
           </View>
         </View>
         <Button
-          title={historyOpen ? 'Tarixni yopish' : 'Bonus tarixi'}
+          title={historyOpen ? t('profile.promos.historyClose') : t('profile.promos.historyOpen')}
           variant="secondary"
           size="sm"
           onPress={() => setHistoryOpen((o) => !o)}
@@ -106,13 +112,14 @@ export default function PromosScreen() {
 }
 
 function PromoRow({ promo }: { promo: SavedPromo }) {
+  const { t } = useT();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const remove = async () => {
     const ok = await confirm({
-      title: `${promo.code} o‘chirilsinmi?`,
-      message: 'Kodni keyin yana kiritishingiz mumkin.',
-      confirmText: 'O‘chirish',
+      title: t('profile.promos.remove.title', { code: promo.code }),
+      message: t('profile.promos.remove.message'),
+      confirmText: t('common.actions.delete'),
       destructive: true,
     });
     if (!ok) return;
@@ -121,7 +128,7 @@ function PromoRow({ promo }: { promo: SavedPromo }) {
       queryClient.setQueryData(promoKeys.wallet, await promoEndpoints.remove(promo.id));
       void queryClient.invalidateQueries({ queryKey: ['quote'] });
     } catch (e) {
-      notify('O‘chirilmadi', describeError(e));
+      notify(t('profile.promos.remove.failed'), describeError(e));
     } finally {
       setBusy(false);
     }
@@ -153,7 +160,7 @@ function PromoRow({ promo }: { promo: SavedPromo }) {
       </View>
       <IconButton
         name="trash-outline"
-        label={`${promo.code} ni o‘chirish`}
+        label={t('profile.promos.remove.a11y', { code: promo.code })}
         size={40}
         onPress={() => {
           if (!busy) void remove();
@@ -164,17 +171,17 @@ function PromoRow({ promo }: { promo: SavedPromo }) {
 }
 
 function CreditHistory() {
+  const { t } = useT();
   const credits = useCredits(true);
   const items = useMemo(() => credits.data?.pages.flatMap((p) => p.items) ?? [], [credits.data]);
-  if (credits.isPending) return <T variant="small">Yuklanmoqda…</T>;
+  if (credits.isPending) return <T variant="small">{t('profile.promos.loading')}</T>;
   if (credits.isError && !items.length) {
     return <Banner tone="warning" message={describeError(credits.error)} />;
   }
   if (!items.length) {
     return (
       <T variant="small" color={colors.textMuted}>
-        Hali bonus yo‘q. Do‘stlaringizni taklif qiling — ular birinchi safarni yakunlagach bonus
-        olasiz.
+        {t('profile.promos.noBonus')}
       </T>
     );
   }
@@ -184,7 +191,7 @@ function CreditHistory() {
         <View key={c.id} style={styles.historyRow}>
           <View style={styles.flex}>
             <T variant="smallStrong">
-              {CREDIT_KIND_LABELS[c.kind]}
+              {creditKindLabel(c.kind)}
               {c.rideNumber ? ` · #${c.rideNumber}` : ''}
             </T>
             <T variant="caption" color={colors.textMuted}>
@@ -199,7 +206,7 @@ function CreditHistory() {
       ))}
       {credits.hasNextPage ? (
         <Button
-          title="Yana"
+          title={t('common.actions.more')}
           variant="ghost"
           size="sm"
           loading={credits.isFetchingNextPage}
@@ -212,6 +219,7 @@ function CreditHistory() {
 
 /** "Do'stni taklif qil": the rider's code, what both sides get, the share sheet. */
 function InviteCard({ wallet }: { wallet: PromoWallet }) {
+  const { t } = useT();
   const r = wallet.referral;
   const share = async () => {
     try {
@@ -222,22 +230,32 @@ function InviteCard({ wallet }: { wallet: PromoWallet }) {
   };
   return (
     <>
-      <SectionTitle>Do‘stni taklif qil</SectionTitle>
+      <SectionTitle>{t('profile.promos.invite.title')}</SectionTitle>
       <Card style={styles.card}>
         <T variant="body">{inviteOffer(r)}</T>
         <View
           style={styles.code}
           accessible
-          accessibilityLabel={`Taklif kodingiz: ${r.code.split('').join(' ')}`}
+          accessibilityLabel={t('profile.promos.invite.yourCodeA11y', {
+            code: r.code.split('').join(' '),
+          })}
         >
           <T variant="small" color={colors.textMuted}>
-            Taklif kodingiz
+            {t('profile.promos.invite.yourCode')}
           </T>
           <T variant="plate">{r.code}</T>
         </View>
-        <Button title="Ulashish" icon="share-social-outline" onPress={() => void share()} />
+        <Button
+          title={t('common.actions.share')}
+          icon="share-social-outline"
+          onPress={() => void share()}
+        />
         <T variant="small" color={colors.textMuted}>
-          Taklif qildingiz: {r.invited} · bonus olindi: {r.rewarded} · jami {formatMoney(r.earned)}
+          {t('profile.promos.invite.stats', {
+            invited: r.invited,
+            rewarded: r.rewarded,
+            earned: formatMoney(r.earned),
+          })}
         </T>
       </Card>
     </>

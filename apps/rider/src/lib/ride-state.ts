@@ -11,6 +11,7 @@ import type {
   RidePaymentStatus,
   RideStatus,
 } from '../api/types';
+import { t } from '../i18n/dictionary';
 import { formatMinutes } from './format';
 
 export type RidePhase =
@@ -83,18 +84,10 @@ export function ridePhase(ride: RideLike): RidePhase {
   }
 }
 
-const TITLES: Record<RidePhase, string> = {
-  scheduled: 'Oldindan buyurtma',
-  awaiting_payment: 'To‘lov kutilmoqda',
-  searching: 'Haydovchi qidirilmoqda',
-  assigned: 'Haydovchi yo‘lda',
-  arrived: 'Haydovchi sizni kutmoqda',
-  on_trip: 'Safardasiz',
-  completed: 'Safar yakunlandi',
-  cancelled: 'Buyurtma bekor qilindi',
-  no_driver: 'Bo‘sh mashina topilmadi',
-  payment_failed: 'To‘lov amalga oshmadi',
-};
+/** The screen's heading for a phase, in the current language. */
+export function phaseTitle(phase: RidePhase): string {
+  return t(`ride.state.title.${phase}` as const);
+}
 
 export function rideScreen(ride: RideLike): RideScreen {
   const phase = ridePhase(ride);
@@ -112,7 +105,7 @@ export function rideScreen(ride: RideLike): RideScreen {
     phase === 'arrived';
   return {
     phase,
-    title: TITLES[phase],
+    title: phaseTitle(phase),
     final,
     showDriver: withDriver,
     heading: phase === 'assigned' ? 'pickup' : phase === 'on_trip' ? 'dropoff' : null,
@@ -126,29 +119,26 @@ export function rideScreen(ride: RideLike): RideScreen {
 /** Who ended a ride, in the rider's words. */
 export function cancelledText(ride: RideLike & { cancelReason: string | null }): string {
   const phase = ridePhase(ride);
-  if (phase === 'payment_failed') {
-    return 'To‘lov 10 daqiqa ichida amalga oshirilmadi, buyurtma bekor qilindi. Kartadan pul yechilmadi.';
-  }
-  if (phase === 'no_driver') {
-    return 'Yaqin atrofda bo‘sh haydovchi topilmadi. Birozdan so‘ng qayta urinib ko‘ring yoki operatorga qo‘ng‘iroq qiling.';
-  }
+  if (phase === 'payment_failed') return t('ride.state.cancelled.paymentFailed');
+  if (phase === 'no_driver') return t('ride.state.cancelled.noDriver');
+  const reason = ride.cancelReason;
   switch (ride.cancelledBy) {
     case 'rider':
-      return 'Siz buyurtmani bekor qildingiz.';
+      return t('ride.state.cancelled.byRider');
     case 'driver':
-      return ride.cancelReason
-        ? `Haydovchi buyurtmani yopdi: ${ride.cancelReason}.`
-        : 'Haydovchi buyurtmani yopdi.';
+      return reason
+        ? t('ride.state.cancelled.byDriverReason', { reason })
+        : t('ride.state.cancelled.byDriver');
     case 'operator':
-      return ride.cancelReason
-        ? `Operator buyurtmani bekor qildi: ${ride.cancelReason}.`
-        : 'Operator buyurtmani bekor qildi.';
+      return reason
+        ? t('ride.state.cancelled.byOperatorReason', { reason })
+        : t('ride.state.cancelled.byOperator');
     case 'system':
-      return ride.cancelReason
-        ? `Buyurtma bekor qilindi: ${ride.cancelReason}.`
-        : 'Buyurtma bekor qilindi.';
+      return reason
+        ? t('ride.state.cancelled.bySystemReason', { reason })
+        : t('ride.state.cancelled.bySystem');
     default:
-      return 'Buyurtma bekor qilindi.';
+      return t('ride.state.cancelled.bySystem');
   }
 }
 
@@ -226,8 +216,12 @@ export function pickupEta(
 /** The footer's line: the nearest free car of the class, by road ("Eng yaqin mashina ~4 daq"). */
 export function availabilityText(a: ClassAvailability | null | undefined): string | null {
   if (!a) return null;
-  if (a.etaS === null || a.cars === 0) return 'Yaqinda bo‘sh mashina yo‘q';
-  return `Eng yaqin mashina ~${formatMinutes(Math.max(1, Math.ceil(a.etaS / 60)))}`;
+  if (a.etaS === null || a.cars === 0) return t('ride.state.availability.none');
+  return t('ride.state.availability.nearest', { eta: formatMinutes(etaMinutesOf(a.etaS)) });
+}
+
+function etaMinutesOf(etaS: number): number {
+  return Math.max(1, Math.ceil(etaS / 60));
 }
 
 /**
@@ -236,6 +230,6 @@ export function availabilityText(a: ClassAvailability | null | undefined): strin
  */
 export function availabilityShort(a: ClassAvailability | null | undefined): string | null {
   if (!a) return null;
-  if (a.etaS === null || a.cars === 0) return 'Mashina yo‘q';
-  return 'Mashina ~' + formatMinutes(Math.max(1, Math.ceil(a.etaS / 60)));
+  if (a.etaS === null || a.cars === 0) return t('ride.state.availability.noneShort');
+  return t('ride.state.availability.nearestShort', { eta: formatMinutes(etaMinutesOf(a.etaS)) });
 }

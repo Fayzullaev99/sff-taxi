@@ -3,10 +3,11 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSupport } from '../api/support';
 import type { Ride } from '../api/types';
+import { useT } from '../i18n';
 import { canComplain } from '../lib/complaints';
-import { cancellationFeeNote, fareLines, OWED_FEE_LABEL, stopStateText } from '../lib/fare';
+import { cancellationFeeNote, fareLines, owedFeeLabel, stopStateText } from '../lib/fare';
 import { passengerLine } from '../lib/passenger';
-import { POOL_DISCOUNT_LABEL } from '../lib/sharing';
+import { poolDiscountLabel } from '../lib/sharing';
 import { rideDiscountLines } from '../lib/promo';
 import { classLabel, isCargoClass, loadLine, SERVICE_NAMES, serviceTitle } from '../lib/services';
 import { driverGivenName, formatDateTime, formatMoney, placeLine } from '../lib/format';
@@ -29,6 +30,7 @@ const RATING_WINDOW_MS = 7 * 86_400_000;
  * way to order again; a complaint or a lost item for a week after the ride.
  */
 export function RideSummary({ ride }: { ride: Ride }) {
+  const { t } = useT();
   const insets = useSafeAreaInsets();
   const support = useSupport();
   const screen = rideScreen(ride);
@@ -106,7 +108,9 @@ export function RideSummary({ ride }: { ride: Ride }) {
       {ride.fare.cancellationFee > 0 ? (
         <Banner
           tone="warning"
-          title={`Bekor qilish to‘lovi: ${formatMoney(ride.fare.cancellationFee)}`}
+          title={t('ride.summary.cancellationFee', {
+            amount: formatMoney(ride.fare.cancellationFee),
+          })}
           message={cancellationFeeNote(ride.fare)}
         />
       ) : null}
@@ -115,28 +119,33 @@ export function RideSummary({ ride }: { ride: Ride }) {
       ) : null}
 
       <Card style={styles.card}>
-        <KeyValue label="Qayerdan" value={placeLine(ride.pickup)} />
+        <KeyValue label={t('ride.summary.from')} value={placeLine(ride.pickup)} />
         {(ride.stops ?? []).map((stop, i) => (
           <KeyValue
             key={i}
-            label={`${i + 1}-oraliq manzil`}
+            label={t('ride.summary.stop', { n: i + 1 })}
             value={`${placeLine(stop)} · ${stopStateText(stop)}`}
           />
         ))}
-        <KeyValue label="Qayerga" value={placeLine(ride.dropoff)} />
+        <KeyValue label={t('ride.summary.to')} value={placeLine(ride.dropoff)} />
         {ride.passenger ? (
-          <KeyValue label="Kim uchun" value={passengerLine(ride.passenger) ?? ''} />
+          <KeyValue label={t('ride.summary.forWhom')} value={passengerLine(ride.passenger) ?? ''} />
         ) : null}
         {ride.scheduledFor ? (
-          <KeyValue label="Oldindan, vaqti" value={formatDateTime(ride.scheduledFor)} />
+          <KeyValue
+            label={t('ride.summary.scheduledFor')}
+            value={formatDateTime(ride.scheduledFor)}
+          />
         ) : null}
         {ride.vehicle ? (
           <KeyValue
-            label="Mashina"
+            label={t('ride.summary.car')}
             value={`${ride.vehicle.colour} ${ride.vehicle.model}, ${ride.vehicle.plateFormatted}`}
           />
         ) : null}
-        {ride.driver ? <KeyValue label="Haydovchi" value={ride.driver.name} /> : null}
+        {ride.driver ? (
+          <KeyValue label={t('ride.summary.driver')} value={ride.driver.name} />
+        ) : null}
       </Card>
 
       {completed ? (
@@ -146,7 +155,7 @@ export function RideSummary({ ride }: { ride: Ride }) {
           ))}
           {(ride.fare.poolDiscount ?? 0) > 0 ? (
             <KeyValue
-              label={POOL_DISCOUNT_LABEL}
+              label={poolDiscountLabel()}
               value={`−${formatMoney(ride.fare.poolDiscount!)}`}
               valueColor={colors.success}
             />
@@ -163,28 +172,27 @@ export function RideSummary({ ride }: { ride: Ride }) {
             : null}
           {owedFee > 0 ? (
             <>
-              <KeyValue label={OWED_FEE_LABEL} value={formatMoney(owedFee)} />
+              <KeyValue label={owedFeeLabel()} value={formatMoney(owedFee)} />
               <T variant="small" color={colors.textMuted}>
-                Avvalgi safaringiz haydovchi kutgandan keyin bekor qilingan edi: o‘sha bekor qilish
-                to‘lovi shu safarda naqd olindi.
+                {t('ride.summary.owedFeeNote')}
               </T>
             </>
           ) : null}
           <Divider style={styles.divider} />
-          <KeyValue label="Jami" value={formatMoney(total)} strong />
+          <KeyValue label={t('ride.summary.total')} value={formatMoney(total)} strong />
           {(ride.fare.deposit ?? 0) > 0 ? (
             <KeyValue
-              label="Shundan oldindan to‘langan (depozit)"
+              label={t('ride.summary.ofWhichDeposit')}
               value={formatMoney(ride.fare.deposit!)}
             />
           ) : null}
           <T variant="small" color={colors.textMuted}>
             {ride.paymentMethod === 'cash'
-              ? 'Naqd to‘lov haydovchiga.'
+              ? t('ride.summary.paidCash')
               : ride.fare.waiting > 0
-                ? 'Safar narxi karta orqali oldindan to‘langan; pullik kutish naqd to‘lanadi.'
-                : 'Karta orqali oldindan to‘langan.'}{' '}
-            Narx buyurtmadagidek, faqat pullik kutish qo‘shiladi.
+                ? t('ride.summary.paidCardWaitingCash')
+                : t('ride.summary.paidCard')}{' '}
+            {t('ride.summary.priceAsOrdered')}
           </T>
           <Receipt ride={ride} />
         </Card>
@@ -209,18 +217,18 @@ export function RideSummary({ ride }: { ride: Ride }) {
       {complain ? (
         <Card style={styles.card}>
           <T variant="h3" accessibilityRole="header">
-            Muammo bo‘ldimi?
+            {t('ride.summary.problemTitle')}
           </T>
           <View style={styles.row}>
             <Button
-              title="Narsam qoldi"
+              title={t('ride.summary.lostItem')}
               icon="bag-handle-outline"
               variant="secondary"
               onPress={() => openComplaint('lost_item')}
               style={styles.flex}
             />
             <Button
-              title="Shikoyat"
+              title={t('ride.summary.complaint')}
               icon="chatbubble-ellipses-outline"
               variant="secondary"
               onPress={() => openComplaint()}
@@ -234,11 +242,16 @@ export function RideSummary({ ride }: { ride: Ride }) {
         {screen.phase === 'no_driver' ||
         screen.phase === 'cancelled' ||
         screen.phase === 'payment_failed' ? (
-          <Button title="Qayta buyurtma berish" size="lg" icon="refresh" onPress={orderAgain} />
+          <Button
+            title={t('ride.summary.orderAgain')}
+            size="lg"
+            icon="refresh"
+            onPress={orderAgain}
+          />
         ) : null}
         {screen.phase === 'no_driver' && support.phone ? (
           <Button
-            title="Operatorga qo‘ng‘iroq qilish"
+            title={t('ride.summary.callOperator')}
             variant="dark"
             size="lg"
             icon="call"
@@ -246,10 +259,15 @@ export function RideSummary({ ride }: { ride: Ride }) {
           />
         ) : null}
         {completed ? (
-          <Button title="Shu yo‘nalishda yana" variant="secondary" size="lg" onPress={orderAgain} />
+          <Button
+            title={t('ride.summary.sameRouteAgain')}
+            variant="secondary"
+            size="lg"
+            onPress={orderAgain}
+          />
         ) : null}
         <Button
-          title="Bosh sahifa"
+          title={t('ride.summary.home')}
           variant={completed ? 'primary' : 'secondary'}
           size="lg"
           onPress={() => router.dismissTo('/home')}
@@ -261,22 +279,23 @@ export function RideSummary({ ride }: { ride: Ride }) {
 
 /** The electronic fiscal receipt (Resolution 200): a link once the tax service issued it. */
 function Receipt({ ride }: { ride: Ride }) {
+  const { t } = useT();
   const r = ride.receipt;
   if (r?.url) {
     return (
       <Button
-        title="Elektron chek"
+        title={t('ride.summary.receipt')}
         icon="receipt-outline"
         variant="outline"
         onPress={() => void openLink(r.url!)}
-        accessibilityLabel="Elektron fiskal chekni ochish"
+        accessibilityLabel={t('ride.summary.receiptA11y')}
       />
     );
   }
   if (r?.status === 'pending') {
     return (
       <T variant="small" color={colors.textMuted}>
-        Elektron chek tayyorlanmoqda — keyinroq shu yerda paydo bo‘ladi.
+        {t('ride.summary.receiptPending')}
       </T>
     );
   }

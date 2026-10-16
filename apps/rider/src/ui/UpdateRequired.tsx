@@ -1,6 +1,7 @@
 import { Modal, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { APP_VERSION, useSupport, useUpdateRequired } from '../api/support';
+import { useT } from '../i18n';
 import { callPhone, openLink } from '../lib/links';
 import { Button, Icon, T } from './primitives';
 import { colors, space } from './theme';
@@ -11,6 +12,7 @@ import { colors, space } from './theme';
  * underneath can be used, the back button included; only the store and the office.
  */
 export function UpdateRequired() {
+  const { t } = useT();
   const { required, minimum, store } = useUpdateRequired();
   const support = useSupport();
   const insets = useSafeAreaInsets();
@@ -29,31 +31,30 @@ export function UpdateRequired() {
           <Icon name="arrow-up-circle" size={56} color={colors.ink} />
         </View>
         <T variant="h1" align="center" accessibilityRole="header">
-          Ilovani yangilang
+          {t('home.update.title')}
         </T>
         <T variant="body" align="center" color={colors.textMuted}>
-          SFF Taxi’ning yangi versiyasi chiqdi. Buyurtma berishda davom etish uchun ilovani
-          yangilang.
+          {t('home.update.message')}
         </T>
         <T variant="small" align="center" color={colors.textFaint}>
-          Sizda: {APP_VERSION ?? '?'} · kerak: {minimum ?? '?'}
+          {t('home.update.versions', { current: APP_VERSION ?? '?', minimum: minimum ?? '?' })}
         </T>
         <View style={styles.flex} />
         {store ? (
           <Button
-            title={Platform.OS === 'ios' ? 'App Store’da yangilash' : 'Google Play’da yangilash'}
+            title={Platform.OS === 'ios' ? t('home.update.appStore') : t('home.update.googlePlay')}
             size="lg"
             icon={Platform.OS === 'ios' ? 'logo-apple-appstore' : 'logo-google-playstore'}
             onPress={() => void openLink(store.primary, store.fallback ?? undefined)}
           />
         ) : (
           <T variant="bodyStrong" align="center">
-            App Store’dan SFF Taxi ilovasini yangilang.
+            {t('home.update.appStoreManual')}
           </T>
         )}
         {support.phone ? (
           <Button
-            title="Operator orqali buyurtma"
+            title={t('home.update.orderByPhone')}
             variant="secondary"
             size="lg"
             icon="call"

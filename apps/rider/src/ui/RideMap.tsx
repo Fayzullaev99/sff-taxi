@@ -17,6 +17,7 @@ import {
 import { useAppActive, useSettledTracking } from '../lib/use-app-active';
 import { NATIVE_MAP, RideMapFallback } from '../location/MapFallback';
 import { Attribution, mapTypeFor, TileLayer } from '../location/map-layers';
+import { useT } from '../i18n';
 import { Icon } from './primitives';
 import { colors } from './theme';
 
@@ -141,13 +142,14 @@ function NativeRideMap({ pickup, dropoff, car, trail, heading, bottomInset }: Ri
 
 const PointMarker = memo(
   function PointMarker({ point, kind }: { point: LatLng; kind: 'pickup' | 'dropoff' }) {
+    const { t } = useT();
     const tracking = useSettledTracking();
     const pickup = kind === 'pickup';
     return (
       <Marker
         coordinate={toCoord(point)}
         tracksViewChanges={tracking}
-        accessibilityLabel={pickup ? 'Olib ketish joyi' : 'Borish manzili'}
+        accessibilityLabel={pickup ? t('home.points.pickup') : t('home.points.dropoff')}
       >
         <View style={[styles.pin, { backgroundColor: pickup ? colors.brand : colors.ink }]}>
           <Icon
@@ -173,6 +175,7 @@ interface Shown {
  */
 const CarMarker = memo(
   function CarMarker({ car, animate }: { car: TrackPoint; animate: boolean }) {
+    const { t } = useT();
     const tracking = useSettledTracking();
     const [shown, setShown] = useState<Shown>(() => ({
       point: { lat: car.lat, lng: car.lng },
@@ -225,7 +228,7 @@ const CarMarker = memo(
         rotation={normaliseDeg(shown.rotation)}
         flat
         tracksViewChanges={tracking}
-        accessibilityLabel="Taksi"
+        accessibilityLabel={t('common.services.taxi')}
       >
         <View style={styles.carWrap}>
           <View style={styles.carBody}>

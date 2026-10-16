@@ -5,25 +5,26 @@ import { ApiError, describeError } from '../api/client';
 import { endpoints } from '../api/endpoints';
 import { keys } from '../api/queries';
 import type { Ride } from '../api/types';
+import { useT } from '../i18n';
 import { Banner, Button, Chip, T, TextField } from '../ui/primitives';
 import { StarInput } from '../ui/Rating';
 import { space } from '../ui/theme';
 
 /** Tags the API stores with the stars (free text, ≤ 30 characters, ≤ 5 per rating). */
-const GOOD_TAGS = [
-  'Toza mashina',
-  'Xushmuomala',
-  'Ehtiyotkor haydadi',
-  'Tez yetib keldi',
-  'Yo‘lni yaxshi biladi',
-];
-const BAD_TAGS = [
-  'Kechikdi',
-  'Qo‘pol muomala',
-  'Xavfli haydadi',
-  'Mashina iflos',
-  'Ortiqcha pul so‘radi',
-];
+const GOOD_TAG_KEYS = [
+  'ride.rating.good.cleanCar',
+  'ride.rating.good.polite',
+  'ride.rating.good.carefulDriving',
+  'ride.rating.good.fast',
+  'ride.rating.good.knowsRoads',
+] as const;
+const BAD_TAG_KEYS = [
+  'ride.rating.bad.late',
+  'ride.rating.bad.rude',
+  'ride.rating.bad.dangerousDriving',
+  'ride.rating.bad.dirtyCar',
+  'ride.rating.bad.overcharged',
+] as const;
 
 /** The rider rates the driver once (the API's `rated` says whether it was done). */
 export function RatingForm({
@@ -35,6 +36,7 @@ export function RatingForm({
   driverName: string | null;
   rated: boolean;
 }) {
+  const { t } = useT();
   const queryClient = useQueryClient();
   const markRated = (id: string) =>
     queryClient.setQueryData<Ride>(keys.ride(id), (ride) =>
@@ -50,13 +52,15 @@ export function RatingForm({
     return (
       <Banner
         tone="success"
-        title="Rahmat!"
-        message="Bahoyingiz haydovchilar sifatini yaxshilashga yordam beradi."
+        title={t('ride.rating.thanksTitle')}
+        message={t('ride.rating.thanksMessage')}
       />
     );
   }
 
-  const options = stars !== null && stars <= 3 ? BAD_TAGS : GOOD_TAGS;
+  const options = (stars !== null && stars <= 3 ? BAD_TAG_KEYS : GOOD_TAG_KEYS).map((key) =>
+    t(key),
+  );
 
   const submit = async () => {
     if (stars === null) return;
@@ -65,7 +69,7 @@ export function RatingForm({
     try {
       await endpoints.rate(rideId, {
         stars,
-        tags: tags.filter((t) => options.includes(t)),
+        tags: tags.filter((tag) => options.includes(tag)),
         comment: comment.trim() || null,
       });
       markRated(rideId);
@@ -84,11 +88,13 @@ export function RatingForm({
   return (
     <View style={styles.root}>
       <T variant="h3" align="center" accessibilityRole="header">
-        {driverName ? `${driverName} bilan safar qanday o‘tdi?` : 'Safar qanday o‘tdi?'}
+        {driverName
+          ? t('ride.rating.questionWith', { name: driverName })
+          : t('ride.rating.question')}
       </T>
       <StarInput
         value={stars}
-        label="Haydovchini baholang"
+        label={t('ride.rating.rateDriver')}
         onChange={(v) => {
           // switching between good and bad tags drops the other kind
           if ((stars ?? 5) > 3 !== v > 3) setTags([]);
@@ -98,27 +104,32 @@ export function RatingForm({
       {stars !== null ? (
         <>
           <View style={styles.tags}>
-            {options.map((t) => (
+            {options.map((tag) => (
               <Chip
-                key={t}
-                label={t}
-                selected={tags.includes(t)}
+                key={tag}
+                label={tag}
+                selected={tags.includes(tag)}
                 onPress={() =>
-                  setTags(tags.includes(t) ? tags.filter((x) => x !== t) : [...tags, t])
+                  setTags(tags.includes(tag) ? tags.filter((x) => x !== tag) : [...tags, tag])
                 }
               />
             ))}
           </View>
           <TextField
-            placeholder="Izoh (ixtiyoriy)"
+            placeholder={t('ride.rating.commentPlaceholder')}
             value={comment}
             onChangeText={setComment}
             maxLength={500}
             multiline
-            accessibilityLabel="Izoh"
+            accessibilityLabel={t('ride.rating.comment')}
           />
           {error ? <Banner tone="danger" message={error} /> : null}
-          <Button title="Baholash" size="lg" loading={busy} onPress={() => void submit()} />
+          <Button
+            title={t('ride.rating.submit')}
+            size="lg"
+            loading={busy}
+            onPress={() => void submit()}
+          />
         </>
       ) : null}
     </View>

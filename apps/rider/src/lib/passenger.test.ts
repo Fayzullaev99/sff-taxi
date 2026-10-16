@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import { checkPassenger, passengerChip, passengerLine } from './passenger';
 
 const s = (text: string | null) => text?.replace(/\u00a0/g, ' ') ?? null;
@@ -34,5 +35,21 @@ describe('ordering for someone else', () => {
     );
     expect(passengerLine({ name: null, phone: null })).toBe('Yo‘lovchi: boshqa odam');
     expect(passengerLine(null)).toBeNull();
+  });
+});
+
+describe('in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('words the errors and the passenger line', () => {
+    setLanguage('ru');
+    expect(checkPassenger(' ', '', null)).toMatchObject({
+      nameError: 'Укажите имя пассажира',
+      phoneError: 'Укажите телефон пассажира',
+    });
+    expect(checkPassenger('Я', '+998911112233', '+998911112233').phoneError).toBe(
+      'Это ваш номер: если поездка для вас, выключите эту опцию',
+    );
+    expect(passengerLine({ name: null, phone: null })).toBe('Пассажир: другой человек');
   });
 });

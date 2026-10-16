@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { describeError } from '../api/client';
 import { useAppConfig } from '../api/queries';
+import { t, useT } from '../i18n';
 import {
   type AttachedPhoto,
   photoHint,
@@ -67,17 +68,17 @@ export function useComplaintPhotos(existing = 0) {
         ]);
         void send(key);
       } catch (e) {
-        Alert.alert('Rasm qo‘shilmadi', errorText(e));
+        Alert.alert(t('support.photos.addFailed'), errorText(e));
       }
     },
     [send],
   );
 
   const add = useCallback(() => {
-    Alert.alert('Rasm qo‘shish', undefined, [
-      { text: 'Kamera', onPress: () => void addFrom('camera') },
-      { text: 'Galereya', onPress: () => void addFrom('gallery') },
-      { text: 'Bekor qilish', style: 'cancel' },
+    Alert.alert(t('support.photos.add'), undefined, [
+      { text: t('support.photos.camera'), onPress: () => void addFrom('camera') },
+      { text: t('support.photos.gallery'), onPress: () => void addFrom('gallery') },
+      { text: t('common.actions.cancel'), style: 'cancel' },
     ]);
   }, [addFrom]);
 
@@ -115,6 +116,7 @@ export function PhotoAttach({
   state: ComplaintPhotosState;
   compact?: boolean;
 }) {
+  const { t } = useT();
   const { photos, left, uploadsOn } = state;
   if (!uploadsOn && !photos.length) {
     return compact ? null : (
@@ -135,7 +137,7 @@ export function PhotoAttach({
                 accessibilityIgnoresInvertColors
               />
               {p.status === 'uploading' ? (
-                <View style={styles.overlay} accessibilityLabel="Rasm yuborilmoqda">
+                <View style={styles.overlay} accessibilityLabel={t('support.photos.sendingA11y')}>
                   <ActivityIndicator color={colors.bg} />
                 </View>
               ) : null}
@@ -143,18 +145,18 @@ export function PhotoAttach({
                 <Pressable
                   style={[styles.overlay, styles.failed]}
                   accessibilityRole="button"
-                  accessibilityLabel={`Rasm yuborilmadi: ${p.error ?? ''}. Qayta urinish`}
+                  accessibilityLabel={t('support.photos.failedA11y', { error: p.error ?? '' })}
                   onPress={() => state.retry(p.key)}
                 >
                   <Icon name="refresh" size={22} color={colors.bg} />
                   <T variant="caption" color={colors.bg} align="center">
-                    Qayta
+                    {t('support.photos.retryShort')}
                   </T>
                 </Pressable>
               ) : null}
               <IconButton
                 name="close"
-                label="Rasmni olib tashlash"
+                label={t('support.photos.remove')}
                 size={28}
                 background={colors.ink}
                 color={colors.bg}
@@ -167,12 +169,12 @@ export function PhotoAttach({
       ) : null}
       {uploadsOn && left > 0 ? (
         <Button
-          title={compact ? 'Rasm' : 'Rasm qo‘shish'}
+          title={compact ? t('support.photos.photo') : t('support.photos.add')}
           icon="camera-outline"
           variant="secondary"
           size="sm"
           onPress={state.add}
-          accessibilityLabel={`Rasm qo‘shish, yana ${left} ta mumkin`}
+          accessibilityLabel={t('support.photos.addA11y', { left })}
         />
       ) : null}
       {!compact ? (
@@ -186,6 +188,7 @@ export function PhotoAttach({
 
 /** Photos already on a complaint: thumbnails, a tap shows one full screen. */
 export function PhotoStrip({ photos }: { photos: { uploadId: string; url: string | null }[] }) {
+  const { t } = useT();
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState<string | null>(null);
   const shown = photos.filter((p): p is { uploadId: string; url: string } => Boolean(p.url));
@@ -197,7 +200,7 @@ export function PhotoStrip({ photos }: { photos: { uploadId: string; url: string
           <Pressable
             key={p.uploadId}
             accessibilityRole="imagebutton"
-            accessibilityLabel={`${i + 1}-rasm, kattalashtirish`}
+            accessibilityLabel={t('support.photos.viewA11y', { n: i + 1 })}
             onPress={() => setOpen(p.url)}
           >
             <Image source={{ uri: p.url }} style={styles.thumb} accessibilityIgnoresInvertColors />
@@ -216,7 +219,7 @@ export function PhotoStrip({ photos }: { photos: { uploadId: string; url: string
           ) : null}
           <IconButton
             name="close"
-            label="Yopish"
+            label={t('common.actions.close')}
             size={48}
             onPress={() => setOpen(null)}
             style={[styles.close, { top: insets.top + space(3) }]}

@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
+import { useT } from '../i18n';
 import { formatDistance, formatMinutes } from '../lib/format';
 import type { TripPoint } from '../trip/draft';
 import { MAX_STOPS, removeStop, updateDraft } from '../trip/draft';
@@ -17,7 +18,7 @@ export function RouteCard({
   landmark,
   distanceM,
   durationS,
-  landmarkPlaceholder = 'Mo‘ljal: 5-maktab ro‘parasi',
+  landmarkPlaceholder,
   stops = [],
   canAddStop = false,
 }: {
@@ -32,18 +33,20 @@ export function RouteCard({
   /** Whether another stop may be added here. */
   canAddStop?: boolean;
 }) {
+  const { t } = useT();
+  const mapPin = t('order.route.mapPin');
   return (
     <Card style={styles.route}>
       <RoutePoint
         color={colors.brand}
-        label="QAYERDAN"
-        spoken="Qayerdan"
-        text={pickup.address ?? 'Xaritadagi pin'}
+        label={t('order.route.from').toUpperCase()}
+        spoken={t('order.route.from')}
+        text={pickup.address ?? mapPin}
         onPress={() => router.dismissTo('/home')}
       />
       <TextField
-        placeholder={landmarkPlaceholder}
-        accessibilityLabel="Mo‘ljal, haydovchi uchun"
+        placeholder={landmarkPlaceholder ?? t('order.route.landmarkPlaceholder')}
+        accessibilityLabel={t('order.route.landmarkA11y')}
         value={landmark}
         onChangeText={(value) => updateDraft({ landmark: value })}
         maxLength={200}
@@ -57,9 +60,9 @@ export function RouteCard({
             <View style={styles.flex}>
               <RoutePoint
                 color={colors.info}
-                label={`ORALIQ MANZIL ${i + 1}`}
-                spoken={`${i + 1}-oraliq manzil`}
-                text={stop.address ?? 'Xaritadagi pin'}
+                label={t('order.route.stop', { n: i + 1 }).toUpperCase()}
+                spoken={t('order.route.stopSpoken', { n: i + 1 })}
+                text={stop.address ?? mapPin}
                 onPress={() =>
                   router.push({ pathname: '/search', params: { field: 'stop', index: String(i) } })
                 }
@@ -67,7 +70,7 @@ export function RouteCard({
             </View>
             <IconButton
               name="close-circle"
-              label={`${i + 1}-oraliq manzilni olib tashlash`}
+              label={t('order.route.removeStop', { n: i + 1 })}
               size={44}
               color={colors.textMuted}
               background="transparent"
@@ -79,15 +82,15 @@ export function RouteCard({
       <View style={styles.routeLine} />
       <RoutePoint
         color={colors.ink}
-        label="QAYERGA"
-        spoken="Qayerga"
-        text={dropoff.address ?? 'Xaritadagi pin'}
+        label={t('order.route.to').toUpperCase()}
+        spoken={t('order.route.to')}
+        text={dropoff.address ?? mapPin}
         onPress={() => router.replace({ pathname: '/search', params: { field: 'dropoff' } })}
       />
       {canAddStop && stops.length < MAX_STOPS ? (
         <View style={styles.addStop}>
           <Button
-            title="Oraliq manzil qo‘shish"
+            title={t('order.route.addStop')}
             size="sm"
             variant="ghost"
             icon="add-circle-outline"
@@ -103,7 +106,9 @@ export function RouteCard({
       {distanceM ? (
         <T variant="small" color={colors.textMuted} style={styles.routeMeta}>
           {formatDistance(distanceM)}
-          {durationS ? ` · yo‘lda ~${formatMinutes(durationS / 60)}` : ''}
+          {durationS
+            ? ` · ${t('order.route.onTheWay', { minutes: formatMinutes(durationS / 60) })}`
+            : ''}
         </T>
       ) : null}
     </Card>
@@ -123,10 +128,11 @@ function RoutePoint({
   text: string;
   onPress: () => void;
 }) {
+  const { t } = useT();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${spoken}: ${text}. O‘zgartirish`}
+      accessibilityLabel={t('order.route.pointA11y', { label: spoken, text })}
       onPress={onPress}
       style={({ pressed }) => [styles.routePoint, pressed ? styles.pressed : null]}
     >

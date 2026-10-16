@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { chatEndpoints, chatKeys, useConversation } from '../../api/chat-api';
 import { describeError } from '../../api/client';
 import { useLiveRides } from '../../api/realtime';
+import { useT } from '../../i18n';
 import {
   type ChatMessage,
   chatStatusText,
@@ -31,6 +32,7 @@ import { colors, radius, space } from '../../ui/theme';
  */
 export default function ChatScreen() {
   const { rideId } = useLocalSearchParams<{ rideId: string }>();
+  const { t } = useT();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const live = useLiveRides(true);
@@ -117,7 +119,11 @@ export default function ChatScreen() {
   return (
     <KeyboardAvoider style={styles.root} keyboardVerticalOffset={90}>
       <Stack.Screen
-        options={{ title: c.counterpart.name ? `Haydovchi: ${c.counterpart.name}` : 'Haydovchi' }}
+        options={{
+          title: c.counterpart.name
+            ? t('ride.chat.driverTitle', { name: c.counterpart.name })
+            : t('ride.chat.driver'),
+        }}
       />
       <ScrollView
         ref={scroll}
@@ -127,7 +133,7 @@ export default function ChatScreen() {
       >
         {!messages.length ? (
           <T variant="small" color={colors.textMuted} align="center">
-            Haydovchiga yozing yoki tezkor javobni tanlang. Xabarlar safar davomida saqlanadi.
+            {t('ride.chat.emptyHint')}
           </T>
         ) : null}
         {messages.map((m) => (
@@ -173,16 +179,16 @@ export default function ChatScreen() {
                 style={styles.input}
                 value={text}
                 onChangeText={setText}
-                placeholder="Xabar yozing"
+                placeholder={t('ride.chat.placeholder')}
                 placeholderTextColor={colors.placeholder}
                 multiline
                 maxLength={c.maxLength + 50}
                 maxFontSizeMultiplier={MAX_FONT_SCALE}
-                accessibilityLabel="Xabar"
+                accessibilityLabel={t('ride.chat.message')}
               />
               <IconButton
                 name="send"
-                label="Yuborish"
+                label={t('common.actions.send')}
                 size={48}
                 background={composer.canSend ? colors.brand : colors.surface}
                 color={composer.canSend ? colors.onBrand : colors.textFaint}
@@ -196,7 +202,7 @@ export default function ChatScreen() {
             </View>
             {composer.tooLong ? (
               <T variant="small" color={colors.danger}>
-                Xabar {c.maxLength} belgidan oshmasin
+                {t('ride.chat.tooLong', { max: c.maxLength })}
               </T>
             ) : null}
           </>
@@ -215,13 +221,18 @@ function Bubble({
   receipt: string | null;
   onRetry?: () => void;
 }) {
+  const { t } = useT();
   const mine = message.mine;
   return (
     <Pressable
       disabled={!onRetry}
       onPress={onRetry}
       accessibilityRole={onRetry ? 'button' : 'text'}
-      accessibilityLabel={`${mine ? 'Siz' : 'Haydovchi'}: ${message.text}. ${messageTime(message.createdAt)}`}
+      accessibilityLabel={t('ride.chat.bubbleA11y', {
+        author: mine ? t('ride.chat.you') : t('ride.chat.driver'),
+        text: message.text,
+        time: messageTime(message.createdAt),
+      })}
       style={[styles.bubbleRow, mine ? styles.rowMine : styles.rowTheirs]}
     >
       <View

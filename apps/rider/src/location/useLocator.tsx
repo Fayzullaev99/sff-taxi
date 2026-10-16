@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, StyleSheet, View } from 'react-native';
+import { useT } from '../i18n';
 import { Banner, Button, IconButton } from '../ui/primitives';
 import { colors, space } from '../ui/theme';
 import type { Fix } from './fix';
@@ -103,6 +104,7 @@ export function LocationNotice({
   onSolve: () => void;
   onDismiss: () => void;
 }) {
+  const { t } = useT();
   if (!problem) return null;
   const text = locationProblemText(problem, withMap);
   return (
@@ -114,7 +116,7 @@ export function LocationNotice({
         message={text.message}
         action={
           <Button
-            title={text.action?.label ?? 'Qayta urinish'}
+            title={text.action?.label ?? t('common.actions.retry')}
             size="sm"
             variant="secondary"
             onPress={onSolve}
@@ -125,7 +127,7 @@ export function LocationNotice({
       />
       <IconButton
         name="close"
-        label="Yopish"
+        label={t('common.actions.close')}
         size={44}
         background="transparent"
         color={colors.textMuted}

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import { betterFix, type Fix, isGoodFix, PRECISE, ROUGH } from './fix';
 import { locate, type LocationDriver, locationProblemText } from './locate';
+
+afterEach(() => setLanguage('uz'));
 
 const NOW = 1_000_000_000;
 const fix = (accuracyM: number | null, ageMs: number, lat = 40.5): Fix => ({
@@ -185,5 +188,13 @@ describe('location problems in Uzbek', () => {
   it('points to the map or, without one, to the search', () => {
     expect(locationProblemText('denied', true).message).toContain('xaritada');
     expect(locationProblemText('denied', false).message).toContain('qidiruv');
+  });
+
+  it('speaks Russian when the app does', () => {
+    setLanguage('ru');
+    expect(locationProblemText('denied', true).title).toBe('Нет доступа к геопозиции');
+    expect(locationProblemText('denied', true).message).toContain('поставьте метку на карте');
+    expect(locationProblemText('services_off', false).message).toContain('через поиск');
+    expect(locationProblemText('blocked', true).action?.label).toBe('Открыть настройки');
   });
 });

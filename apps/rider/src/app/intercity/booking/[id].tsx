@@ -8,15 +8,16 @@ import { endpoints } from '../../../api/endpoints';
 import { keys, useBooking } from '../../../api/queries';
 import { useIntercityRules } from '../../../api/support';
 import { useLiveRides } from '../../../api/realtime';
+import { useT } from '../../../i18n';
 import { confirm } from '../../../lib/dialogs';
 import { formatDateTime, formatMoney, formatPhone } from '../../../lib/format';
 import {
-  BOOKING_STATUS_LABELS,
   bookingCancelledText,
   bookingCancelTerms,
+  bookingStatusLabel,
   cancelRulesFrom,
   stopLines,
-  TRIP_STATUS_LABELS,
+  tripStatusLabel,
 } from '../../../lib/intercity';
 import { useNow } from '../../../lib/hooks';
 import { callPhone } from '../../../lib/links';
@@ -35,6 +36,7 @@ const PAYMENT_MINUTES = 15;
 
 export default function BookingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { t } = useT();
   useLiveRides();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
@@ -53,12 +55,12 @@ export default function BookingScreen() {
     );
   }
 
-  const t = b.trip;
+  const trip = b.trip;
   // the booking's own rules and times (the API's), /config for an older API, else defaults
   const rules = cancelRulesFrom(b.cancelRules, configRules);
   const deposit = b.depositAmount ?? 0;
   const unpaid = b.status === 'awaiting_payment';
-  const terms = bookingCancelTerms(t.departureAt, b.price, now, rules, {
+  const terms = bookingCancelTerms(trip.departureAt, b.price, now, rules, {
     freeUntil: b.cancelFreeUntil,
     feeNow: b.cancelFeeNow,
     deposit: unpaid ? 0 : deposit,
@@ -68,10 +70,13 @@ export default function BookingScreen() {
 
   const cancel = async () => {
     const ok = await confirm({
-      title: 'Bronni bekor qilasizmi?',
+      title: t('intercity.booking.cancelTitle'),
       message: terms.message,
-      confirmText: terms.fee > 0 ? `Bekor qilish (${formatMoney(terms.fee)})` : 'Bekor qilish',
-      cancelText: 'Qoldirish',
+      confirmText:
+        terms.fee > 0
+          ? t('intercity.booking.cancelWithFee', { fee: formatMoney(terms.fee) })
+          : t('common.actions.cancel'),
+      cancelText: t('intercity.booking.keep'),
       destructive: true,
     });
     if (!ok) return;
@@ -81,7 +86,7 @@ export default function BookingScreen() {
       const updated = await endpoints.cancelBooking(b.id, null);
       queryClient.setQueryData(keys.booking(b.id), updated);
       void queryClient.invalidateQueries({ queryKey: keys.bookings });
-      void queryClient.invalidateQueries({ queryKey: keys.intercityTrip(t.id) });
+      void queryClient.invalidateQueries({ queryKey: keys.intercityTrip(trip.id) });
       void queryClient.invalidateQueries({ queryKey: ['intercity-trips'] });
     } catch (e) {
       setError(describeError(e));
@@ -98,13 +103,13 @@ export default function BookingScreen() {
     >
       <View style={styles.head}>
         <T variant="h1" accessibilityRole="header">
-          {t.from.nameUz} → {t.to.nameUz}
+          {trip.from.nameUz} → {trip.to.nameUz}
         </T>
-        <T variant="h3">{formatDateTime(t.departureAt)}</T>
+        <T variant="h3">{formatDateTime(trip.departureAt)}</T>
         <T variant="smallStrong" color={b.status === 'booked' ? colors.success : colors.textMuted}>
-          Bron #{b.number} · {BOOKING_STATUS_LABELS[b.status]}
-          {t.status !== 'scheduled' && t.status !== 'cancelled'
-            ? ` · ${TRIP_STATUS_LABELS[t.status]}`
+          {t('intercity.booking.number', { number: b.number })} · {bookingStatusLabel(b.status)}
+          {trip.status !== 'scheduled' && trip.status !== 'cancelled'
+            ? ` · ${tripStatusLabel(trip.status)}`
             : ''}
         </T>
       </View>
@@ -113,15 +118,15 @@ export default function BookingScreen() {
         <CheckoutPanel
           payment={b.payment ?? null}
           amount={b.payment?.amount ?? deposit}
-          label="Oldindan to‘lov (depozit)"
+          label={t('intercity.deposit.title')}
           cashLeft={b.payCash ?? b.price - deposit}
           info={bookingDepositRules(
             { deposit, cash: b.payCash ?? b.price - deposit },
             PAYMENT_MINUTES,
             rules.freeCancelMinutes,
           )}
-          expiredText="To‘lov tekshirilmoqda. To‘lamagan bo‘lsangiz, bron bir necha daqiqada bekor qilinadi va kartadan pul yechilmaydi."
-          waitingText="To‘lov hali kelmadi. To‘lov sahifasida to‘lovni yakunlang — tasdiq kelishi bilan joy band bo‘ladi."
+          expiredText={t('intercity.deposit.expired')}
+          waitingText={t('intercity.deposit.waiting')}
           onCheck={() => query.refetch()}
         />
       ) : null}
@@ -134,7 +139,9 @@ export default function BookingScreen() {
             <View
               style={styles.plate}
               accessible
-              accessibilityLabel={`Davlat raqami ${b.contact.plateFormatted.split('').join(' ')}`}
+              accessibilityLabel={t('intercity.booking.plateA11y', {
+                plate: b.contact.plateFormatted.split('').join(' '),
+              })}
             >
               <T variant="plate" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
                 {b.contact.plateFormatted}
@@ -142,7 +149,7 @@ export default function BookingScreen() {
             </View>
             <View style={styles.flex}>
               <T variant="small" color={colors.textMuted} numberOfLines={2}>
-                {t.vehicle.colour} {t.vehicle.make} {t.vehicle.model}
+                {trip.vehicle.colour} {trip.vehicle.make} {trip.vehicle.model}
               </T>
             </View>
           </View>
@@ -158,7 +165,7 @@ export default function BookingScreen() {
             {b.contact.driverPhone ? (
               <IconButton
                 name="call"
-                label={`Haydovchiga qo‘ng‘iroq qilish: ${b.contact.driverName}`}
+                label={t('intercity.booking.callDriver', { name: b.contact.driverName })}
                 size={52}
                 color={colors.ink}
                 background={colors.brand}
@@ -171,31 +178,43 @@ export default function BookingScreen() {
 
       <Card style={styles.card}>
         {b.alongTheWay && b.pickup && b.dropoff ? (
-          <KeyValue label="Yo‘l-yo‘lakay" value={`${b.pickup.nameUz} → ${b.dropoff.nameUz}`} />
+          <KeyValue
+            label={t('intercity.booking.alongTheWay')}
+            value={`${b.pickup.nameUz} → ${b.dropoff.nameUz}`}
+          />
         ) : null}
-        {stopLines(b, t).map((line) => (
+        {stopLines(b, trip).map((line) => (
           <KeyValue key={line.label} label={line.label} value={line.value} />
         ))}
-        <KeyValue label="Joylar" value={`${b.seats}${b.front ? ' (biri oldinda)' : ''}`} />
+        <KeyValue
+          label={t('intercity.booking.seats')}
+          value={
+            b.front ? t('intercity.booking.seatsOneFront', { seats: b.seats }) : String(b.seats)
+          }
+        />
         {deposit > 0 ? (
           <>
-            <KeyValue label="Narx" value={formatMoney(b.price)} strong />
+            <KeyValue label={t('intercity.booking.price')} value={formatMoney(b.price)} strong />
             <KeyValue
-              label={unpaid ? 'Depozit (kartadan)' : 'Depozit to‘langan'}
+              label={
+                unpaid ? t('intercity.booking.depositUnpaid') : t('intercity.booking.depositPaid')
+              }
               value={formatMoney(deposit)}
             />
             <KeyValue
-              label="Haydovchiga naqd"
+              label={t('intercity.booking.cashToDriver')}
               value={formatMoney(b.payCash ?? b.price - deposit)}
             />
           </>
         ) : (
-          <KeyValue label="Narx (naqd)" value={formatMoney(b.price)} strong />
+          <KeyValue label={t('intercity.booking.priceCash')} value={formatMoney(b.price)} strong />
         )}
-        {b.pickupNote ? <KeyValue label="Izohingiz" value={b.pickupNote} /> : null}
+        {b.pickupNote ? (
+          <KeyValue label={t('intercity.booking.yourNote')} value={b.pickupNote} />
+        ) : null}
         {b.cancellationFee > 0 ? (
           <KeyValue
-            label="Bekor qilish to‘lovi"
+            label={t('intercity.booking.cancellationFee')}
             value={formatMoney(b.cancellationFee)}
             valueColor={colors.warning}
           />
@@ -207,7 +226,7 @@ export default function BookingScreen() {
           <Banner tone={terms.fee > 0 ? 'warning' : 'info'} message={terms.message} />
           {error ? <Banner tone="danger" message={error} /> : null}
           <Button
-            title="Bronni bekor qilish"
+            title={t('intercity.booking.cancelAction')}
             variant="danger"
             loading={busy}
             onPress={() => void cancel()}
@@ -216,7 +235,7 @@ export default function BookingScreen() {
       ) : null}
 
       <Button
-        title="Boshqa qatnovlar"
+        title={t('intercity.booking.otherTrips')}
         variant="secondary"
         onPress={() => router.replace('/intercity')}
       />

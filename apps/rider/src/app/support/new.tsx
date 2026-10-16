@@ -8,11 +8,12 @@ import { endpoints } from '../../api/endpoints';
 import { keys } from '../../api/queries';
 import { useSupport } from '../../api/support';
 import type { ComplaintType } from '../../api/types';
+import { useT } from '../../i18n';
 import {
-  COMPLAINT_HINTS,
+  complaintHint,
   COMPLAINT_TEXT_MAX,
   COMPLAINT_TEXT_MIN,
-  COMPLAINT_TYPE_LABELS,
+  complaintTypeLabel,
   COMPLAINT_TYPES,
 } from '../../lib/complaints';
 import { callPhone } from '../../lib/links';
@@ -30,6 +31,7 @@ const isType = (v: string | undefined): v is ComplaintType =>
  */
 export default function NewComplaintScreen() {
   const params = useLocalSearchParams<{ rideId?: string; number?: string; type?: string }>();
+  const { t } = useT();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const support = useSupport();
@@ -63,11 +65,8 @@ export default function NewComplaintScreen() {
   if (!rideId) {
     return (
       <View style={styles.center}>
-        <Banner
-          tone="info"
-          message="Murojaat safar bo‘yicha yoziladi: safarlar tarixidan safarni oching va “Muammo bo‘ldimi?” bo‘limini tanlang."
-        />
-        <Button title="Safarlar tarixi" onPress={() => router.replace('/history')} />
+        <Banner tone="info" message={t('support.new.needRide')} />
+        <Button title={t('common.screens.history')} onPress={() => router.replace('/history')} />
       </View>
     );
   }
@@ -80,35 +79,34 @@ export default function NewComplaintScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <T variant="h2" accessibilityRole="header">
-          {params.number ? `Safar #${params.number}` : 'Safar bo‘yicha murojaat'}
+          {params.number
+            ? t('support.rideNumber', { number: params.number })
+            : t('support.new.title')}
         </T>
         <T variant="smallStrong" color={colors.textMuted}>
-          Nima bo‘ldi?
+          {t('support.new.whatHappened')}
         </T>
         <View style={styles.types} accessibilityRole="radiogroup">
-          {COMPLAINT_TYPES.map((t) => (
+          {COMPLAINT_TYPES.map((kind) => (
             <Chip
-              key={t}
-              label={COMPLAINT_TYPE_LABELS[t]}
-              icon={t === 'lost_item' ? 'bag-handle-outline' : undefined}
-              selected={type === t}
-              onPress={() => setType(t)}
+              key={kind}
+              label={complaintTypeLabel(kind)}
+              icon={kind === 'lost_item' ? 'bag-handle-outline' : undefined}
+              selected={type === kind}
+              onPress={() => setType(kind)}
             />
           ))}
         </View>
         {type === 'lost_item' ? (
-          <Banner
-            tone="info"
-            message="Operator haydovchi bilan bog‘lanib, narsangizni qaytarishni kelishadi. Javob shu murojaatda keladi."
-          />
+          <Banner tone="info" message={t('support.new.lostItemNote')} />
         ) : null}
         {type === 'safety' && support.phone ? (
           <Banner
             tone="warning"
-            message="Xavf hozir ham bo‘lsa, 112 ga yoki operatorga qo‘ng‘iroq qiling."
+            message={t('support.new.safetyNote')}
             action={
               <Button
-                title="Operatorga qo‘ng‘iroq"
+                title={t('support.new.callOperator')}
                 size="sm"
                 variant="dark"
                 icon="call"
@@ -118,12 +116,12 @@ export default function NewComplaintScreen() {
           />
         ) : null}
         <TextField
-          label="Batafsil"
-          placeholder={type ? COMPLAINT_HINTS[type] : 'Avval yuqoridan turini tanlang'}
+          label={t('support.new.details')}
+          placeholder={type ? complaintHint(type) : t('support.new.pickTypeFirst')}
           value={text}
-          onChangeText={(t) => {
+          onChangeText={(value) => {
             setError(null);
-            setText(t);
+            setText(value);
           }}
           maxLength={COMPLAINT_TEXT_MAX}
           multiline
@@ -132,7 +130,7 @@ export default function NewComplaintScreen() {
         <PhotoAttach state={photos} />
         {error ? <Banner tone="danger" message={error} /> : null}
         <Button
-          title={photos.settled ? 'Yuborish' : 'Rasm yuborilmoqda…'}
+          title={photos.settled ? t('common.actions.send') : t('support.photos.sending')}
           size="lg"
           icon="send"
           loading={busy}
@@ -140,8 +138,7 @@ export default function NewComplaintScreen() {
           onPress={() => void submit()}
         />
         <T variant="small" color={colors.textMuted}>
-          Murojaat safardan keyin 7 kun ichida qabul qilinadi. Javobni “Murojaatlarim” bo‘limida
-          ko‘rasiz.
+          {t('support.new.windowNote')}
         </T>
       </ScrollView>
     </KeyboardAvoider>

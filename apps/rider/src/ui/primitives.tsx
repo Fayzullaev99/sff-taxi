@@ -14,6 +14,7 @@ import {
   View,
   type ViewStyle,
 } from 'react-native';
+import { useT } from '../i18n';
 import { colors, radius, space, type as typeScale, type TypeVariant } from './theme';
 
 export type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -341,12 +342,13 @@ export function Stepper({
   /** Going down to 0 removes the item (a cart): a bin icon. Off for counts like loaders. */
   trashAtZero?: boolean;
 }) {
+  const { t } = useT();
   const size = compact ? 30 : 38;
   return (
     <View style={[styles.stepper, { height: size }]}>
       <IconButton
         name={trashAtZero && value - 1 <= 0 && min === 0 ? 'trash-outline' : 'remove'}
-        label="Kamaytirish"
+        label={t('home.stepper.decrease')}
         size={size}
         background={colors.surface}
         onPress={() => value > min && onChange(value - 1)}
@@ -360,7 +362,7 @@ export function Stepper({
       </T>
       <IconButton
         name="add"
-        label="Ko‘paytirish"
+        label={t('home.stepper.increase')}
         size={size}
         background={colors.surface}
         onPress={() => value < max && onChange(value + 1)}

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import type { Fare } from '../api/types';
 import { MAX_STOPS, withStop } from '../trip/draft';
 import { fareLines, stopRulesText, stopStateText } from './fare';
@@ -53,6 +54,25 @@ describe('intermediate stops', () => {
     );
     expect(s(stopStateText({ arrivedAt: 'x', leftAt: 'y', waitingFee: 1500 }))).toBe(
       'O‘tildi · kutish 1 500 so‘m',
+    );
+  });
+});
+
+describe('in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('explains the stop rules and states', () => {
+    setLanguage('ru');
+    expect(
+      s(stopRulesText({ max: 2, perStop: 1000, freeMinutes: 3, waitingPerMinute: 500 })!),
+    ).toBe(
+      'Каждая остановка — 1 000 сум. Ожидание там 3 мин бесплатно, затем 500 сум за минуту. После заказа адреса не меняются.',
+    );
+    expect(stopStateText({ arrivedAt: 'x', leftAt: null, waitingFee: 0 })).toBe(
+      'Машина ждёт здесь',
+    );
+    expect(s(stopStateText({ arrivedAt: 'x', leftAt: 'y', waitingFee: 1500 }))).toBe(
+      'Пройдена · ожидание 1 500 сум',
     );
   });
 });

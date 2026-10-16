@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useGeoConfig } from '../api/queries';
+import { useT } from '../i18n';
 import { parseSaveTarget, saveTitle } from '../lib/places';
 import { coordinatesLabel, DEFAULT_CENTER, describePoint } from '../location/geo';
 import { PointPicker } from '../location/PointPicker';
@@ -13,6 +14,7 @@ import { colors, space } from '../ui/theme';
 
 /** A place chosen by moving the map under a pin: the destination, pickup or a saved place. */
 export default function PickOnMapScreen() {
+  const { t } = useT();
   const params = useLocalSearchParams<{ field?: string; save?: string; index?: string }>();
   const field = params.field === 'pickup' ? 'pickup' : params.field === 'stop' ? 'stop' : 'dropoff';
   const stopIndex = Number(params.index ?? 0) || 0;
@@ -77,10 +79,10 @@ export default function PickOnMapScreen() {
   const title = save
     ? saveTitle(save)
     : field === 'pickup'
-      ? 'Olib ketish joyi'
+      ? t('home.points.pickup')
       : field === 'stop'
-        ? `${stopIndex + 1}-oraliq manzil`
-        : 'Borish manzili';
+        ? t('home.search.stopTitle', { n: stopIndex + 1 })
+        : t('home.points.dropoff');
 
   return (
     <View style={styles.root}>
@@ -95,13 +97,17 @@ export default function PickOnMapScreen() {
       />
       <View style={[styles.panel, { paddingBottom: insets.bottom + space(4) }]}>
         <T variant="caption" color={colors.textMuted}>
-          {field === 'pickup' ? 'QAYERDAN' : field === 'stop' ? 'ORALIQ MANZIL' : 'QAYERGA'}
+          {field === 'pickup'
+            ? t('home.fromCaption')
+            : field === 'stop'
+              ? t('home.pickOnMap.stopCaption')
+              : t('home.pickOnMap.toCaption')}
         </T>
         <T variant="h3" numberOfLines={3}>
-          {busy ? 'Manzil aniqlanmoqda…' : (address ?? coordinatesLabel(point.lat, point.lng))}
+          {busy ? t('home.addressLookingUp') : (address ?? coordinatesLabel(point.lat, point.lng))}
         </T>
         <Button
-          title={save ? 'Saqlash' : 'Tayyor'}
+          title={save ? t('common.actions.save') : t('common.actions.done')}
           size="lg"
           disabled={busy}
           loading={saving}

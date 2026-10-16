@@ -21,11 +21,6 @@ export function bookingIdFromData(data: unknown): string | null {
   return UUID.test(d.bookingId) ? d.bookingId : null;
 }
 
-/** The locale the API should write pushes in; Russian phones get Russian, the rest Uzbek. */
-export function pushLocale(languageTag: string | null | undefined): 'uz' | 'ru' {
-  return languageTag?.toLowerCase().startsWith('ru') ? 'ru' : 'uz';
-}
-
 /** EAS project id from the app config, else from the environment; null in plain dev. */
 export function resolveProjectId(
   extra: { eas?: { projectId?: unknown } } | null | undefined,

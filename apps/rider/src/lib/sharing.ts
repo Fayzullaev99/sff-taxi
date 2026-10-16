@@ -15,6 +15,7 @@ import type {
   RouteFare,
   SeatLayout,
 } from '../api/types';
+import { t } from '../i18n/dictionary';
 import { formatDay, formatMinutes, formatMoney, formatNumber, tashkentDay } from './format';
 import { distanceM } from './ride-state';
 
@@ -63,21 +64,28 @@ export function seatMap(car: SeatLayout): { place: 'front' | 'rear'; taken: bool
 export function poolCarText(car: PoolCar): string {
   const free = freeSeats(car);
   const where = [
-    free.front ? `oldinda ${free.front}` : null,
-    free.rear ? `orqada ${free.rear}` : null,
+    free.front ? t('order.sharing.frontSeats', { count: free.front }) : null,
+    free.rear ? t('order.sharing.rearSeats', { count: free.rear }) : null,
   ]
     .filter(Boolean)
     .join(' · ');
-  const people = car.inCar > 0 ? `ichida ${car.inCar} kishi` : 'hozircha bo‘sh';
-  const seats = car.free > 0 ? `${car.free} bo‘sh joy${where ? ` (${where})` : ''}` : 'joy yo‘q';
-  return `${people}, ${seats}, ~${minutes(car.etaS)}`;
+  const people =
+    car.inCar > 0 ? t('order.sharing.inCar', { count: car.inCar }) : t('order.sharing.emptyCar');
+  const freeText = t('order.sharing.freeSeats', { count: car.free });
+  const seats =
+    car.free > 0
+      ? where
+        ? t('order.sharing.seatsWhere', { seats: freeText, where })
+        : freeText
+      : t('order.sharing.noSeats');
+  return t('order.sharing.poolCar', { people, seats, eta: minutes(car.etaS) });
 }
 
 /** The line over the cars already going the rider's way (only cars with room for them). */
 export function poolCarsHeadline(cars: readonly PoolCar[], passengers: number): string {
   return cars.some((c) => c.free >= passengers)
-    ? 'Yo‘lingizda mashina bor'
-    : 'Hozir yo‘lingizda hamrohli mashina yo‘q — bo‘sh mashina keladi';
+    ? t('order.sharing.carOnWay')
+    : t('order.sharing.noCarOnWay');
 }
 
 /** The cars worth showing: room for everyone ordering, nearest first, three at most. */
@@ -90,8 +98,8 @@ export function poolCarsFor(cars: readonly PoolCar[] | undefined, passengers: nu
 
 export function shareToggleText(discountPercent: number): string {
   return discountPercent > 0
-    ? `Boshqa yo‘lovchini olishga roziman — narx ~${discountPercent}% gacha arzonlashadi`
-    : 'Boshqa yo‘lovchini olishga roziman';
+    ? t('order.sharing.toggleDiscount', { percent: discountPercent })
+    : t('order.sharing.toggle');
 }
 
 /** The price a shared ride may come down to (the full discount): "~8 500 so‘mgacha". */
@@ -105,9 +113,9 @@ export function womenDriversText(
 ): string | null {
   if (!drivers) return null;
   if (drivers.cars <= 0 || drivers.etaS === null) {
-    return 'Yaqin atrofda hozir ayol haydovchi yo‘q — kutish uzoqroq bo‘lishi mumkin';
+    return t('order.sharing.noWomenNear');
   }
-  return `Yaqinda ${drivers.cars} ta ayol haydovchi · eng yaqini ~${minutes(drivers.etaS)}`;
+  return t('order.sharing.womenNear', { count: drivers.cars, eta: minutes(drivers.etaS) });
 }
 
 /** The route's prices for a class: a seat (per person) and/or the whole car. */
@@ -178,11 +186,17 @@ export function occupancyText(
   car: { inCar: number; free: number } | null | undefined,
 ): string | null {
   if (!car) return null;
-  const free = car.free > 0 ? `${car.free} bo‘sh joy` : 'bo‘sh joy yo‘q';
-  return `Mashinada ${car.inCar} kishi · ${free}`;
+  const free =
+    car.free > 0
+      ? t('order.sharing.freeSeats', { count: car.free })
+      : t('order.sharing.noFreeSeats');
+  return t('order.sharing.occupancy', { count: car.inCar, free });
 }
 
-export const POOL_DISCOUNT_LABEL = 'Hamroh chegirmasi';
+/** The shared-ride discount line's name, in the app's language. */
+export function poolDiscountLabel(): string {
+  return t('order.sharing.discountLabel');
+}
 
 /**
  * A ride's price with the shared discount: what was quoted (struck through when lower
@@ -201,7 +215,7 @@ export function ridePrice(fare: {
 }
 
 export function discountLine(discount: number): string {
-  return `${POOL_DISCOUNT_LABEL} −${formatMoney(discount)}`;
+  return `${poolDiscountLabel()} −${formatMoney(discount)}`;
 }
 
 /** Town-to-town chips on the map: routes from the town the rider is in (~12 km). */
@@ -219,7 +233,7 @@ export interface RouteChip {
 export function routeChipLabel(r: Pick<RouteFare, 'from' | 'to' | 'seatPrice' | 'carPrice'>) {
   const price =
     r.seatPrice && r.seatPrice > 0
-      ? `${formatNumber(r.seatPrice)}/kishi`
+      ? t('order.route.perPerson', { price: formatNumber(r.seatPrice) })
       : r.carPrice && r.carPrice > 0
         ? formatMoney(r.carPrice)
         : null;
@@ -257,7 +271,25 @@ export function routeChips(
     }));
 }
 
-export const GENDER_LABELS = { female: 'Ayol', male: 'Erkak' } as const;
+export type Gender = 'female' | 'male';
+
+/** The declared gender in words, in the app's language. */
+export function genderLabel(gender: Gender): string {
+  return gender === 'female' ? t('common.gender.female') : t('common.gender.male');
+}
+
+/**
+ * The gender names as a table, read in the app's language at access time (getters), for
+ * screens that index it: `GENDER_LABELS[gender]`. New code calls `genderLabel`.
+ */
+export const GENDER_LABELS: Readonly<Record<Gender, string>> = {
+  get female() {
+    return genderLabel('female');
+  },
+  get male() {
+    return genderLabel('male');
+  },
+};
 
 /**
  * Whether the declared gender can be changed now, and if not the message saying when
@@ -274,7 +306,7 @@ export function genderLock(
   }
   return {
     locked: true,
-    text: `Jinsni 30 kunda bir marta o‘zgartirish mumkin. Keyingi o‘zgartirish: ${formatDay(tashkentDay(until))}.`,
+    text: t('order.gender.lock', { day: formatDay(tashkentDay(until)) }),
   };
 }
 

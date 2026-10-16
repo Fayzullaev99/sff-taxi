@@ -5,8 +5,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { describeError } from '../api/client';
 import { useSavedPlaces } from '../api/queries';
 import type { SavedPlace } from '../api/types';
+import { useT } from '../i18n';
 import { confirm, notify } from '../lib/dialogs';
-import { SAVED_LABELS, type SaveTarget, savedToPlace } from '../lib/places';
+import { savedLabel, type SaveTarget, savedToPlace } from '../lib/places';
 import { removePlace, unhideRecentPlaces, usePlaces } from '../trip/places-store';
 import {
   Button,
@@ -30,6 +31,7 @@ const MAX_PLACES = 20;
  * previous one.
  */
 export default function PlacesScreen() {
+  const { t } = useT();
   const insets = useSafeAreaInsets();
   const query = useSavedPlaces();
   const places = usePlaces();
@@ -40,7 +42,7 @@ export default function PlacesScreen() {
     setUnhiding(true);
     const ok = await unhideRecentPlaces();
     setUnhiding(false);
-    if (ok) notify('Tayyor', 'Yashirilgan oxirgi manzillar qidiruvda yana ko‘rinadi.');
+    if (ok) notify(t('common.actions.done'), t('history.places.unhidden'));
   };
 
   const add = (save: SaveTarget) =>
@@ -48,9 +50,9 @@ export default function PlacesScreen() {
 
   const remove = async (place: SavedPlace, name: string) => {
     const ok = await confirm({
-      title: 'Manzilni o‘chirasizmi?',
+      title: t('history.places.removeQuestion'),
       message: name,
-      confirmText: 'O‘chirish',
+      confirmText: t('common.actions.delete'),
       destructive: true,
     });
     if (!ok) return;
@@ -58,7 +60,7 @@ export default function PlacesScreen() {
     try {
       await removePlace(place.id);
     } catch (e) {
-      notify('O‘chirilmadi', describeError(e));
+      notify(t('history.places.removeFailed'), describeError(e));
     } finally {
       setRemoving(null);
     }
@@ -79,16 +81,16 @@ export default function PlacesScreen() {
       <Card style={styles.card}>
         {(['home', 'work'] as const).map((kind, i) => {
           const saved = places[kind];
-          const line = saved ? savedToPlace(saved).title : 'Qo‘shish uchun bosing';
+          const line = saved ? savedToPlace(saved).title : t('history.places.tapToAdd');
           return (
             <View key={kind}>
               {i > 0 ? <Divider style={styles.divider} /> : null}
               <PlaceRow
                 icon={kind === 'home' ? 'home-outline' : 'briefcase-outline'}
-                title={SAVED_LABELS[kind]}
+                title={savedLabel(kind)}
                 line={line}
                 onPress={() => add(kind)}
-                onRemove={saved ? () => void remove(saved, SAVED_LABELS[kind]) : undefined}
+                onRemove={saved ? () => void remove(saved, savedLabel(kind)) : undefined}
                 removing={removing === saved?.id}
               />
             </View>
@@ -117,7 +119,7 @@ export default function PlacesScreen() {
       ) : null}
 
       <Button
-        title="Boshqa manzil qo‘shish"
+        title={t('history.places.addOther')}
         icon="add"
         variant="secondary"
         disabled={full}
@@ -125,15 +127,15 @@ export default function PlacesScreen() {
       />
       <T variant="small" color={colors.textMuted}>
         {full
-          ? `Ko‘pi bilan ${MAX_PLACES} ta manzil saqlash mumkin.`
-          : 'Manzillar hisobingizda saqlanadi: boshqa telefondan kirsangiz ham shu yerda bo‘ladi.'}
+          ? t('history.places.maxReached', { max: MAX_PLACES })
+          : t('history.places.syncedNote')}
       </T>
       <Divider style={styles.divider} />
       <T variant="small" color={colors.textMuted}>
-        Oxirgi manzillardan birini yashirish uchun qidiruvda uni bosib turing.
+        {t('history.places.hideHint')}
       </T>
       <Button
-        title="Yashirilgan manzillarni qaytarish"
+        title={t('history.places.unhide')}
         icon="eye-outline"
         variant="ghost"
         loading={unhiding}
@@ -158,13 +160,16 @@ function PlaceRow({
   onRemove?: () => void;
   removing: boolean;
 }) {
+  const { t } = useT();
   return (
     <View style={styles.placeRow}>
       <PressableRow
         style={styles.placeMain}
         onPress={onPress}
         disabled={!onPress}
-        accessibilityLabel={`${title}${line ? `: ${line}` : ''}${onPress ? '. O‘zgartirish' : ''}`}
+        accessibilityLabel={`${title}${line ? `: ${line}` : ''}${
+          onPress ? `. ${t('common.actions.edit')}` : ''
+        }`}
       >
         <Icon name={icon} size={20} />
         <View style={styles.flex}>
@@ -181,7 +186,7 @@ function PlaceRow({
       {onRemove ? (
         <IconButton
           name={removing ? 'hourglass-outline' : 'trash-outline'}
-          label={`${title} manzilini o‘chirish`}
+          label={t('history.places.removeA11y', { title })}
           color={colors.danger}
           onPress={removing ? undefined : onRemove}
         />

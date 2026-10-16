@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useRecentPassengers } from '../api/queries';
+import { useT } from '../i18n';
 import { formatLocalPhoneInput } from '../lib/format';
 import { checkPassenger, passengerChip } from '../lib/passenger';
 import { updateDraft } from '../trip/draft';
@@ -21,12 +22,13 @@ export function PassengerFields({
   ownPhone: string | null;
   showErrors: boolean;
 }) {
+  const { t } = useT();
   const recent = useRecentPassengers(draft.forOther);
   const check = checkPassenger(draft.passengerName, draft.passengerPhone, ownPhone);
   return (
     <PreferenceRow
-      label="Boshqa odam uchun"
-      hint="Siz kuzatasiz va to‘laysiz, haydovchi yo‘lovchiga qo‘ng‘iroq qiladi"
+      label={t('order.passenger.forOther')}
+      hint={t('order.passenger.forOtherHint')}
       value={draft.forOther}
       onChange={(forOther) => updateDraft({ forOther })}
       extra={
@@ -37,7 +39,7 @@ export function PassengerFields({
                 <Pressable
                   key={p.phone}
                   accessibilityRole="button"
-                  accessibilityLabel={`Yo‘lovchi: ${passengerChip(p)}`}
+                  accessibilityLabel={t('order.passenger.line', { name: passengerChip(p) })}
                   onPress={() =>
                     updateDraft({
                       passengerName: p.name,
@@ -54,8 +56,8 @@ export function PassengerFields({
             </View>
           ) : null}
           <TextField
-            label="Yo‘lovchining ismi"
-            placeholder="Masalan: Onam"
+            label={t('order.passenger.nameLabel')}
+            placeholder={t('order.passenger.namePlaceholder')}
             value={draft.passengerName}
             onChangeText={(passengerName) => updateDraft({ passengerName })}
             maxLength={100}
@@ -63,18 +65,20 @@ export function PassengerFields({
             error={showErrors ? check.nameError : null}
           />
           <TextField
-            label="Yo‘lovchining telefoni"
+            label={t('order.passenger.phoneLabel')}
             prefix="+998"
             placeholder="90 123 45 67"
             keyboardType="phone-pad"
             value={formatLocalPhoneInput(draft.passengerPhone.replace(/^\+?998/, ''))}
-            onChangeText={(t) => updateDraft({ passengerPhone: t.replace(/\D/g, '').slice(0, 9) })}
+            onChangeText={(text) =>
+              updateDraft({ passengerPhone: text.replace(/\D/g, '').slice(0, 9) })
+            }
             maxLength={12}
             error={showErrors ? check.phoneError : null}
-            hint="Haydovchi topilganda unga SMS keladi: mashina, raqami va kuzatish havolasi."
+            hint={t('order.passenger.phoneHint')}
           />
           <T variant="small" color={colors.textMuted}>
-            Naqd to‘lovni yo‘lovchi haydovchiga beradi; karta sizdan yechiladi.
+            {t('order.passenger.paymentNote')}
           </T>
         </View>
       }

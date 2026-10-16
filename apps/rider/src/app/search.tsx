@@ -14,8 +14,9 @@ import { describeError } from '../api/client';
 import { endpoints } from '../api/endpoints';
 import { useGeoConfig } from '../api/queries';
 import type { GeoSuggestion } from '../api/types';
+import { t, useT } from '../i18n';
 import { useDebounced } from '../lib/hooks';
-import { parseSaveTarget, type Place, SAVED_LABELS, savedToPlace, saveTitle } from '../lib/places';
+import { parseSaveTarget, type Place, savedToPlace, saveTitle } from '../lib/places';
 import { describePoint } from '../location/geo';
 import { LocationNotice, useLocator } from '../location/useLocator';
 import { NATIVE_MAP } from '../location/MapFallback';
@@ -34,6 +35,7 @@ type Field = 'pickup' | 'dropoff' | 'stop';
  * "my location" and "choose on the map".
  */
 export default function SearchScreen() {
+  const { t } = useT();
   const params = useLocalSearchParams<{ field?: string; save?: string; index?: string }>();
   const field: Field =
     params.field === 'pickup' ? 'pickup' : params.field === 'stop' ? 'stop' : 'dropoff';
@@ -98,7 +100,7 @@ export default function SearchScreen() {
       {
         lat: fix.lat,
         lng: fix.lng,
-        title: info.address ?? 'Mening joylashuvim',
+        title: info.address ?? t('home.myLocation'),
         subtitle: null,
       },
       info.address,
@@ -123,10 +125,10 @@ export default function SearchScreen() {
   const title = save
     ? saveTitle(save)
     : field === 'pickup'
-      ? 'Qayerdan?'
+      ? t('home.search.fromTitle')
       : field === 'stop'
-        ? `${stopIndex + 1}-oraliq manzil`
-        : 'Qayerga?';
+        ? t('home.search.stopTitle', { n: stopIndex + 1 })
+        : t('common.screens.search');
   const searching = q.length >= 2;
   const results = searching ? (search.data ?? []) : [];
   const noGeocoder = config?.geocoder === 'none';
@@ -140,7 +142,7 @@ export default function SearchScreen() {
           value={text}
           onChangeText={setText}
           placeholder={
-            field === 'pickup' ? 'Qayerdan olib ketamiz?' : 'Ko‘cha, mahalla yoki joy nomi'
+            field === 'pickup' ? t('home.search.pickupPlaceholder') : t('home.search.placeholder')
           }
           placeholderTextColor={colors.placeholder}
           style={styles.field}
@@ -148,13 +150,13 @@ export default function SearchScreen() {
           autoCorrect={false}
           returnKeyType="search"
           maxLength={200}
-          accessibilityLabel="Manzilni qidirish"
+          accessibilityLabel={t('home.search.inputA11y')}
         />
         {search.isFetching ? <ActivityIndicator color={colors.ink} /> : null}
         {text ? (
           <IconButton
             name="close-circle"
-            label="Tozalash"
+            label={t('home.search.clear')}
             size={44}
             color={colors.textFaint}
             background="transparent"
@@ -175,8 +177,10 @@ export default function SearchScreen() {
                 {field === 'pickup' && !save ? (
                   <Row
                     icon="navigate"
-                    title="Mening joylashuvim"
-                    subtitle={locating ? 'Aniqlanmoqda…' : 'GPS bo‘yicha, aniq joy'}
+                    title={t('home.myLocation')}
+                    subtitle={
+                      locating ? t('home.search.locatingShort') : t('home.search.myLocationHint')
+                    }
                     onPress={hereAsPickup}
                   />
                 ) : null}
@@ -193,8 +197,8 @@ export default function SearchScreen() {
                 {!save && places.failed ? (
                   <Row
                     icon="cloud-offline-outline"
-                    title="Saqlangan va oxirgi manzillar yuklanmadi"
-                    subtitle="Qayta urinish uchun bosing"
+                    title={t('home.search.placesFailed')}
+                    subtitle={t('home.search.tapToRetry')}
                     onPress={places.retry}
                   />
                 ) : null}
@@ -204,7 +208,7 @@ export default function SearchScreen() {
                         <Row
                           key={kind}
                           icon={kind === 'home' ? 'home' : 'briefcase'}
-                          title={SAVED_LABELS[kind]}
+                          title={t(`home.saved.${kind}.label`)}
                           subtitle={savedToPlace(places[kind]!).title}
                           onPress={() => void pick(savedToPlace(places[kind]!))}
                         />
@@ -227,25 +231,25 @@ export default function SearchScreen() {
                   : null}
                 {saving ? (
                   <T variant="small" color={colors.textMuted} style={styles.note}>
-                    Saqlanmoqda…
+                    {t('common.actions.saving')}
                   </T>
                 ) : null}
                 <Row
                   icon="map-outline"
-                  title={NATIVE_MAP ? 'Xaritada belgilash' : 'Joyni belgilash'}
+                  title={NATIVE_MAP ? t('home.search.onMap') : t('home.search.pickPlace')}
                   subtitle={
-                    NATIVE_MAP ? 'Pinni kerakli joyga qo‘ying' : 'Joylashuvingiz yoki koordinatalar'
+                    NATIVE_MAP ? t('home.search.onMapHint') : t('home.search.pickPlaceHint')
                   }
                   onPress={onMap}
                 />
                 {noGeocoder ? (
                   <T variant="small" color={colors.textMuted} style={styles.note}>
-                    Manzil qidiruvi hozircha ishlamayapti — joyni xaritada belgilang.
+                    {t('home.search.noGeocoder')}
                   </T>
                 ) : null}
                 {places.recent.length && !save ? (
                   <T variant="smallStrong" color={colors.textMuted} style={styles.section}>
-                    OXIRGI MANZILLAR
+                    {t('home.search.recentSection')}
                   </T>
                 ) : null}
                 {!save
@@ -265,7 +269,7 @@ export default function SearchScreen() {
             ) : null}
             {searching && search.isSuccess && !search.isPlaceholderData && results.length === 0 ? (
               <T variant="body" color={colors.textMuted} style={styles.note}>
-                Hech narsa topilmadi. Boshqacha yozib ko‘ring yoki joyni xaritada belgilang.
+                {t('home.search.nothingFound')}
               </T>
             ) : null}
             {searching && search.isError ? (
@@ -274,7 +278,7 @@ export default function SearchScreen() {
                   {describeError(search.error)}
                 </T>
                 <Button
-                  title="Qayta urinish"
+                  title={t('common.actions.retry')}
                   variant="secondary"
                   size="sm"
                   onPress={() => void search.refetch()}
@@ -290,7 +294,7 @@ export default function SearchScreen() {
             title={item.title}
             subtitle={[
               item.subtitle,
-              field === 'pickup' && !item.serviceable ? 'bu yerdan hozircha olib ketmaymiz' : null,
+              field === 'pickup' && !item.serviceable ? t('home.search.notServiceable') : null,
             ]
               .filter(Boolean)
               .join(' · ')}
@@ -299,7 +303,9 @@ export default function SearchScreen() {
           />
         )}
         ListFooterComponent={
-          searching ? <Row icon="map-outline" title="Xaritada belgilash" onPress={onMap} /> : null
+          searching ? (
+            <Row icon="map-outline" title={t('home.search.onMap')} onPress={onMap} />
+          ) : null
         }
       />
     </View>
@@ -309,10 +315,10 @@ export default function SearchScreen() {
 /** Asks, then takes a recent destination off the list (the ride history keeps it). */
 async function askToHide(place: Place) {
   const ok = await confirm({
-    title: 'Manzilni yashirish',
-    message: `«${place.title}» oxirgi manzillardan olib tashlanadi. Safarlar tarixi o‘zgarmaydi; shu yerga yana borsangiz, ro‘yxatda qayta paydo bo‘ladi.`,
-    confirmText: 'Yashirish',
-    cancelText: 'Yo‘q',
+    title: t('home.search.hide.title'),
+    message: t('home.search.hide.message', { place: place.title }),
+    confirmText: t('home.search.hide.confirm'),
+    cancelText: t('common.actions.no'),
   });
   if (ok && place.recentKey) await hideRecentPlace(place.recentKey);
 }
@@ -333,12 +339,15 @@ function Row({
   onHide?: () => void;
   dim?: boolean;
 }) {
+  const { t } = useT();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title}
-      accessibilityHint={onHide ? 'Yashirish uchun bosib turing' : undefined}
-      accessibilityActions={onHide ? [{ name: 'hide', label: 'Yashirish' }] : undefined}
+      accessibilityHint={onHide ? t('home.search.hideHint') : undefined}
+      accessibilityActions={
+        onHide ? [{ name: 'hide', label: t('home.search.hide.confirm') }] : undefined
+      }
       onAccessibilityAction={(e) => {
         if (e.nativeEvent.actionName === 'hide') onHide?.();
       }}
@@ -360,7 +369,12 @@ function Row({
         ) : null}
       </View>
       {onHide ? (
-        <IconButton name="eye-off-outline" label="Yashirish" size={44} onPress={onHide} />
+        <IconButton
+          name="eye-off-outline"
+          label={t('home.search.hide.confirm')}
+          size={44}
+          onPress={onHide}
+        />
       ) : null}
     </Pressable>
   );

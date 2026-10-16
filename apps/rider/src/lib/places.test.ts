@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { RecentPlace, SavedPlace } from '../api/types';
+import { setLanguage } from '../i18n/dictionary';
 import {
+  SAVED_LABELS,
+  saveTitle,
   chipLabel,
   groupSaved,
   parseLegacyPlaces,
@@ -11,6 +14,20 @@ import {
   withoutRecent,
   savedToPlace,
 } from './places';
+
+afterEach(() => setLanguage('uz'));
+
+describe('saved place labels', () => {
+  it('names home and work in the current language', () => {
+    expect(SAVED_LABELS.home).toBe('Uy');
+    expect(saveTitle('work')).toBe('Ish manzili');
+    expect(saveTitle('other')).toBe('Yangi manzil');
+    setLanguage('ru');
+    expect(SAVED_LABELS.home).toBe('Дом');
+    expect(saveTitle('work')).toBe('Адрес работы');
+    expect(saveTitle('other')).toBe('Новый адрес');
+  });
+});
 
 const place = (i: number, title = `Joy ${i}`): Place => ({
   lat: 40.49 + i * 0.01,

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import {
   badgeText,
   type ChatMessage,
@@ -21,6 +22,19 @@ const msg = (id: string, over: Partial<ChatMessage> = {}): ChatMessage => ({
   readAt: null,
   createdAt: '2026-10-14T09:05:00.000Z',
   ...over,
+});
+
+afterEach(() => setLanguage('uz'));
+
+describe('ride chat in Russian', () => {
+  it('labels receipts and the closing line in Russian', () => {
+    setLanguage('ru');
+    expect(receiptText(msg('1', { mine: true, readAt: '2026-10-14T09:06:00Z' }))).toBe('Прочитано');
+    expect(receiptText(msg('1', { mine: true, pending: true }))).toBe('Отправляем…');
+    expect(chatStatusText({ writable: true, closesAt: '2026-10-14T09:35:00.000Z' })).toBe(
+      'Чат открыт до 14:35.',
+    );
+  });
 });
 
 describe('ride chat', () => {

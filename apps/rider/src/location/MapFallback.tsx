@@ -3,6 +3,7 @@ import type { RideService } from '../api/types';
 import { carAwayLabel } from '../lib/services';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
+import { useT } from '../i18n';
 import { canShowNativeMap, parseCoordinate } from '../lib/map-support';
 import { formatDistance } from '../lib/format';
 import { distanceM } from '../lib/ride-state';
@@ -27,17 +28,17 @@ const fixed = (n: number) => n.toFixed(5);
  * with "my location", the search or "choose on the map" (the map-less picker).
  */
 export function HomeMapFallback({ point, top }: { point: LatLng | null; top: number }) {
+  const { t } = useT();
   return (
     <View style={[styles.fill, { paddingTop: top + space(16) }]}>
       <View style={styles.badge}>
         <Icon name="map-outline" size={40} color={colors.ink} />
       </View>
       <T variant="h3" style={styles.center}>
-        Xarita bu qurilmada ko‘rsatilmaydi
+        {t('home.mapless.title')}
       </T>
       <T variant="small" color={colors.textMuted} style={styles.center}>
-        Olib ketish joyini «Mening joylashuvim» tugmasi yoki «Qayerdan» qatoridagi qidiruv bilan
-        belgilang.
+        {t('home.mapless.homeHint')}
       </T>
       {point ? (
         <T variant="caption" color={colors.textMuted} style={styles.center}>
@@ -67,6 +68,7 @@ export function MaplessPicker({
   locating: boolean;
   height: number;
 }) {
+  const { t } = useT();
   const [lat, setLat] = useState(fixed(initial.lat));
   const [lng, setLng] = useState(fixed(initial.lng));
   const report = useRef(onChange);
@@ -104,8 +106,7 @@ export function MaplessPicker({
       <View style={styles.row}>
         <Icon name="map-outline" size={22} color={colors.textMuted} />
         <T variant="small" color={colors.textMuted} style={styles.flex}>
-          Xarita bu qurilmada ko‘rsatilmaydi: joylashuvingizni aniqlang yoki koordinatalarni
-          kiriting.
+          {t('home.mapless.pickerHint')}
         </T>
       </View>
       {locating ? (
@@ -114,7 +115,7 @@ export function MaplessPicker({
         </View>
       ) : (
         <Button
-          title="Mening joylashuvim"
+          title={t('home.myLocation')}
           icon="navigate"
           variant="secondary"
           onPress={() => {
@@ -126,19 +127,19 @@ export function MaplessPicker({
       )}
       <View style={styles.row}>
         <TextField
-          label="Kenglik"
+          label={t('home.mapless.latitude')}
           value={lat}
           onChangeText={setLat}
           keyboardType="decimal-pad"
-          error={latBad ? 'Masalan, 40.49598' : null}
+          error={latBad ? t('home.mapless.latitudeExample') : null}
           style={styles.flex}
         />
         <TextField
-          label="Uzunlik"
+          label={t('home.mapless.longitude')}
           value={lng}
           onChangeText={setLng}
           keyboardType="decimal-pad"
-          error={lngBad ? 'Masalan, 68.77587' : null}
+          error={lngBad ? t('home.mapless.longitudeExample') : null}
           style={styles.flex}
         />
       </View>
@@ -163,6 +164,7 @@ export function RideMapFallback({
   bottomInset: number;
   service?: RideService;
 }) {
+  const { t } = useT();
   const away = car && heading ? distanceM(car, target) : null;
   return (
     <View style={[styles.fill, styles.rideFill, { paddingBottom: bottomInset }]}>
@@ -171,7 +173,9 @@ export function RideMapFallback({
       </View>
       {away !== null ? (
         <T variant="h3" style={styles.center}>
-          {heading === 'pickup' ? carAwayLabel(service) : 'Manzilgacha'} {formatDistance(away)}
+          {heading === 'pickup'
+            ? `${carAwayLabel(service)} ${formatDistance(away)}`
+            : t('home.rideFallback.toDestination', { distance: formatDistance(away) })}
         </T>
       ) : null}
     </View>

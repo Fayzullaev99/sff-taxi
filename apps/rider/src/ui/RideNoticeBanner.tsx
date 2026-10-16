@@ -2,6 +2,7 @@ import { router, useGlobalSearchParams, useSegments } from 'expo-router';
 import { useEffect, useSyncExternalStore } from 'react';
 import { Pressable, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useT } from '../i18n';
 import { dismissRideNotice, getRideNotice, subscribeRideNotice } from '../trip/shown-rides';
 import { Icon, T } from './primitives';
 import { colors, radius, space } from './theme';
@@ -18,6 +19,7 @@ const HEADER = 56;
  * the ride. It goes away by itself, on the ride's screen, or with the ×.
  */
 export function RideNoticeBanner() {
+  const { t } = useT();
   const notice = useSyncExternalStore(subscribeRideNotice, getRideNotice, getRideNotice);
   const insets = useSafeAreaInsets();
   const segments = useSegments() as string[];
@@ -38,7 +40,7 @@ export function RideNoticeBanner() {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={notice.text + '. Ochish'}
+      accessibilityLabel={t('home.notice.openA11y', { text: notice.text })}
       accessibilityLiveRegion="polite"
       onPress={() => {
         dismissRideNotice();
@@ -55,11 +57,11 @@ export function RideNoticeBanner() {
         {notice.text}
       </T>
       <T variant="smallStrong" color={colors.brand}>
-        Ochish
+        {t('common.actions.open')}
       </T>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Yopish"
+        accessibilityLabel={t('common.actions.close')}
         hitSlop={12}
         onPress={dismissRideNotice}
       >

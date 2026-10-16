@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect } from 'react';
 import { ScrollView, StyleSheet } from 'react-native';
 import { useIsSignedIn } from '../../api/session';
+import { useT } from '../../i18n';
 import { pendingInvite } from '../../lib/pending-invite';
 import { normalizeCode } from '../../lib/promo';
 import { PromoCodeEntry } from '../../order/PromoCodeEntry';
@@ -13,6 +14,7 @@ import { colors, space } from '../../ui/theme';
  * is filled in; a rider who is not signed in yet signs in first and comes back here.
  */
 export default function InviteScreen() {
+  const { t } = useT();
   const { code: raw } = useLocalSearchParams<{ code: string }>();
   const code = normalizeCode(raw ?? '');
   const signedIn = useIsSignedIn();
@@ -27,23 +29,22 @@ export default function InviteScreen() {
       <Card style={styles.card}>
         <Icon name="gift-outline" size={40} color={colors.ink} />
         <T variant="h2" accessibilityRole="header">
-          Do‘stingiz sizni SFF Taxiga taklif qildi
+          {t('profile.invite.title')}
         </T>
         <T variant="body" color={colors.textMuted}>
-          Taklif kodi bilan birinchi safaringiz arzonroq. Kod faqat birinchi safargacha va bir marta
-          kiritiladi.
+          {t('profile.invite.text')}
         </T>
         {signedIn ? (
           <PromoCodeEntry initial={code} onAdded={() => router.replace('/home')} />
         ) : (
           <Button
-            title="Kirish va kodni qo‘llash"
+            title={t('profile.invite.signIn')}
             onPress={() => router.replace('/sign-in')}
-            accessibilityLabel={`Kirish, keyin ${code} kodini qo‘llash`}
+            accessibilityLabel={t('profile.invite.signInA11y', { code })}
           />
         )}
         <Button
-          title="Keyinroq"
+          title={t('profile.invite.later')}
           variant="ghost"
           onPress={() => {
             void pendingInvite.set(null);

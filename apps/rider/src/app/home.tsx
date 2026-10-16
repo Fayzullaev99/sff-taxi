@@ -15,19 +15,13 @@ import {
 } from '../api/queries';
 import { useFeature } from '../api/support';
 import type { GeoConfig, LatLng } from '../api/types';
+import { useT } from '../i18n';
 import { metresBetween } from '../lib/car-motion';
 import { firstName, formatDateTime } from '../lib/format';
-import {
-  chipLabel,
-  type Place,
-  QUICK_RECENT,
-  SAVED_LABELS,
-  type SavedKind,
-  savedAddress,
-} from '../lib/places';
+import { chipLabel, type Place, QUICK_RECENT, type SavedKind, savedAddress } from '../lib/places';
 import { isOpenStatus } from '../lib/ride-state';
 import { routeChips } from '../lib/sharing';
-import { SERVICE_LABELS, serviceOn } from '../lib/services';
+import { serviceOn } from '../lib/services';
 import type { RideService } from '../api/types';
 import { useAppActive } from '../lib/use-app-active';
 import { isGoodFix, MOVE_THRESHOLD_M, PRECISE } from '../location/fix';
@@ -61,6 +55,7 @@ const PANEL_GUESS = 330;
  * screen with the class the rider used last: two taps to order.
  */
 export default function HomeScreen() {
+  const { t } = useT();
   const insets = useSafeAreaInsets();
   const map = useRef<MapView>(null);
   const config = useGeoConfig().data;
@@ -257,8 +252,8 @@ export default function HomeScreen() {
   const canOrder = Boolean(pickup) && !moving && serviceable !== false;
   const notice = serviceable === false ? areaNotice(resolve.data, NATIVE_MAP) : null;
   const pickupText = moving
-    ? 'Manzil aniqlanmoqda…'
-    : (pickup?.address ?? (lookingUp ? 'Manzil aniqlanmoqda…' : 'Pin qo‘yilgan joy'));
+    ? t('home.addressLookingUp')
+    : (pickup?.address ?? (lookingUp ? t('home.addressLookingUp') : t('home.pinnedPlace')));
   const name = firstName(me?.fullName);
   const recent = places.recent.slice(0, QUICK_RECENT);
   // fixed prices from the rider's town to others ("Yangiyer → Guliston · 10 000/kishi"):
@@ -306,7 +301,7 @@ export default function HomeScreen() {
       <View style={[styles.top, { top: insets.top + space(2) }]}>
         <IconButton
           name="menu"
-          label="Profil va sozlamalar"
+          label={t('common.screens.profile')}
           size={48}
           onPress={() => router.push('/profile')}
           style={shadow.card}
@@ -323,14 +318,19 @@ export default function HomeScreen() {
               color={colors.ink}
             />
             <T variant="smallStrong" numberOfLines={1} style={styles.flex}>
-              {openRide.status === 'awaiting_payment' ? 'To‘lov kutilmoqda' : 'Faol safaringiz bor'}
+              {openRide.status === 'awaiting_payment'
+                ? t('home.awaitingPayment')
+                : t('home.activeRide')}
             </T>
             <Icon name="chevron-forward" size={18} color={colors.ink} />
           </Pressable>
         ) : scheduled[0]?.scheduledFor ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Oldindan buyurtmalar: ${scheduled.length} ta. Eng yaqini ${formatDateTime(scheduled[0].scheduledFor)}`}
+            accessibilityLabel={t('home.scheduledA11y', {
+              count: scheduled.length,
+              when: formatDateTime(scheduled[0].scheduledFor),
+            })}
             onPress={() => router.push('/scheduled')}
             style={[styles.activeRide, styles.laterRide, shadow.card]}
           >
@@ -346,7 +346,7 @@ export default function HomeScreen() {
         )}
         <IconButton
           name="time-outline"
-          label="Safarlar tarixi"
+          label={t('common.screens.history')}
           size={48}
           onPress={() => router.push('/history')}
           style={shadow.card}
@@ -356,13 +356,13 @@ export default function HomeScreen() {
       {/* above the panel, not inside it: Android delivers no touches outside a parent's bounds */}
       <View style={[styles.locate, { bottom: panelHeight + space(4) }]}>
         {locator.locating ? (
-          <View style={styles.locateSpinner} accessibilityLabel="Joylashuv aniqlanmoqda">
+          <View style={styles.locateSpinner} accessibilityLabel={t('home.locating')}>
             <ActivityIndicator color={colors.ink} />
           </View>
         ) : (
           <IconButton
             name="navigate"
-            label="Mening joylashuvim"
+            label={t('home.myLocation')}
             size={48}
             onPress={() => void locator.locateAndReport('precise')}
             style={shadow.card}
@@ -377,7 +377,7 @@ export default function HomeScreen() {
         {/* the service switch takes the greeting's place: the panel stays as tall */}
         {services.length <= 1 ? (
           <T variant="h2" accessibilityRole="header" numberOfLines={1}>
-            {name ? `Salom, ${name}!` : 'Qayerga boramiz?'}
+            {name ? t('home.greeting', { name }) : t('home.whereToGo')}
           </T>
         ) : (
           <ServiceSwitch
@@ -396,21 +396,21 @@ export default function HomeScreen() {
 
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Qayerdan: ${pickupText}. O‘zgartirish`}
+          accessibilityLabel={t('home.fromA11y', { address: pickupText })}
           onPress={() => router.push({ pathname: '/search', params: { field: 'pickup' } })}
           style={({ pressed }) => [styles.fromRow, pressed ? styles.pressed : null]}
         >
           <View style={[styles.dot, { backgroundColor: colors.brand }]} />
           <View style={styles.flex}>
             <T variant="caption" color={colors.textMuted}>
-              QAYERDAN
+              {t('home.fromCaption')}
             </T>
             <T variant="bodyStrong" numberOfLines={2}>
               {pickupText}
             </T>
             {vagueM && !moving ? (
               <T variant="small" color={colors.warning} numberOfLines={2}>
-                Joylashuv taxminiy (±{vagueM} m) — pinni aniq joyga suring
+                {t('home.vagueLocation', { metres: vagueM })}
               </T>
             ) : null}
           </View>
@@ -426,7 +426,7 @@ export default function HomeScreen() {
         {notice ? <Banner tone="warning" title={notice.title} message={notice.message} /> : null}
 
         <Button
-          title={WHERE_TO[service]}
+          title={t(`home.whereTo.${service}`)}
           size="lg"
           icon="search"
           disabled={!canOrder}
@@ -446,11 +446,11 @@ export default function HomeScreen() {
             <Chip
               key={kind}
               icon={places[kind] ? (kind === 'home' ? 'home-outline' : 'briefcase-outline') : 'add'}
-              label={places[kind] ? SAVED_LABELS[kind] : `${SAVED_LABELS[kind]} qo‘shish`}
+              label={places[kind] ? t(`home.saved.${kind}.label`) : t(`home.saved.${kind}.add`)}
               accessibilityLabel={
                 places[kind]
-                  ? `${SAVED_LABELS[kind]}ga borish: ${savedAddress(places[kind]!) ?? ''}`
-                  : `${SAVED_LABELS[kind]} manzilini qo‘shish`
+                  ? t(`home.saved.${kind}.go`, { address: savedAddress(places[kind]!) ?? '' })
+                  : t(`home.saved.${kind}.addAddress`)
               }
               onPress={() => {
                 if (!canOrder && places[kind]) return;
@@ -463,7 +463,7 @@ export default function HomeScreen() {
               key={p.recentKey ?? `${p.lat},${p.lng}`}
               icon="time-outline"
               label={chipLabel(p.title)}
-              accessibilityLabel={`Yana borish: ${p.title}`}
+              accessibilityLabel={t('home.goAgain', { place: p.title })}
               onPress={() => {
                 if (canOrder) goRecent(p);
               }}
@@ -474,7 +474,7 @@ export default function HomeScreen() {
               key={r.key}
               icon="swap-horizontal"
               label={r.label}
-              accessibilityLabel={`Belgilangan narx: ${r.label}`}
+              accessibilityLabel={t('home.fixedFare', { route: r.label })}
               onPress={() => {
                 if (!pickup || moving) return;
                 updateDraft({
@@ -489,8 +489,8 @@ export default function HomeScreen() {
           {intercityOn ? (
             <Chip
               icon="bus-outline"
-              label="Shaharlararo"
-              accessibilityLabel="Shaharlararo qatnovlar: joy band qilish"
+              label={t('common.screens.intercity')}
+              accessibilityLabel={t('home.intercityA11y')}
               onPress={() => router.push('/intercity')}
             />
           ) : null}
@@ -502,11 +502,12 @@ export default function HomeScreen() {
 
 const SERVICES: readonly RideService[] = ['taxi', 'cargo', 'delivery'];
 
-const WHERE_TO: Record<RideService, string> = {
-  taxi: 'Qayerga?',
-  cargo: 'Yukni qayerga?',
-  delivery: 'Posilkani qayerga?',
-};
+/** The short service names of the switch: "Taksi · Yuk · Yetkazish". */
+const SERVICE_LABEL_KEYS = {
+  taxi: 'common.services.taxi',
+  cargo: 'common.services.cargoShort',
+  delivery: 'common.services.deliveryShort',
+} as const;
 
 const SERVICE_ICONS = {
   taxi: 'car-sport-outline',
@@ -527,22 +528,24 @@ function ServiceSwitch({
   value: RideService;
   onChange: (service: RideService) => void;
 }) {
+  const { t } = useT();
   return (
     <View style={styles.services} accessibilityRole="tablist">
       {services.map((sv) => {
         const on = sv === value;
+        const label = t(SERVICE_LABEL_KEYS[sv]);
         return (
           <Pressable
             key={sv}
             accessibilityRole="tab"
             accessibilityState={{ selected: on }}
-            accessibilityLabel={SERVICE_LABELS[sv]}
+            accessibilityLabel={label}
             onPress={() => onChange(sv)}
             style={[styles.service, on ? styles.serviceOn : null]}
           >
             <Icon name={SERVICE_ICONS[sv]} size={18} color={colors.ink} />
             <T variant="smallStrong" numberOfLines={1}>
-              {SERVICE_LABELS[sv]}
+              {label}
             </T>
           </Pressable>
         );
@@ -575,6 +578,7 @@ const HomeMap = memo(function HomeMap({
   showsUser: boolean;
   handlers: RefObject<MapHandlers>;
 }) {
+  const { t } = useT();
   const moving = useRef(false);
   return (
     <MapView
@@ -604,7 +608,7 @@ const HomeMap = memo(function HomeMap({
         moving.current = false;
         handlers.current.onSettled(region.latitude, region.longitude);
       }}
-      accessibilityLabel="Xarita. Olib ketish joyini tanlash uchun xaritani suring."
+      accessibilityLabel={t('home.mapA11y')}
     >
       <TileLayer config={config} />
       <ServiceAreas config={config} />

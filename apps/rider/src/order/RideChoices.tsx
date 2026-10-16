@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { memo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { PoolCar, Quote, RideClass, SeatLayout } from '../api/types';
+import { useT } from '../i18n';
 import { formatMoney } from '../lib/format';
 import {
   clampPassengers,
@@ -42,6 +43,7 @@ export function RouteModeChoice({
   fareMode: 'car' | 'seat';
   carTotal: number;
 }) {
+  const { t } = useT();
   const prices = routePrices(quote, rideClass);
   const route = quote.route;
   if (!route || !prices) return null;
@@ -50,21 +52,21 @@ export function RouteModeChoice({
       <View style={styles.routeHead}>
         <Icon name="swap-horizontal" size={18} color={colors.ink} />
         <T variant="bodyStrong" style={styles.flex} numberOfLines={2}>
-          {route.from.name} → {route.to.name}: belgilangan narx
+          {t('order.route.fixedPriceTitle', { from: route.from.name, to: route.to.name })}
         </T>
       </View>
       {prices.seat ? (
         <View style={styles.modes} accessibilityRole="radiogroup">
           <ModeCard
-            title="O‘rindiq"
-            price={`${formatMoney(prices.seat)}/kishi`}
+            title={t('order.route.seat')}
+            price={t('order.route.perPerson', { price: formatMoney(prices.seat) })}
             icon="person-outline"
             selected={fareMode === 'seat'}
             // a seat is a shared ride: cash only
             onPress={() => updateDraft({ fareMode: 'seat', paymentMethod: 'cash' })}
           />
           <ModeCard
-            title="Butun mashina"
+            title={t('order.route.wholeCar')}
             price={formatMoney(carTotal)}
             icon="car-outline"
             selected={fareMode === 'car'}
@@ -74,8 +76,8 @@ export function RouteModeChoice({
       ) : null}
       <T variant="small" color={colors.textMuted}>
         {fareMode === 'seat' && prices.seat
-          ? 'O‘rindiq narxi: mashina shu yo‘nalishdagi boshqa yo‘lovchilarni ham oladi. Faqat naqd.'
-          : 'Butun mashina faqat siz uchun.'}
+          ? t('order.route.seatNote')
+          : t('order.route.wholeCarNote')}
       </T>
     </View>
   );
@@ -125,15 +127,16 @@ export function PassengersRow({
   passengers: number;
   rideClass: RideClass;
 }) {
+  const { t } = useT();
   const max = clampPassengers(99, quote, rideClass);
   return (
     <View style={styles.people}>
       <View style={styles.flex}>
-        <T variant="bodyStrong">Yo‘lovchilar</T>
+        <T variant="bodyStrong">{t('order.passengers.title')}</T>
         <T variant="small" color={colors.textMuted}>
           {rideClass === 'minivan'
-            ? `Minivenda ko‘pi bilan ${max} kishi va katta yuk`
-            : `Ko‘pi bilan ${max} kishi: oldinda 1, orqada ko‘pi bilan 2. Ko‘proq bo‘lsa — Miniven`}
+            ? t('order.passengers.minivanHint', { max })
+            : t('order.passengers.carHint', { max })}
         </T>
       </View>
       <Stepper
@@ -159,6 +162,7 @@ export function SharingRows({
   choices: ChoicesState;
   rideClass: RideClass;
 }) {
+  const { t } = useT();
   // shared rides are economy and comfort only
   const pool = POOL_CLASSES.includes(rideClass) ? quote.pool : undefined;
   const women = quote.womenOnly;
@@ -167,8 +171,8 @@ export function SharingRows({
     <>
       {pool?.available && choices.fareMode !== 'seat' ? (
         <PreferenceRow
-          label="Hamroh bilan"
-          hint={`${shareToggleText(pool.discountPercent)}. Faqat naqd to‘lov.`}
+          label={t('order.sharing.title')}
+          hint={t('order.sharing.hint', { text: shareToggleText(pool.discountPercent) })}
           value={choices.shareable}
           onChange={(on) =>
             updateDraft(on ? { shareable: true, paymentMethod: 'cash' } : { shareable: false })
@@ -178,11 +182,11 @@ export function SharingRows({
       ) : null}
       {women ? (
         <PreferenceRow
-          label="Ayol haydovchi"
+          label={t('order.sharing.womanDriver')}
           hint={
             women.available
-              ? (womenDriversText(women.drivers) ?? 'Faqat ayol haydovchilar')
-              : 'Ayollar uchun. Profilda jinsingizni belgilang.'
+              ? (womenDriversText(women.drivers) ?? t('order.sharing.womenOnlyHint'))
+              : t('order.sharing.womenSetGender')
           }
           value={women.available && choices.womenOnly}
           disabled={!women.available}
@@ -192,7 +196,7 @@ export function SharingRows({
       {women && !women.available ? (
         <View style={styles.profileLink}>
           <Button
-            title="Profilda jinsni belgilash"
+            title={t('order.sharing.setGenderButton')}
             size="sm"
             variant="ghost"
             icon="person-circle-outline"
@@ -212,6 +216,8 @@ const PoolCars = memo(function PoolCars({
   cars: PoolCar[];
   passengers: number;
 }) {
+  // memoised on cars and people: the language switch must still re-render the words
+  useT();
   return (
     <View style={styles.cars} accessibilityRole="summary">
       <T variant="smallStrong" color={cars.length ? colors.success : colors.textMuted}>

@@ -5,6 +5,7 @@ import { StyleSheet, View } from 'react-native';
 import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { endpoints } from '../api/endpoints';
 import { isOnline, subscribeOnline } from '../api/reachability';
+import { useLanguage } from '../i18n';
 import { offlineMessage, SHOW_AFTER_MS } from './offline-message';
 import { Icon, T } from './primitives';
 import { colors, space } from './theme';
@@ -70,6 +71,8 @@ export function OfflineFrame({ children }: { children: ReactNode }) {
   const shown = useOfflineShown();
   const insets = useSafeAreaInsets();
   const net = useNetInfo();
+  // the strip's text follows a language switch
+  useLanguage();
   const message = offlineMessage({
     isConnected: net.isConnected,
     isInternetReachable: net.isInternetReachable,

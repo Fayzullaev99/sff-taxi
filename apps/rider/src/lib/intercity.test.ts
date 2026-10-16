@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import {
   alongParams,
   alongRouteParams,
@@ -6,13 +7,17 @@ import {
   bookingCancelledText,
   bookingCancelTerms,
   bookingPrice,
+  bookingStatusLabel,
   cancelRulesFrom,
   cancelRuleText,
   DEFAULT_CANCEL_RULES,
   frontSurcharge,
   searchDates,
   stopLines,
+  tripStatusLabel,
 } from './intercity';
+
+afterEach(() => setLanguage('uz'));
 
 const prices = { rear: 70_000, front: 80_000 };
 const s = (text: string) => text.replace(/\u00a0/g, ' ');
@@ -268,5 +273,57 @@ describe('where a rider along the way gets in', () => {
       partDistanceM: 85_700,
     });
     expect(alongParams({ ...params, boardAt: 'soon' })?.stops).toBeUndefined();
+  });
+});
+
+describe('in Russian', () => {
+  const departure = '2026-09-27T10:00:00Z';
+
+  it('words the cancellation terms, the rules and the statuses', () => {
+    setLanguage('ru');
+    const early = bookingCancelTerms(departure, 70_000, new Date('2026-09-27T08:59:00Z'));
+    expect(early.message).toBe(
+      'До 14:00 отмена бесплатна. После этого удерживается 30% стоимости брони.',
+    );
+    const late = bookingCancelTerms(departure, 70_000, new Date('2026-09-27T09:00:00Z'));
+    expect(s(late.message)).toContain('меньше 60 минут: при отмене 21 000 сум (30%)');
+    expect(cancelRuleText({ freeCancelMinutes: 90, lateCancelFeePercent: 25 })).toContain(
+      'за 90 минут до отправления',
+    );
+    expect(cancelRuleText({ freeCancelMinutes: 1, lateCancelFeePercent: 25 })).toContain(
+      'за 1 минуту',
+    );
+    expect(bookingStatusLabel('booked')).toBe('Забронировано');
+    expect(tripStatusLabel('departed')).toBe('В пути');
+    expect(
+      bookingCancelledText({
+        status: 'cancelled',
+        cancelledBy: 'driver',
+        cancelReason: 'Машина сломалась',
+        cancellationFee: 0,
+      }),
+    ).toBe('Водитель отменил рейс: Машина сломалась.');
+  });
+
+  it('names the stops and the dates', () => {
+    setLanguage('ru');
+    const lines = stopLines(
+      {
+        alongTheWay: true,
+        boardingPoint: {
+          name: 'Сырдарья',
+          meetingPoint: 'центр',
+          estimatedAt: '2026-10-01T03:50:00Z',
+        },
+      },
+      { meetingPoint: 'автовокзал', distanceM: 132_000 },
+    );
+    expect(lines.map((l) => l.label)).toEqual(['Место посадки', 'Время', 'Расстояние']);
+    expect(lines[1]!.value).toBe('примерно в 08:50');
+    expect(searchDates(new Date('2026-09-27T20:30:00Z'), 3).map((d) => d.label)).toEqual([
+      'Сегодня',
+      'Завтра',
+      '30 сентября',
+    ]);
   });
 });

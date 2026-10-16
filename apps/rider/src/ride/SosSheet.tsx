@@ -1,6 +1,7 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
 import type { SosResult } from '../api/types';
 import { useSupport } from '../api/support';
+import { useT } from '../i18n';
 import { callPhone } from '../lib/links';
 import { Banner, Button, T } from '../ui/primitives';
 import { Sheet } from '../ui/Sheet';
@@ -31,6 +32,7 @@ export function SosSheet({
   sending: boolean;
   failed: boolean;
 }) {
+  const { t } = useT();
   const numbers = result?.emergency ?? EMERGENCY_FALLBACK;
   // the office number from /config (the build's number only as a fallback)
   const operatorPhone = useSupport().phone;
@@ -38,51 +40,53 @@ export function SosSheet({
     <Sheet
       visible={visible}
       onClose={onClose}
-      footer={<Button title="Yopish" variant="secondary" size="lg" onPress={onClose} />}
+      footer={
+        <Button title={t('common.actions.close')} variant="secondary" size="lg" onPress={onClose} />
+      }
     >
       <ScrollView contentContainerStyle={styles.content}>
         <T variant="h2" accessibilityRole="header">
-          Favqulodda yordam
+          {t('ride.sos.title')}
         </T>
         {sending ? (
-          <Banner tone="info" message="Operatorlarga signal yuborilmoqda…" />
+          <Banner tone="info" message={t('ride.sos.sending')} />
         ) : failed ? (
           <Banner
             tone="danger"
-            title="Signal yuborilmadi"
-            message="Internet aloqasi yo‘q bo‘lishi mumkin. Quyidagi raqamlarga darhol qo‘ng‘iroq qiling."
+            title={t('ride.sos.failedTitle')}
+            message={t('ride.sos.failedMessage')}
           />
         ) : (
           <Banner
             tone="success"
-            title="Operatorlar xabardor qilindi"
-            message="Joylashuvingiz va safar ma’lumotlari yuborildi. Operator siz bilan bog‘lanadi."
+            title={t('ride.sos.sentTitle')}
+            message={t('ride.sos.sentMessage')}
           />
         )}
         <View style={styles.buttons}>
           <Button
-            title={`Yagona xizmat — ${numbers.unified}`}
+            title={t('ride.sos.unified', { number: numbers.unified })}
             variant="sos"
             size="lg"
             icon="call"
             onPress={() => void callPhone(numbers.unified)}
           />
           <Button
-            title={`Politsiya — ${numbers.police}`}
+            title={t('ride.sos.police', { number: numbers.police })}
             variant="dark"
             size="lg"
             icon="shield"
             onPress={() => void callPhone(numbers.police)}
           />
           <Button
-            title={`Tez yordam — ${numbers.ambulance}`}
+            title={t('ride.sos.ambulance', { number: numbers.ambulance })}
             variant="dark"
             size="lg"
             icon="medkit"
             onPress={() => void callPhone(numbers.ambulance)}
           />
           <Button
-            title={`O‘t o‘chirish — ${numbers.fire}`}
+            title={t('ride.sos.fire', { number: numbers.fire })}
             variant="outline"
             size="lg"
             icon="flame"
@@ -90,7 +94,7 @@ export function SosSheet({
           />
           {operatorPhone ? (
             <Button
-              title="SFF Taxi operatori"
+              title={t('ride.sos.operator')}
               variant="outline"
               size="lg"
               icon="headset"

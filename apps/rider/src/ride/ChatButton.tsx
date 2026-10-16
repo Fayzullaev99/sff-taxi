@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useConversation } from '../api/chat-api';
 import { useLiveRides } from '../api/realtime';
+import { useT } from '../i18n';
 import { badgeText } from '../lib/chat';
 import { Icon, T } from '../ui/primitives';
 import { colors, radius, space } from '../ui/theme';
@@ -19,6 +20,7 @@ export function ChatButton({
   afterRide?: boolean;
 }) {
   // the stream (shared with the ride screen) refetches the conversation on chat events
+  const { t } = useT();
   const live = useLiveRides(true);
   const conversation = useConversation(rideId, { open: false, live });
   const badge = badgeText(conversation.data?.unread ?? 0);
@@ -27,7 +29,7 @@ export function ChatButton({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Haydovchiga yozish${badge ? `, ${badge} ta yangi xabar` : ''}`}
+      accessibilityLabel={badge ? t('ride.chat.writeUnreadA11y', { badge }) : t('ride.chat.write')}
       onPress={() => router.push({ pathname: '/chat/[rideId]', params: { rideId } })}
       style={({ pressed }) => [
         styles.button,
@@ -36,7 +38,7 @@ export function ChatButton({
     >
       <Icon name="chatbubble-ellipses-outline" size={20} color={colors.ink} />
       <T variant="bodyStrong" style={styles.flex}>
-        Haydovchiga yozish
+        {t('ride.chat.write')}
       </T>
       {badge ? (
         <View style={styles.badge}>

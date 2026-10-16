@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { QuoteDiscounts, ReferralCard, SavedPromo } from '../api/promo-types';
+import { setLanguage } from '../i18n/dictionary';
 import { cashToPay } from './fare';
 import {
   classDiscount,
   codeReady,
+  creditKindLabel,
   discountSentence,
   inviteCodeFromUrl,
   inviteMessage,
@@ -38,6 +40,8 @@ const DISCOUNTS: QuoteDiscounts = {
   notes: [],
 };
 const NOW_OPTS = { later: false, shared: false, useCredit: true };
+
+afterEach(() => setLanguage('uz'));
 /** formatMoney groups with no-break spaces. */
 function sp(t: string): string;
 function sp(t: string[]): string[];
@@ -101,6 +105,18 @@ describe('codes and the invitation', () => {
     );
   });
 
+  it('reads them in Russian when the app does', () => {
+    setLanguage('ru');
+    expect(sp(promoValueText(promo))).toBe('Скидка 20%, до 5 000 сум');
+    expect(sp(promoConditions(promo))).toBe(
+      'Комфорт · от 10 000 сум · на первую поездку · до 31.10',
+    );
+    expect(creditKindLabel('referral_bonus')).toBe('Бонус за друга');
+    expect(
+      rideDiscountLines({ promo: { id: 'p1', source: 'code', code: 'KUZ20', amount: 1400 } }),
+    ).toEqual([{ label: 'Промокод KUZ20', amount: 1400 }]);
+  });
+
   it('normalises typed codes and finds the code in an invitation link', () => {
     expect(normalizeCode(' kuz-20 ')).toBe('KUZ20');
     expect(codeReady('ab')).toBe(false);
@@ -131,6 +147,10 @@ describe('codes and the invitation', () => {
     );
     expect(sp(inviteOffer(card))).toBe(
       'Do‘stingizga birinchi safarga 50% chegirma (10 000 so‘mgacha), sizga u safarni yakunlagach 10 000 so‘m bonus.',
+    );
+    setLanguage('ru');
+    expect(sp(inviteOffer(card))).toBe(
+      'Другу — скидка 50% (до 10 000 сум) на первую поездку, вам — бонус 10 000 сум, когда он её завершит.',
     );
   });
 

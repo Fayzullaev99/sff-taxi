@@ -3,6 +3,7 @@
  * typed amount, what the button says, the line after the tip.
  */
 import type { RidePayment } from '../api/types';
+import { t } from '../i18n/dictionary';
 import { formatMoney } from './format';
 
 export interface TipView {
@@ -36,27 +37,27 @@ export function parseTipAmount(text: string): number | null {
 
 /** Why the amount cannot be given, or null. */
 export function tipAmountError(amount: number | null, rules: Pick<TipRulesView, 'min' | 'max'>) {
-  if (amount === null) return 'Summani raqam bilan yozing';
-  if (amount < rules.min) return `Kamida ${formatMoney(rules.min)}`;
-  if (amount > rules.max) return `Ko‘pi bilan ${formatMoney(rules.max)}`;
-  if (amount % 100 !== 0) return 'Summani 100 so‘mga karrali yozing';
+  if (amount === null) return t('ride.tip.errors.notNumber');
+  if (amount < rules.min) return t('ride.tip.errors.atLeast', { amount: formatMoney(rules.min) });
+  if (amount > rules.max) return t('ride.tip.errors.atMost', { amount: formatMoney(rules.max) });
+  if (amount % 100 !== 0) return t('ride.tip.errors.multiple');
   return null;
 }
 
 /** The line once a tip is given (or why it waits). */
 export function tipStatusText(tip: Pick<TipView, 'amount' | 'method' | 'status'>): string {
-  const sum = formatMoney(tip.amount);
+  const amount = formatMoney(tip.amount);
   switch (tip.status) {
     case 'recorded':
-      return `Rahmat! ${sum} choychaqani haydovchiga naqd bering.`;
+      return t('ride.tip.status.recorded', { amount });
     case 'paid':
-      return `Rahmat! ${sum} choychaqa kartadan to‘landi va to‘liq haydovchiga yetadi.`;
+      return t('ride.tip.status.paid', { amount });
     case 'awaiting_payment':
-      return `${sum} choychaqa: to‘lovni yakunlang.`;
+      return t('ride.tip.status.awaitingPayment', { amount });
     case 'refunded':
-      return `${sum} choychaqa kartangizga qaytarildi.`;
+      return t('ride.tip.status.refunded', { amount });
     case 'failed':
-      return 'Karta orqali to‘lov amalga oshmadi: qayta urinib ko‘ring yoki naqd bering.';
+      return t('ride.tip.status.failed');
   }
 }
 

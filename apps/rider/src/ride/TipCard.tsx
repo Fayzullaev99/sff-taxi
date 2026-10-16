@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { describeError } from '../api/client';
 import { type RideTipState, tipEndpoints, tipKeys, useRideTip } from '../api/tip-api';
+import { useT } from '../i18n';
 import { formatMoney } from '../lib/format';
 import { parseTipAmount, tipAmountError, tipEditable, tipStatusText } from '../lib/tips';
 import { Banner, Button, Card, Chip, Segmented, T, TextField } from '../ui/primitives';
@@ -15,6 +16,7 @@ import { CheckoutPanel } from './PaymentPanel';
  * the driver's balance). One tip per ride.
  */
 export function TipCard({ rideId, driverName }: { rideId: string; driverName: string | null }) {
+  const { t } = useT();
   const queryClient = useQueryClient();
   const state = useRideTip(rideId, true);
   const [amount, setAmount] = useState<number | null>(null);
@@ -60,16 +62,16 @@ export function TipCard({ rideId, driverName }: { rideId: string; driverName: st
   return (
     <Card style={styles.root}>
       <T variant="h3" accessibilityRole="header">
-        Choychaqa{driverName ? ` — ${driverName}ga` : ''}
+        {driverName ? t('ride.tip.titleFor', { name: driverName }) : t('ride.tip.title')}
       </T>
       {tip?.status === 'awaiting_payment' && tip.payment ? (
         <CheckoutPanel
           payment={tip.payment}
           amount={tip.amount}
-          label="Choychaqa"
-          info="Choychaqa to‘liq haydovchiga yetadi: komissiya olinmaydi."
-          expiredText="To‘lov tekshirilmoqda. To‘lamagan bo‘lsangiz, kartadan pul yechilmaydi."
-          waitingText="To‘lov hali kelmadi. To‘lov sahifasida yakunlang."
+          label={t('ride.tip.title')}
+          info={t('ride.tip.info')}
+          expiredText={t('ride.tip.expired')}
+          waitingText={t('ride.tip.waiting')}
           onCheck={() => state.refetch()}
         />
       ) : null}
@@ -88,12 +90,15 @@ export function TipCard({ rideId, driverName }: { rideId: string; driverName: st
         ))}
       </View>
       <TextField
-        placeholder={`Boshqa summa (${formatMoney(rules.min)} – ${formatMoney(rules.max)})`}
-        accessibilityLabel="Boshqa summa"
+        placeholder={t('ride.tip.otherAmountRange', {
+          min: formatMoney(rules.min),
+          max: formatMoney(rules.max),
+        })}
+        accessibilityLabel={t('ride.tip.otherAmount')}
         keyboardType="number-pad"
         value={custom}
-        onChangeText={(t) => {
-          setCustom(t);
+        onChangeText={(text) => {
+          setCustom(text);
           setAmount(null);
         }}
         error={custom ? amountError : null}
@@ -104,20 +109,20 @@ export function TipCard({ rideId, driverName }: { rideId: string; driverName: st
           value={method}
           onChange={setMethod}
           options={[
-            { value: 'cash', label: 'Naqd', icon: 'cash-outline' },
-            { value: 'card', label: 'Karta', icon: 'card-outline' },
+            { value: 'cash', label: t('common.payment.cash'), icon: 'cash-outline' },
+            { value: 'card', label: t('common.payment.card'), icon: 'card-outline' },
           ]}
         />
       ) : null}
       <T variant="small" color={colors.textMuted}>
-        {method === 'cash'
-          ? 'Naqd choychaqani haydovchiga o‘zingiz berasiz — biz faqat qayd etamiz.'
-          : 'Kartadan to‘langan choychaqa to‘liq haydovchining balansiga tushadi.'}
+        {method === 'cash' ? t('ride.tip.cashNote') : t('ride.tip.cardNote')}
       </T>
       {error ? <Banner tone="danger" message={error} /> : null}
       <Button
         title={
-          chosen && !amountError ? `${formatMoney(chosen)} choychaqa berish` : 'Choychaqa berish'
+          chosen && !amountError
+            ? t('ride.tip.giveAmount', { amount: formatMoney(chosen) })
+            : t('ride.tip.give')
         }
         icon="heart-outline"
         variant="secondary"

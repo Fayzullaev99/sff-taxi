@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Switch, View } from 'react-native';
+import { useT } from '../i18n';
 import { formatMoney } from '../lib/format';
 import type { AppliedDiscount } from '../lib/promo';
 import { Icon, T } from '../ui/primitives';
@@ -25,6 +26,7 @@ export function PromoRow({
   /** Rides for later and shared rides take no discount: why, instead of the box. */
   unavailable: string | null;
 }) {
+  const { t } = useT();
   const [entering, setEntering] = useState(false);
   if (unavailable) {
     return discount || creditBalance > 0 ? (
@@ -40,8 +42,8 @@ export function PromoRow({
           <Icon name="pricetag" size={18} color={colors.success} />
           <T variant="smallStrong" color={colors.success} style={styles.flex}>
             {discount.promo.source === 'referral'
-              ? 'Do‘st taklifi'
-              : `Promokod ${discount.promo.code}`}
+              ? t('order.promo.friendReferral')
+              : t('order.promo.promoCode', { code: discount.promo.code })}
           </T>
           <T variant="smallStrong" color={colors.success}>
             −{formatMoney(discount.promo.amount)}
@@ -58,16 +60,17 @@ export function PromoRow({
           <Icon name="wallet-outline" size={18} color={colors.ink} />
           <View style={styles.flex}>
             <T variant="smallStrong">
-              Bonus{useCredit && discount?.credit ? ` −${formatMoney(discount.credit)}` : ''}
+              {t('order.promo.bonus')}
+              {useCredit && discount?.credit ? ` −${formatMoney(discount.credit)}` : ''}
             </T>
             <T variant="caption" color={colors.textMuted}>
-              Hisobda {formatMoney(creditBalance)}
+              {t('order.promo.balance', { amount: formatMoney(creditBalance) })}
             </T>
           </View>
           <Switch
             value={useCredit}
             onValueChange={onUseCredit}
-            accessibilityLabel="Bonusdan foydalanish"
+            accessibilityLabel={t('order.promo.useBonus')}
             trackColor={{ true: colors.brand, false: colors.border }}
           />
         </View>
@@ -82,7 +85,7 @@ export function PromoRow({
         >
           <Icon name="add-circle-outline" size={18} color={colors.brandText} />
           <T variant="smallStrong" color={colors.brandText}>
-            {discount?.promo ? 'Boshqa promokod' : 'Promokod kiritish'}
+            {discount?.promo ? t('order.promo.anotherCode') : t('order.promo.enterCode')}
           </T>
         </Pressable>
       )}

@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect } from 'react';
 import { ScrollView, StyleSheet } from 'react-native';
 import { useIsSignedIn } from '../../api/session';
+import { useT } from '../../i18n';
 import { pendingInvite } from '../../lib/pending-invite';
 import { normalizeCode } from '../../lib/promo';
 import { PromoCodeEntry } from '../../order/PromoCodeEntry';
@@ -17,6 +18,7 @@ export default function PromoLinkScreen() {
   const { code: raw } = useLocalSearchParams<{ code: string }>();
   const code = normalizeCode(raw ?? '');
   const signedIn = useIsSignedIn();
+  const { t } = useT();
 
   useEffect(() => {
     if (code) void pendingInvite.set(signedIn ? null : code);
@@ -27,23 +29,22 @@ export default function PromoLinkScreen() {
       <Card style={styles.card}>
         <Icon name="pricetag-outline" size={40} color={colors.ink} />
         <T variant="h2" accessibilityRole="header">
-          Sizga promokod: {code}
+          {t('profile.promoLink.title', { code })}
         </T>
         <T variant="body" color={colors.textMuted}>
-          Kod hamyoningizga saqlanadi va mos safarda chegirma narxda ko‘rinadi. Shartlari kod yonida
-          yoziladi.
+          {t('profile.promoLink.text')}
         </T>
         {signedIn ? (
           <PromoCodeEntry initial={code} onAdded={() => router.replace('/home')} />
         ) : (
           <Button
-            title="Kirish va kodni qo‘llash"
+            title={t('profile.promoLink.signIn')}
             onPress={() => router.replace('/sign-in')}
-            accessibilityLabel={`Kirish, keyin ${code} kodini qo‘llash`}
+            accessibilityLabel={t('profile.promoLink.signInA11y', { code })}
           />
         )}
         <Button
-          title="Keyinroq"
+          title={t('profile.promoLink.later')}
           variant="ghost"
           onPress={() => {
             void pendingInvite.set(null);

@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { RidePayment } from '../api/types';
+import { setLanguage } from '../i18n/dictionary';
 import { cardLabel, cardMoneyNote, checkoutLinks, paymentSecondsLeft } from './payment';
+
+afterEach(() => setLanguage('uz'));
 
 const payment = (extra: Partial<RidePayment> = {}): RidePayment => ({
   id: 'i1',
@@ -69,5 +72,23 @@ describe('card payments', () => {
     expect(
       cardMoneyNote({ ...ride, paymentMethod: 'cash', paymentStatus: 'not_charged' }),
     ).toBeNull();
+  });
+
+  it('speaks Russian when the app does', () => {
+    setLanguage('ru');
+    expect(cardLabel(['click', 'payme'])).toBe('Карта (Payme, Click)');
+    expect(checkoutLinks(payment()).map((l) => l.label)).toEqual([
+      'Оплатить через Payme',
+      'Оплатить через Click',
+    ]);
+    const ride = {
+      status: 'cancelled' as const,
+      paymentMethod: 'card' as const,
+      fare: { quoted: 12_000 },
+      payment: payment({ status: 'refund_pending', checkout: null }),
+    };
+    const note = cardMoneyNote({ ...ride, paymentStatus: 'refund_pending' });
+    expect(note?.title).toBe('Деньги вернутся на вашу карту');
+    expect(s(note?.message)).toMatch(/^Предоплата 12 000 сум будет возвращена полностью/);
   });
 });

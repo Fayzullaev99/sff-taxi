@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useEffect } from 'react';
 import { endpoints } from '../../api/endpoints';
+import { useT } from '../../i18n';
 import { LoadingView } from '../../ui/states';
 
 /**
@@ -9,6 +10,7 @@ import { LoadingView } from '../../ui/states';
  * this only returns there: back if there is a screen to go back to, else the open ride.
  */
 export default function PaymentReturn() {
+  const { t } = useT();
   useEffect(() => {
     if (router.canGoBack()) {
       router.back();
@@ -23,5 +25,5 @@ export default function PaymentReturn() {
       )
       .catch(() => router.replace('/home'));
   }, []);
-  return <LoadingView label="To‘lov tekshirilmoqda…" />;
+  return <LoadingView label={t('payments.checking')} />;
 }

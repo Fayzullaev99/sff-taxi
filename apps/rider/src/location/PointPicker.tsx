@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import MapView, { type Region } from 'react-native-maps';
 import { useGeoConfig } from '../api/queries';
+import { useT } from '../i18n';
 import { useAppActive } from '../lib/use-app-active';
 import { Icon, IconButton } from '../ui/primitives';
 import { colors, shadow, space } from '../ui/theme';
@@ -64,6 +65,7 @@ function NativePointPicker({
   onMoveStart,
   height = 280,
 }: PointPickerProps) {
+  const { t } = useT();
   const map = useRef<MapView>(null);
   const config = useGeoConfig().data;
   const [moving, setMoving] = useState(false);
@@ -139,7 +141,7 @@ function NativePointPicker({
         ) : (
           <IconButton
             name="navigate"
-            label="Mening joylashuvim"
+            label={t('home.myLocation')}
             size={48}
             color={colors.ink}
             onPress={locate}

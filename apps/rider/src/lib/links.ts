@@ -1,4 +1,5 @@
 import { Linking, Share } from 'react-native';
+import { t } from '../i18n/dictionary';
 import { notify } from './dialogs';
 
 /**
@@ -13,7 +14,7 @@ export async function callPhone(phone: string): Promise<void> {
   try {
     await Linking.openURL(`tel:${number}`);
   } catch {
-    notify('Qo‘ng‘iroq qilib bo‘lmadi', `Raqamni qo‘lda tering: ${phone}`);
+    notify(t('profile.links.callFailed'), t('profile.links.dialManually', { phone }));
   }
 }
 
@@ -26,7 +27,7 @@ export async function openLink(url: string, fallback?: string): Promise<void> {
       await openLink(fallback);
       return;
     }
-    notify('Havolani ochib bo‘lmadi', url);
+    notify(t('profile.links.openFailed'), url);
   }
 }
 

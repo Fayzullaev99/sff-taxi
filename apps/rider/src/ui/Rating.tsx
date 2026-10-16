@@ -1,14 +1,24 @@
 import * as Haptics from 'expo-haptics';
 import { Pressable, StyleSheet, View } from 'react-native';
+import { t, useT } from '../i18n';
 import { Icon, T } from './primitives';
 import { colors, space } from './theme';
 
 export const STAR_COLOR = '#F5A623';
 
-const WORDS = ['', 'Juda yomon', 'Yomon', 'O‘rtacha', 'Yaxshi', 'A’lo'];
+const WORDS = [
+  null,
+  'ride.rating.words.w1',
+  'ride.rating.words.w2',
+  'ride.rating.words.w3',
+  'ride.rating.words.w4',
+  'ride.rating.words.w5',
+] as const;
 
+/** What the stars mean ("Yaxshi"), or the prompt to rate when none is chosen yet. */
 export function starsWord(value: number | null): string {
-  return value ? (WORDS[value] ?? '') : 'Baholang';
+  const key = value ? WORDS[value] : null;
+  return key ? t(key) : value ? '' : t('ride.rating.rate');
 }
 
 /** "4,9" as ratings are written here. */
@@ -18,8 +28,13 @@ export function formatRating(value: number): string {
 
 /** "★ 4,9" next to a driver's name. */
 export function RatingBadge({ rating }: { rating: number }) {
+  const { t } = useT();
   return (
-    <View style={styles.badge} accessible accessibilityLabel={`Reyting ${formatRating(rating)}`}>
+    <View
+      style={styles.badge}
+      accessible
+      accessibilityLabel={t('ride.driverCard.ratingA11y', { rating: formatRating(rating) })}
+    >
       <Icon name="star" size={14} color={STAR_COLOR} />
       <T variant="smallStrong">{formatRating(rating)}</T>
     </View>

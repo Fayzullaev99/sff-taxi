@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { GeoCity } from '../api/types';
+import { setLanguage } from '../i18n/dictionary';
 import { areaNotice, ringToCoordinates, suggestionLine } from './service-area';
+
+afterEach(() => setLanguage('uz'));
 
 const city = (name: string, isActive: boolean): GeoCity => ({
   id: name,
@@ -46,6 +49,26 @@ describe('service area notices', () => {
 
   it('still explains itself without an answer from /geo/resolve', () => {
     expect(areaNotice(undefined).title).toBe('Bu hududda hozircha ishlamaymiz');
+  });
+
+  it('speaks Russian when the app does', () => {
+    setLanguage('ru');
+    expect(
+      areaNotice({ status: 'upcoming', city: city('Yangiyer', false), nearest: null }),
+    ).toEqual({
+      title: 'Yangiyer — скоро',
+      message: 'Скоро начнём работать в городе Yangiyer. Пока заказать отсюда нельзя.',
+    });
+    const n = areaNotice({
+      status: 'outside',
+      city: null,
+      nearest: null,
+      nearestActive: { city: city('Guliston', true), distanceM: 23_400 },
+    });
+    expect(n.title).toBe('В этом районе мы пока не работаем');
+    expect(n.message.split(String.fromCharCode(160)).join(' ')).toBe(
+      'Ближайшая зона обслуживания: Guliston, в 23 км отсюда. Передвиньте метку в ту сторону.',
+    );
   });
 
   it('formats suggestions and polygons', () => {

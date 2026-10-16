@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import {
   type AttachedPhoto,
   MAX_COMPLAINT_PHOTOS,
@@ -17,6 +18,17 @@ const photo = (key: string, patch: Partial<AttachedPhoto> = {}): AttachedPhoto =
   uploadId: `u-${key}`,
   error: null,
   ...patch,
+});
+
+afterEach(() => setLanguage('uz'));
+
+describe('complaint photos in Russian', () => {
+  it('explains what can be added in Russian', () => {
+    setLanguage('ru');
+    expect(photoHint(2, true)).toContain('ещё 2');
+    expect(photoHint(0, true)).toContain('не больше 3');
+    expect(photoHint(3, false)).toContain('не работает');
+  });
 });
 
 describe('complaint photos', () => {

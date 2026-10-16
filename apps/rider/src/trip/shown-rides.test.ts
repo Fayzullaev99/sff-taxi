@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import {
   dismissRideNotice,
   getRideNotice,
@@ -34,5 +35,17 @@ describe('an open ride nobody looked at yet', () => {
     dismissRideNotice();
     expect(listener).toHaveBeenCalledTimes(2);
     stop();
+  });
+});
+
+describe('in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('words the notice', () => {
+    setLanguage('ru');
+    expect(rideNoticeText({ scheduledFor: '2026-10-01T05:00:00Z' })).toBe(
+      'Ищем водителя для вашего предзаказа',
+    );
+    expect(rideNoticeText({ scheduledFor: null })).toBe('У вас есть активный заказ');
   });
 });

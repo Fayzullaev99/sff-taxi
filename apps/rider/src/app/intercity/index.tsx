@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useIntercityPoints, useIntercityTrips } from '../../api/queries';
 import type { IntercityPoint, IntercityTrip } from '../../api/types';
-import { CLASS_LABELS } from '../../lib/fare';
+import { useT } from '../../i18n';
 import { formatDistance, formatMoney, formatTime } from '../../lib/format';
 import { MAX_SEATS, searchDates, alongRouteParams, boardingHint } from '../../lib/intercity';
 import { Banner, Button, Chip, Icon, IconButton, RadioMark, Stepper, T } from '../../ui/primitives';
@@ -33,8 +33,10 @@ let lastSearch: { from: string | null; to: string | null; date: string | null; s
  * departure to book.
  */
 export default function IntercityScreen() {
+  const { t } = useT();
   const points = useIntercityPoints();
-  const dates = useMemo(() => searchDates(new Date()), []);
+  // computed each render: the labels follow the language, the days roll over at midnight
+  const dates = searchDates(new Date());
   const [from, setFrom] = useState<string | null>(lastSearch.from);
   const [to, setTo] = useState<string | null>(lastSearch.to);
   const [date, setDate] = useState<string>(
@@ -62,13 +64,13 @@ export default function IntercityScreen() {
     <View style={styles.form}>
       <View style={styles.towns}>
         <View style={styles.flex}>
-          <TownField label="QAYERDAN" point={byRef(fromSlug)} onPress={() => setPicking('from')} />
+          <TownField kind="from" point={byRef(fromSlug)} onPress={() => setPicking('from')} />
           <View style={styles.townGap} />
-          <TownField label="QAYERGA" point={byRef(to)} onPress={() => setPicking('to')} />
+          <TownField kind="to" point={byRef(to)} onPress={() => setPicking('to')} />
         </View>
         <IconButton
           name="swap-vertical"
-          label="Shaharlarni almashtirish"
+          label={t('intercity.board.swapTowns')}
           size={44}
           background={colors.surface}
           onPress={() => {
@@ -96,13 +98,13 @@ export default function IntercityScreen() {
 
       <View style={styles.seatsRow}>
         <T variant="bodyStrong" style={styles.flex}>
-          Yo‘lovchilar
+          {t('intercity.board.passengers')}
         </T>
         <Stepper value={seats} min={1} max={MAX_SEATS} onChange={setSeats} />
       </View>
 
       <Button
-        title="Bronlarim"
+        title={t('common.screens.bookings')}
         icon="ticket-outline"
         variant="outline"
         size="sm"
@@ -113,10 +115,7 @@ export default function IntercityScreen() {
         <ErrorView error={points.error} onRetry={() => void points.refetch()} />
       ) : null}
       {!to && list.length ? (
-        <Banner
-          tone="info"
-          message="Qayerga borishingizni tanlang — shu kunning qatnovlari chiqadi."
-        />
+        <Banner tone="info" message={t('intercity.board.pickDestination')} />
       ) : null}
       {q && trips.isPending ? (
         <View style={styles.gap}>
@@ -137,7 +136,7 @@ export default function IntercityScreen() {
       <FlatList
         style={styles.root}
         data={results}
-        keyExtractor={(t) => t.id}
+        keyExtractor={(item) => item.id}
         ListHeaderComponent={header}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
@@ -155,15 +154,15 @@ export default function IntercityScreen() {
           q && trips.isSuccess && !trips.isPlaceholderData ? (
             <EmptyView
               icon="bus-outline"
-              title="Bu kunga qatnov yo‘q"
-              message="Boshqa kunni tanlang yoki keyinroq qarang: haydovchilar qatnovlarni 7 kun oldin e’lon qiladi."
+              title={t('intercity.board.noTripsTitle')}
+              message={t('intercity.board.noTripsMessage')}
             />
           ) : null
         }
       />
       <Sheet visible={picking !== null} onClose={() => setPicking(null)}>
         <T variant="h2" accessibilityRole="header" style={styles.sheetTitle}>
-          {picking === 'from' ? 'Qayerdan?' : 'Qayerga?'}
+          {picking === 'from' ? t('intercity.board.fromQuestion') : t('intercity.board.toQuestion')}
         </T>
         {points.isPending ? (
           <View style={styles.sheetState}>
@@ -179,9 +178,9 @@ export default function IntercityScreen() {
           <View style={styles.sheetState}>
             <EmptyView
               icon="location-outline"
-              title="Shaharlar topilmadi"
-              message="Shaharlar ro‘yxati hozircha bo‘sh. Keyinroq qayta urinib ko‘ring."
-              actionTitle="Qayta urinish"
+              title={t('intercity.board.noTownsTitle')}
+              message={t('intercity.board.noTownsMessage')}
+              actionTitle={t('common.actions.retry')}
               onAction={() => void points.refetch()}
             />
           </View>
@@ -223,37 +222,53 @@ export default function IntercityScreen() {
 }
 
 function TownField({
-  label,
+  kind,
   point,
   onPress,
 }: {
-  label: string;
+  kind: 'from' | 'to';
   point: IntercityPoint | null;
   onPress: () => void;
 }) {
+  const { t } = useT();
+  const field = kind === 'from' ? t('intercity.board.from') : t('intercity.board.to');
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${label === 'QAYERDAN' ? 'Qayerdan' : 'Qayerga'}: ${point?.nameUz ?? 'tanlanmagan'}. Tanlash`}
+      accessibilityLabel={t('intercity.board.townA11y', {
+        field,
+        town: point?.nameUz ?? t('intercity.board.notChosen'),
+      })}
       onPress={onPress}
       style={({ pressed }) => [styles.townField, pressed ? styles.pressed : null]}
     >
       <T variant="caption" color={colors.textMuted}>
-        {label}
+        {kind === 'from' ? t('intercity.board.fromLabel') : t('intercity.board.toLabel')}
       </T>
       <T variant="bodyStrong" color={point ? colors.text : colors.placeholder}>
-        {point?.nameUz ?? 'Shaharni tanlang'}
+        {point?.nameUz ?? t('intercity.board.chooseTown')}
       </T>
     </Pressable>
   );
 }
 
 function TripCard({ trip, onPress }: { trip: IntercityTrip; onPress: () => void }) {
+  const { t } = useT();
   const car = `${trip.vehicle.colour} ${trip.vehicle.make} ${trip.vehicle.model}`;
+  const freeSeats = t('intercity.seats.free', { count: trip.seats.free });
+  const hint = boardingHint(trip);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Soat ${formatTime(trip.departureAt)}${trip.alongTheWay ? ', yo‘l-yo‘lakay' : ''}, ${car}, ${trip.seats.free} ta bo‘sh joy, orqa o‘rindiq ${formatMoney(trip.price.rear)}`}
+      accessibilityLabel={t(
+        trip.alongTheWay ? 'intercity.board.tripA11yAlong' : 'intercity.board.tripA11y',
+        {
+          time: formatTime(trip.departureAt),
+          car,
+          seats: freeSeats,
+          rear: formatMoney(trip.price.rear),
+        },
+      )}
       onPress={onPress}
       style={({ pressed }) => [styles.card, pressed ? styles.pressed : null]}
     >
@@ -265,16 +280,19 @@ function TripCard({ trip, onPress }: { trip: IntercityTrip; onPress: () => void 
           </T>
           {trip.alongTheWay && trip.pickup && trip.dropoff ? (
             <T variant="smallStrong" color={colors.brandText} numberOfLines={2}>
-              Yo‘l-yo‘lakay: siz {trip.pickup.nameUz} → {trip.dropoff.nameUz}
+              {t('intercity.board.alongLine', {
+                from: trip.pickup.nameUz,
+                to: trip.dropoff.nameUz,
+              })}
             </T>
           ) : null}
-          {boardingHint(trip) ? (
+          {hint ? (
             <T variant="small" color={colors.brandText} numberOfLines={2}>
-              Mashinaga o‘tirish: {boardingHint(trip)}
+              {t('intercity.board.boarding', { hint })}
             </T>
           ) : null}
           <T variant="small" color={colors.textMuted} numberOfLines={1}>
-            {car} · {CLASS_LABELS[trip.class]} ·{' '}
+            {car} · {t(`common.classes.${trip.class}`)} ·{' '}
             {formatDistance(
               trip.alongTheWay ? (trip.partDistanceM ?? trip.distanceM) : trip.distanceM,
             )}
@@ -287,19 +305,20 @@ function TripCard({ trip, onPress }: { trip: IntercityTrip; onPress: () => void 
             {trip.driver.name} · ★ {formatRating(trip.driver.rating)}
           </T>
           <T variant="smallStrong" color={trip.seats.free > 1 ? colors.success : colors.warning}>
-            {trip.seats.free} ta bo‘sh joy{trip.seats.frontFree ? ' · old o‘rindiq bor' : ''}
+            {freeSeats}
+            {trip.seats.frontFree ? ` · ${t('intercity.seats.frontAvailable')}` : ''}
           </T>
         </View>
         <View style={styles.priceCol}>
           <T variant="price">{formatMoney(trip.price.rear)}</T>
           {trip.alongTheWay && trip.fullPrice ? (
             <T variant="caption" color={colors.textMuted}>
-              butun yo‘l {formatMoney(trip.fullPrice.rear)}
+              {t('intercity.board.fullRoutePrice', { price: formatMoney(trip.fullPrice.rear) })}
             </T>
           ) : null}
           {trip.seats.frontFree ? (
             <T variant="caption" color={colors.textMuted}>
-              oldinda {formatMoney(trip.price.front)}
+              {t('intercity.board.frontPrice', { price: formatMoney(trip.price.front) })}
             </T>
           ) : null}
         </View>

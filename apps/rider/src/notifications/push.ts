@@ -11,6 +11,7 @@ import { Platform } from 'react-native';
 import { endpoints } from '../api/endpoints';
 import { getSessionStatus } from '../api/session';
 import { getLanguage } from '../i18n/core';
+import { t } from '../i18n/dictionary';
 import { isChatOnScreen } from '../lib/chat-open';
 import { colors } from '../ui/theme';
 import { pushPermissionState, resolveProjectId } from './data';
@@ -56,8 +57,9 @@ export function configureNotifications(): Promise<void> {
     });
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('rides', {
-        name: 'Safarlar',
-        description: 'Haydovchi topildi, yetib keldi, buyurtma bekor qilindi',
+        // in the language at start-up: the channel is set again on the next start
+        name: t('home.push.channelName'),
+        description: t('home.push.channelDescription'),
         importance: Notifications.AndroidImportance.HIGH,
         sound: 'default',
         vibrationPattern: [0, 250, 250, 250],

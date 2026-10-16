@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useHistory } from '../api/queries';
 import type { RideSummary } from '../api/types';
+import { useT } from '../i18n';
 import { classLabel, SERVICE_NAMES } from '../lib/services';
 import { formatDateTime, formatMoney, placeLine } from '../lib/format';
 import { rideScreen } from '../lib/ride-state';
@@ -20,6 +21,7 @@ import { colors, radius, space } from '../ui/theme';
 
 /** Past and current rides, newest first, 30 per page. */
 export default function HistoryScreen() {
+  const { t } = useT();
   const history = useHistory();
   const pages = history.data?.pages;
   const items = useMemo(() => pages?.flatMap((p) => p.items) ?? [], [pages]);
@@ -56,9 +58,9 @@ export default function HistoryScreen() {
       ListEmptyComponent={
         <EmptyView
           icon="car-outline"
-          title="Hali safarlar yo‘q"
-          message="Birinchi safaringizni xaritadan buyurtma qiling."
-          actionTitle="Taksi chaqirish"
+          title={t('history.emptyTitle')}
+          message={t('history.emptyMessage')}
+          actionTitle={t('history.callTaxi')}
           onAction={() => router.dismissTo('/home')}
         />
       }
@@ -86,6 +88,7 @@ function Separator() {
 
 /** One ride; memoised, so pages loaded later or a refetch do not redraw unchanged rows. */
 const RideRow = memo(function RideRow({ ride }: { ride: RideSummary }) {
+  const { t } = useT();
   const screen = rideScreen(ride);
   const amount =
     ride.status === 'completed'
@@ -96,18 +99,24 @@ const RideRow = memo(function RideRow({ ride }: { ride: RideSummary }) {
         : (ride.fare.pays ?? ride.fare.quoted);
   const statusText =
     ride.status === 'completed'
-      ? 'Yakunlangan'
+      ? t('history.status.completed')
       : screen.final
         ? screen.title
         : ride.status === 'scheduled' && ride.scheduledFor
-          ? `Oldindan · ${formatDateTime(ride.scheduledFor)}`
+          ? t('history.status.scheduledAt', { when: formatDateTime(ride.scheduledFor) })
           : ride.status === 'awaiting_payment'
-            ? 'To‘lov kutilmoqda'
-            : 'Faol';
+            ? t('ride.state.title.awaiting_payment')
+            : t('history.status.active');
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${formatDateTime(ride.requestedAt)}, ${placeLine(ride.pickup)} dan ${placeLine(ride.dropoff)} ga, ${statusText}, ${formatMoney(amount)}`}
+      accessibilityLabel={t('history.rowA11y', {
+        when: formatDateTime(ride.requestedAt),
+        from: placeLine(ride.pickup),
+        to: placeLine(ride.dropoff),
+        status: statusText,
+        amount: formatMoney(amount),
+      })}
       onPress={() => router.push({ pathname: '/ride/[id]', params: { id: ride.id } })}
       style={({ pressed }) => [styles.row, pressed ? { backgroundColor: colors.surface } : null]}
     >
@@ -138,7 +147,7 @@ const RideRow = memo(function RideRow({ ride }: { ride: RideSummary }) {
           {placeLine(ride.dropoff)}
         </T>
         <T variant="small" color={colors.textMuted} numberOfLines={1}>
-          {placeLine(ride.pickup)} dan
+          {t('history.fromPlace', { place: placeLine(ride.pickup) })}
         </T>
         <T variant="smallStrong" color={STATUS_COLOR[screen.phase] ?? colors.brandText}>
           {statusText}

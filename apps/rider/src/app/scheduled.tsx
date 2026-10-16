@@ -7,6 +7,7 @@ import { describeError } from '../api/client';
 import { endpoints } from '../api/endpoints';
 import { keys, useScheduledRides } from '../api/queries';
 import type { RideSummary } from '../api/types';
+import { useT } from '../i18n';
 import { confirm, notify } from '../lib/dialogs';
 import { classLabel } from '../lib/services';
 import { formatDateTime, formatMoney, formatTime, placeLine } from '../lib/format';
@@ -20,6 +21,7 @@ import { colors, radius, space } from '../ui/theme';
  * before; until then a ride can be cancelled free.
  */
 export default function ScheduledScreen() {
+  const { t } = useT();
   const query = useScheduledRides();
   const queryClient = useQueryClient();
   const [cancelling, setCancelling] = useState<string | null>(null);
@@ -27,10 +29,10 @@ export default function ScheduledScreen() {
 
   const cancel = async (ride: RideSummary) => {
     const ok = await confirm({
-      title: 'Oldindan buyurtmani bekor qilasizmi?',
+      title: t('history.scheduled.cancelQuestion'),
       message: `${ride.scheduledFor ? formatDateTime(ride.scheduledFor) : ''} · ${placeLine(ride.dropoff)}. ${cancelTerms({ ...ride, cancelFeeNow: 0 }, null, new Date()).message}`,
-      confirmText: 'Bekor qilish',
-      cancelText: 'Qoldirish',
+      confirmText: t('common.actions.cancel'),
+      cancelText: t('history.scheduled.keep'),
       destructive: true,
     });
     if (!ok) return;
@@ -44,7 +46,7 @@ export default function ScheduledScreen() {
       void queryClient.invalidateQueries({ queryKey: keys.scheduled });
       void queryClient.invalidateQueries({ queryKey: keys.history });
     } catch (e) {
-      notify('Bekor qilinmadi', describeError(e));
+      notify(t('history.scheduled.cancelFailed'), describeError(e));
       void query.refetch();
     } finally {
       setCancelling(null);
@@ -72,8 +74,7 @@ export default function ScheduledScreen() {
       ListHeaderComponent={
         rides.length ? (
           <T variant="small" color={colors.textMuted} style={styles.note}>
-            Haydovchi qidiruvi belgilangan vaqtdan 15 daqiqa oldin boshlanadi. Bir vaqtda{' '}
-            {SCHEDULED_PER_RIDER} tagacha oldindan buyurtma berish mumkin.
+            {t('history.scheduled.note', { max: SCHEDULED_PER_RIDER })}
           </T>
         ) : null
       }
@@ -82,7 +83,11 @@ export default function ScheduledScreen() {
           <PressableRow
             style={styles.row}
             onPress={() => router.push({ pathname: '/ride/[id]', params: { id: item.id } })}
-            accessibilityLabel={`${item.scheduledFor ? formatDateTime(item.scheduledFor) : ''}, ${placeLine(item.dropoff)} ga, ${formatMoney(item.fare.quoted)}`}
+            accessibilityLabel={t('history.scheduled.rowA11y', {
+              when: item.scheduledFor ? formatDateTime(item.scheduledFor) : '',
+              to: placeLine(item.dropoff),
+              amount: formatMoney(item.fare.quoted),
+            })}
           >
             <View style={styles.icon}>
               <Icon name="calendar" size={20} color={colors.ink} />
@@ -93,17 +98,22 @@ export default function ScheduledScreen() {
                 {placeLine(item.dropoff)}
               </T>
               <T variant="small" color={colors.textMuted} numberOfLines={1}>
-                {placeLine(item.pickup)} dan · {classLabel(item.class)}
+                {t('history.fromPlace', { place: placeLine(item.pickup) })} ·{' '}
+                {classLabel(item.class)}
               </T>
               {item.status === 'awaiting_payment' ? (
                 <T variant="smallStrong" color={colors.warning}>
-                  Depozit to‘lanmagan — to‘lash uchun bosing
+                  {t('history.scheduled.depositUnpaid')}
                 </T>
               ) : item.scheduledFor ? (
                 <T variant="small" color={colors.textMuted}>
-                  Qidiruv {formatTime(searchStartsAt(item.scheduledFor))} da boshlanadi
+                  {t('history.scheduled.searchStarts', {
+                    time: formatTime(searchStartsAt(item.scheduledFor)),
+                  })}
                   {(item.fare.deposit ?? 0) > 0
-                    ? ` · depozit ${formatMoney(item.fare.deposit!)} to‘langan`
+                    ? ` · ${t('history.scheduled.depositPaid', {
+                        amount: formatMoney(item.fare.deposit!),
+                      })}`
                     : ''}
                 </T>
               ) : null}
@@ -111,7 +121,7 @@ export default function ScheduledScreen() {
             <T variant="bodyStrong">{formatMoney(item.fare.quoted)}</T>
           </PressableRow>
           <Button
-            title="Bekor qilish"
+            title={t('common.actions.cancel')}
             variant="ghost"
             size="sm"
             loading={cancelling === item.id}
@@ -122,9 +132,9 @@ export default function ScheduledScreen() {
       ListEmptyComponent={
         <EmptyView
           icon="calendar-outline"
-          title="Oldindan buyurtmalar yo‘q"
-          message="Tarif tanlashda “Keyinroq” ni bosib, 30 daqiqadan 24 soatgacha oldin taksi buyurtma qiling."
-          actionTitle="Taksi chaqirish"
+          title={t('history.scheduled.emptyTitle')}
+          message={t('history.scheduled.emptyMessage')}
+          actionTitle={t('history.callTaxi')}
           onAction={() => router.dismissTo('/home')}
         />
       }

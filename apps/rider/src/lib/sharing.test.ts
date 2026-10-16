@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import type { PoolCar, Quote, RouteFare } from '../api/types';
 import {
   clampPassengers,
@@ -282,5 +283,26 @@ describe('a deposit for a ride booked for later', () => {
     expect(
       depositPayment({ payment: { amount: 30_000 }, fare: { quoted: 30_000, deposit: 0 } }),
     ).toBeNull();
+  });
+});
+
+describe('in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('declines people, seats and women drivers by count', () => {
+    setLanguage('ru');
+    expect(poolCarText(car())).toBe(`внутри 1 человек, 2 свободных места (сзади 2), ~3${N}мин`);
+    expect(poolCarText(car({ inCar: 0, front: 1, rear: 1, free: 1, etaS: 60 }))).toBe(
+      `пока пусто, 1 свободное место (сзади 1), ~1${N}мин`,
+    );
+    expect(womenDriversText({ cars: 2, etaS: 240 })).toBe(
+      `Рядом 2 женщины-водителя · ближайшая ~4${N}мин`,
+    );
+    expect(womenDriversText({ cars: 5, etaS: 240 })).toContain('5 женщин-водителей');
+    expect(occupancyText({ inCar: 3, free: 0 })).toBe('В машине 3 человека · свободных мест нет');
+    expect(shareToggleText(15)).toBe('Возьму попутчика — скидка до ~15%');
+    expect(genderLock('2026-10-20T10:00:00Z', new Date('2026-09-29T09:00:00Z')).text).toBe(
+      'Пол можно менять раз в 30 дней. Следующее изменение: 20 октября.',
+    );
   });
 });

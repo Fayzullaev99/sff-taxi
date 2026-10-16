@@ -1,4 +1,5 @@
 import { Alert } from 'react-native';
+import { t } from '../i18n/dictionary';
 
 export interface ConfirmOptions {
   title: string;
@@ -16,7 +17,7 @@ export function confirm(options: ConfirmOptions): Promise<boolean> {
       options.message,
       [
         {
-          text: options.cancelText ?? 'Bekor qilish',
+          text: options.cancelText ?? t('common.actions.cancel'),
           style: 'cancel',
           onPress: () => resolve(false),
         },

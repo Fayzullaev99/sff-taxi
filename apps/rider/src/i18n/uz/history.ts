@@ -1,2 +1,44 @@
 /** Texts of the history screens (Uzbek Latin, the source language). */
-export const history = {};
+export const history = {
+  emptyTitle: 'Hali safarlar yo‘q',
+  emptyMessage: 'Birinchi safaringizni xaritadan buyurtma qiling.',
+  callTaxi: 'Taksi chaqirish',
+  status: {
+    completed: 'Yakunlangan',
+    scheduledAt: 'Oldindan · {when}',
+    active: 'Faol',
+  },
+  fromPlace: '{place} dan',
+  rowA11y: '{when}, {from} dan {to} ga, {status}, {amount}',
+  scheduled: {
+    cancelQuestion: 'Oldindan buyurtmani bekor qilasizmi?',
+    keep: 'Qoldirish',
+    cancelFailed: 'Bekor qilinmadi',
+    note: 'Haydovchi qidiruvi belgilangan vaqtdan 15 daqiqa oldin boshlanadi. Bir vaqtda {max} tagacha oldindan buyurtma berish mumkin.',
+    rowA11y: '{when}, {to} ga, {amount}',
+    depositUnpaid: 'Depozit to‘lanmagan — to‘lash uchun bosing',
+    searchStarts: 'Qidiruv {time} da boshlanadi',
+    depositPaid: 'depozit {amount} to‘langan',
+    emptyTitle: 'Oldindan buyurtmalar yo‘q',
+    emptyMessage:
+      'Tarif tanlashda “Keyinroq” ni bosib, 30 daqiqadan 24 soatgacha oldin taksi buyurtma qiling.',
+  },
+  places: {
+    home: 'Uy',
+    work: 'Ish',
+    homeTitle: 'Uy manzili',
+    workTitle: 'Ish manzili',
+    newPlace: 'Yangi manzil',
+    unhidden: 'Yashirilgan oxirgi manzillar qidiruvda yana ko‘rinadi.',
+    removeQuestion: 'Manzilni o‘chirasizmi?',
+    removeFailed: 'O‘chirilmadi',
+    tapToAdd: 'Qo‘shish uchun bosing',
+    addOther: 'Boshqa manzil qo‘shish',
+    maxReached: 'Ko‘pi bilan {max} ta manzil saqlash mumkin.',
+    syncedNote:
+      'Manzillar hisobingizda saqlanadi: boshqa telefondan kirsangiz ham shu yerda bo‘ladi.',
+    hideHint: 'Oxirgi manzillardan birini yashirish uchun qidiruvda uni bosib turing.',
+    unhide: 'Yashirilgan manzillarni qaytarish',
+    removeA11y: '{title} manzilini o‘chirish',
+  },
+};

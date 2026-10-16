@@ -6,6 +6,7 @@ import { ApiError, describeError, isOffline } from '../api/client';
 import { endpoints } from '../api/endpoints';
 import { keys } from '../api/queries';
 import type { OrderInput } from '../api/types';
+import { useT } from '../i18n';
 import { OrderAttempts, orderKey } from '../lib/order-attempt';
 import { askForPushAfterOrder } from '../notifications/push';
 import { resetAfterOrder } from '../trip/draft';
@@ -18,6 +19,7 @@ import { markRideShown } from '../trip/shown-rides';
  * priced again; then the ride screen (a deposit or a card ride shows its payment there).
  */
 export function useOrderSubmit(onQuoteExpired: () => void) {
+  const { t } = useT();
   const queryClient = useQueryClient();
   const attempts = useRef(new OrderAttempts(() => Crypto.randomUUID())).current;
   const [busy, setBusy] = useState(false);
@@ -50,7 +52,7 @@ export function useOrderSubmit(onQuoteExpired: () => void) {
       if (isOffline(e)) {
         // the ride may exist: the same clientRequestId on retry returns it, never a second one
         attempts.settle('unknown');
-        setError('Aloqa yo‘q. Qayta bosing — buyurtma ikki marta tushmaydi.');
+        setError(t('order.submit.offlineRetry'));
       } else if (e instanceof ApiError && e.status === 409) {
         attempts.settle('rejected');
         const rideId = (e.body as { rideId?: unknown } | null)?.rideId;
@@ -65,7 +67,7 @@ export function useOrderSubmit(onQuoteExpired: () => void) {
         if ((e.body as { reason?: unknown } | null)?.reason) onQuoteExpired();
       } else if (e instanceof ApiError && (e.status === 404 || e.status === 410)) {
         attempts.settle('rejected');
-        setError('Narx yangilandi, qaytadan tasdiqlang.');
+        setError(t('order.submit.quoteExpired'));
         onQuoteExpired();
       } else if (e instanceof ApiError && e.status >= 500) {
         attempts.settle('unknown');

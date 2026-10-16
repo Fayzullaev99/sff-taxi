@@ -8,7 +8,8 @@ import { endpoints } from '../../api/endpoints';
 import { keys, useComplaint } from '../../api/queries';
 import { useLiveRides } from '../../api/realtime';
 import type { ComplaintMessage } from '../../api/types';
-import { COMPLAINT_STATUS_LABELS, RESOLUTION_LABELS } from '../../lib/complaints';
+import { useT } from '../../i18n';
+import { complaintStatusLabel, resolutionLabel } from '../../lib/complaints';
 import { formatDateTime } from '../../lib/format';
 import { PhotoAttach, PhotoStrip, useComplaintPhotos } from '../../ui/ComplaintPhotos';
 import { Banner, Button, Card, IconButton, T, TextField } from '../../ui/primitives';
@@ -19,6 +20,7 @@ import { KeyboardAvoider } from '../../ui/KeyboardAvoider';
 /** One complaint: what the rider wrote, the thread with the operators, the outcome. */
 export default function ComplaintScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { t } = useT();
   useLiveRides();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
@@ -74,18 +76,18 @@ export default function ComplaintScreen() {
               onPress={() => router.push({ pathname: '/ride/[id]', params: { id: c.rideId } })}
               accessibilityRole="link"
             >
-              safar #{c.rideNumber}
+              {t('support.rideNumberLower', { number: c.rideNumber })}
             </T>
           </T>
           <T variant="smallStrong" color={resolved ? colors.success : colors.info}>
-            {COMPLAINT_STATUS_LABELS[c.status]}
+            {complaintStatusLabel(c.status)}
           </T>
         </View>
 
         {resolved ? (
           <Banner
             tone="success"
-            title={c.resolution ? RESOLUTION_LABELS[c.resolution] : 'Murojaat yopildi'}
+            title={c.resolution ? resolutionLabel(c.resolution) : t('support.closed')}
             message={c.resolutionNote ?? undefined}
           />
         ) : null}
@@ -97,27 +99,27 @@ export default function ComplaintScreen() {
         ))}
         {!c.messages.some((m) => m.authorRole === 'admin') && !resolved ? (
           <T variant="small" color={colors.textMuted} align="center">
-            Operator ko‘rib chiqib, shu yerda javob beradi.
+            {t('support.awaitingOperator')}
           </T>
         ) : null}
 
         {!resolved ? (
           <Card style={styles.reply}>
             <TextField
-              placeholder="Qo‘shimcha yozing…"
+              placeholder={t('support.replyPlaceholder')}
               value={text}
-              onChangeText={(t) => {
+              onChangeText={(value) => {
                 setError(null);
-                setText(t);
+                setText(value);
               }}
               maxLength={2000}
               multiline
-              accessibilityLabel="Javob"
+              accessibilityLabel={t('support.reply')}
               style={styles.flex}
             />
             <IconButton
               name="send"
-              label="Yuborish"
+              label={t('common.actions.send')}
               size={46}
               background={canSend ? colors.brand : colors.surface}
               color={colors.ink}
@@ -129,11 +131,11 @@ export default function ComplaintScreen() {
         {error ? <Banner tone="danger" message={error} /> : null}
         {busy ? (
           <T variant="small" color={colors.textMuted}>
-            Yuborilmoqda…
+            {t('support.sending')}
           </T>
         ) : null}
         <Button
-          title="Barcha murojaatlar"
+          title={t('support.all')}
           variant="ghost"
           onPress={() => router.replace('/support')}
         />
@@ -147,15 +149,20 @@ function Message({ message }: { message: ComplaintMessage }) {
 }
 
 function Bubble({ mine, text, at }: { mine: boolean; text: string; at: string }) {
+  const { t } = useT();
   return (
     <View
       style={[styles.bubble, mine ? styles.mine : styles.theirs]}
       accessible
-      accessibilityLabel={`${mine ? 'Siz' : 'Operator'}: ${text}. ${formatDateTime(at)}`}
+      accessibilityLabel={t('support.bubbleA11y', {
+        author: mine ? t('support.you') : t('common.app.operator'),
+        text,
+        time: formatDateTime(at),
+      })}
     >
       {!mine ? (
         <T variant="caption" color={colors.textMuted}>
-          SFF Taxi operatori
+          {t('support.operatorName')}
         </T>
       ) : null}
       <T variant="body">{text}</T>

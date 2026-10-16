@@ -1,4 +1,5 @@
 import { StyleSheet, View } from 'react-native';
+import { useT } from '../i18n';
 import { formatLocalPhoneInput } from '../lib/format';
 import { checkRecipient, parseWeight } from '../lib/services';
 import { updateDraft } from '../trip/draft';
@@ -34,24 +35,25 @@ export function ParcelFields({
   /** Errors show once the rider tried to order (not while typing the first letters). */
   showErrors: boolean;
 }) {
+  const { t } = useT();
   const { weight, recipient } = parcelErrors(draft, maxWeightKg);
   return (
     <View style={styles.root}>
       <Banner
         tone="info"
         icon="cube-outline"
-        message={`Posilka taksi mashinasida, siz mashinada bo‘lmaysiz. ${maxWeightKg} kg gacha; og‘irroq yuk uchun «Yuk» xizmati.`}
+        message={t('order.parcel.intro', { kg: maxWeightKg })}
       />
       <TextField
-        label="Nima yuboriladi"
-        placeholder="Masalan: hujjatlar, kalit, sovg‘a qutisi"
+        label={t('order.parcel.whatLabel')}
+        placeholder={t('order.parcel.whatPlaceholder')}
         value={draft.parcelDescription}
         onChangeText={(parcelDescription) => updateDraft({ parcelDescription })}
         maxLength={300}
       />
       <TextField
-        label={`Og‘irligi, kg (ixtiyoriy, ${maxWeightKg} kg gacha)`}
-        placeholder="Masalan: 2"
+        label={t('order.parcel.weightLabel', { kg: maxWeightKg })}
+        placeholder={t('order.parcel.weightPlaceholder')}
         keyboardType="decimal-pad"
         value={draft.parcelWeight}
         onChangeText={(parcelWeight) => updateDraft({ parcelWeight })}
@@ -59,11 +61,11 @@ export function ParcelFields({
         error={weight.error}
       />
       <T variant="h3" accessibilityRole="header" style={styles.section}>
-        Qabul qiluvchi
+        {t('order.parcel.recipient')}
       </T>
       <TextField
-        label="Ismi"
-        placeholder="Masalan: Dilnoza"
+        label={t('order.parcel.recipientName')}
+        placeholder={t('order.parcel.recipientNamePlaceholder')}
         value={draft.recipientName}
         onChangeText={(recipientName) => updateDraft({ recipientName })}
         maxLength={100}
@@ -71,18 +73,20 @@ export function ParcelFields({
         error={showErrors ? recipient.nameError : null}
       />
       <TextField
-        label="Telefoni"
+        label={t('order.parcel.recipientPhone')}
         prefix="+998"
         placeholder="90 123 45 67"
         keyboardType="phone-pad"
         value={formatLocalPhoneInput(draft.recipientPhone.replace(/^\+?998/, ''))}
-        onChangeText={(t) => updateDraft({ recipientPhone: t.replace(/\D/g, '').slice(0, 9) })}
+        onChangeText={(text) =>
+          updateDraft({ recipientPhone: text.replace(/\D/g, '').slice(0, 9) })
+        }
         maxLength={12}
         error={showErrors ? recipient.phoneError : null}
-        hint="Haydovchi unga qo‘ng‘iroq qiladi, u SMS orqali mashina ma’lumotini oladi."
+        hint={t('order.parcel.recipientPhoneHint')}
       />
       <T variant="small" color={colors.textMuted}>
-        Haydovchi posilkani olgach sizga xabar keladi; yetkazilganda ham.
+        {t('order.parcel.notifications')}
       </T>
     </View>
   );

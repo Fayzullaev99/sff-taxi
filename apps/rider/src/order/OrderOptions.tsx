@@ -1,7 +1,8 @@
 import { memo, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Switch, View } from 'react-native';
 import type { RideOption, TariffInfo } from '../api/types';
-import { OPTION_HINTS, OPTION_LABELS, optionPriceLabel, RIDE_OPTIONS } from '../lib/fare';
+import { useT } from '../i18n';
+import { optionHint, optionLabel, optionPriceLabel, RIDE_OPTIONS } from '../lib/fare';
 import { T } from '../ui/primitives';
 import { colors, radius, space } from '../ui/theme';
 
@@ -23,14 +24,16 @@ export function OrderOptions({
   /** Extra preference rows shown first (ride-wide choices). */
   children?: ReactNode;
 }) {
+  // re-renders the option names on a language switch (the labels are read at render)
+  useT();
   return (
     <View style={styles.group}>
       {children}
       {RIDE_OPTIONS.map((o) => (
         <PreferenceRow
           key={o}
-          label={OPTION_LABELS[o]}
-          hint={OPTION_HINTS[o]}
+          label={optionLabel(o)}
+          hint={optionHint(o)}
           price={optionPriceLabel(prices?.[o])}
           value={selected.includes(o)}
           onChange={() => onToggle(o)}

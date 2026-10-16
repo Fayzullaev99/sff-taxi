@@ -14,6 +14,7 @@ import type {
   RideStatus,
   WaitingRule,
 } from '../api/types';
+import { t, type TKey } from '../i18n/dictionary';
 import { rideDepositCancel } from './deposit';
 import { formatDistance, formatMoney } from './format';
 
@@ -38,26 +39,55 @@ export function rideRules(ride: { rules?: RideRulesView | null }): RideRules | n
 
 /** The waiting rule in one sentence, for the order and ride screens. */
 export function waitingRuleText(rules: RideRules): string {
-  return (
-    `Haydovchi yetib kelgach ${rules.waiting.free_minutes} daqiqa kutish bepul, keyin har daqiqa ` +
-    `${formatMoney(rules.waiting.per_minute)}. Shu vaqt tugagach bekor qilish ` +
-    `${formatMoney(rules.cancellationFee)}.`
-  );
+  return t('order.fare.waitingRule', {
+    minutes: rules.waiting.free_minutes,
+    perMinute: formatMoney(rules.waiting.per_minute),
+    fee: formatMoney(rules.cancellationFee),
+  });
 }
 
-export const CLASS_LABELS: Record<RideClass, string> = {
-  economy: 'Ekonom',
-  comfort: 'Komfort',
-  minivan: 'Miniven',
-  business: 'Biznes',
+const CLASS_LABEL_KEYS: Record<RideClass, TKey> = {
+  economy: 'common.classes.economy',
+  comfort: 'common.classes.comfort',
+  minivan: 'common.classes.minivan',
+  business: 'common.classes.business',
 };
 
-export const CLASS_NOTES: Record<RideClass, string> = {
-  economy: 'Cobalt, Nexia, Lacetti',
-  comfort: 'Yangi va keng mashinalar',
-  minivan: 'Orlando, Captiva 7, Carnival',
-  business: 'Malibu 2, Tracker Premier, K5',
+/** A taxi class's name in the app's language: "Ekonom" / "Эконом". */
+export function rideClassLabel(rideClass: RideClass): string {
+  return t(CLASS_LABEL_KEYS[rideClass]);
+}
+
+/**
+ * The class names as a table, read in the app's language at access time (getters), for
+ * screens that index it: `CLASS_LABELS[trip.class]`. New code calls `rideClassLabel`.
+ */
+export const CLASS_LABELS: Readonly<Record<RideClass, string>> = {
+  get economy() {
+    return rideClassLabel('economy');
+  },
+  get comfort() {
+    return rideClassLabel('comfort');
+  },
+  get minivan() {
+    return rideClassLabel('minivan');
+  },
+  get business() {
+    return rideClassLabel('business');
+  },
 };
+
+const CLASS_NOTE_KEYS: Record<RideClass, TKey> = {
+  economy: 'order.classes.notes.economy',
+  comfort: 'order.classes.notes.comfort',
+  minivan: 'order.classes.notes.minivan',
+  business: 'order.classes.notes.business',
+};
+
+/** Car examples of a class, when the quote does not name them. */
+export function classNote(rideClass: RideClass): string {
+  return t(CLASS_NOTE_KEYS[rideClass]);
+}
 
 /** The taxi classes in display order. */
 export const RIDE_CLASSES: readonly RideClass[] = ['economy', 'comfort', 'minivan', 'business'];
@@ -88,14 +118,14 @@ export function quoteClasses(quote: Pick<Quote, 'fares' | 'classes'>): ClassChoi
     ? listed.map((c) => ({ id: c.id, label: c.label, examples: c.examples, max: c.maxPassengers }))
     : RIDE_CLASSES.filter((c) => quote.fares[c]).map((c) => ({
         id: c,
-        label: CLASS_LABELS[c],
-        examples: CLASS_NOTES[c],
+        label: rideClassLabel(c),
+        examples: classNote(c),
         max: DEFAULT_MAX_PASSENGERS[c],
       }));
   return items.map((c) => ({
     id: c.id,
     label: c.label,
-    note: `${c.examples} · ${c.max} kishigacha`,
+    note: t('order.classes.note', { examples: c.examples, max: c.max }),
     maxPassengers: c.max,
   }));
 }
@@ -117,20 +147,29 @@ export function classMaxPassengers(
   return quote?.seats?.byClass?.[rideClass] ?? DEFAULT_MAX_PASSENGERS[rideClass];
 }
 
-export const OPTION_LABELS: Record<RideOption, string> = {
-  child_seat: 'Bolalar o‘rindig‘i',
-  luggage: 'Katta yukxona',
-  pets: 'Uy hayvoni bilan',
-  ac: 'Konditsioner',
+const OPTION_LABEL_KEYS: Record<RideOption, TKey> = {
+  child_seat: 'order.options.labels.child_seat',
+  luggage: 'order.options.labels.luggage',
+  pets: 'order.options.labels.pets',
+  ac: 'order.options.labels.ac',
 };
 
 /** Why an option matters: many Cobalts/Nexias carry a gas tank in the trunk. */
-export const OPTION_HINTS: Record<RideOption, string> = {
-  child_seat: 'Haydovchida bolalar o‘rindig‘i bo‘ladi',
-  luggage: 'Yukxonasida gaz balloni yo‘q mashina',
-  pets: 'Uy hayvonini olib ketishga rozi haydovchi',
-  ac: 'Konditsionerli mashina, qo‘shimcha to‘lovsiz',
+const OPTION_HINT_KEYS: Record<RideOption, TKey> = {
+  child_seat: 'order.options.hints.child_seat',
+  luggage: 'order.options.hints.luggage',
+  pets: 'order.options.hints.pets',
+  ac: 'order.options.hints.ac',
 };
+
+/** A ride option's name on its switch and on the receipt. */
+export function optionLabel(option: RideOption): string {
+  return t(OPTION_LABEL_KEYS[option]);
+}
+
+export function optionHint(option: RideOption): string {
+  return t(OPTION_HINT_KEYS[option]);
+}
 
 export const RIDE_OPTIONS: readonly RideOption[] = ['child_seat', 'luggage', 'pets', 'ac'];
 
@@ -150,36 +189,44 @@ export function fareLines(fare: Fare, waiting = 0): FareLine[] {
     lines.push({
       label:
         fare.fixed.mode === 'seat'
-          ? `Yo‘nalish narxi: o‘rindiq × ${fare.fixed.passengers}`
-          : 'Yo‘nalish narxi: butun mashina',
+          ? t('order.fare.lines.routeSeat', { count: fare.fixed.passengers })
+          : t('order.fare.lines.routeCar'),
       amount: fare.base,
     });
   } else if (fare.kind === 'intercity') {
-    lines.push({ label: `Shaharlararo, ${formatDistance(fare.distanceM)}`, amount: fare.base });
+    lines.push({
+      label: t('order.fare.lines.intercity', { distance: formatDistance(fare.distanceM) }),
+      amount: fare.base,
+    });
   } else {
     lines.push({
-      label: `Shahar ichida, ${formatDistance(fare.insideM)}`,
+      label: t('order.fare.lines.inside', { distance: formatDistance(fare.insideM) }),
       amount: fare.base - fare.outside,
     });
     if (fare.outside > 0) {
       lines.push({
-        label: `Shahar tashqarisi, ${formatDistance(fare.outsideM)}`,
+        label: t('order.fare.lines.outside', { distance: formatDistance(fare.outsideM) }),
         amount: fare.outside,
       });
     }
   }
-  if (fare.night > 0) lines.push({ label: 'Tungi qo‘shimcha', amount: fare.night });
+  if (fare.night > 0) lines.push({ label: t('order.fare.lines.night'), amount: fare.night });
   for (const option of RIDE_OPTIONS) {
     const price = fare.options[option];
-    if (price !== undefined) lines.push({ label: OPTION_LABELS[option], amount: price });
+    if (price !== undefined) lines.push({ label: optionLabel(option), amount: price });
   }
   if (fare.stops && fare.stops.count > 0) {
-    lines.push({ label: `Oraliq manzillar × ${fare.stops.count}`, amount: fare.stops.fee });
+    lines.push({
+      label: t('order.fare.lines.stops', { count: fare.stops.count }),
+      amount: fare.stops.fee,
+    });
   }
   // the API rounds the total up to 100 so‘m for cash: show the difference honestly
   const sum = lines.reduce((s, l) => s + l.amount, 0);
-  if (fare.total > sum) lines.push({ label: 'Yaxlitlash', amount: fare.total - sum });
-  if (waiting > 0) lines.push({ label: 'Pullik kutish', amount: waiting });
+  if (fare.total > sum) {
+    lines.push({ label: t('order.fare.lines.rounding'), amount: fare.total - sum });
+  }
+  if (waiting > 0) lines.push({ label: t('order.fare.lines.paidWaiting'), amount: waiting });
   return lines;
 }
 
@@ -189,34 +236,36 @@ export function fareLines(fare: Fare, waiting = 0): FareLine[] {
  */
 export function stopRulesText(rules: StopRules | null | undefined): string | null {
   if (!rules) return null;
-  return (
-    `Har bir oraliq manzil ${formatMoney(rules.perStop)}. U yerda ${rules.freeMinutes} daqiqa ` +
-    `kutish bepul, keyin har daqiqa ${formatMoney(rules.waitingPerMinute)}. Manzillar buyurtmadan ` +
-    `keyin o‘zgarmaydi.`
-  );
+  return t('order.route.stopRules', {
+    perStop: formatMoney(rules.perStop),
+    minutes: rules.freeMinutes,
+    perMinute: formatMoney(rules.waitingPerMinute),
+  });
 }
 
 /** A stop on the ride screen: ahead, the car is there, or passed (with paid waiting). */
 export function stopStateText(stop: Pick<RideStop, 'arrivedAt' | 'leftAt' | 'waitingFee'>) {
   if (stop.leftAt) {
-    return stop.waitingFee > 0 ? `O‘tildi · kutish ${formatMoney(stop.waitingFee)}` : 'O‘tildi';
+    return stop.waitingFee > 0
+      ? t('order.route.stopPassedWaiting', { fee: formatMoney(stop.waitingFee) })
+      : t('order.route.stopPassed');
   }
-  return stop.arrivedAt ? 'Mashina shu yerda kutmoqda' : 'Oldinda';
+  return stop.arrivedAt ? t('order.route.stopWaitingHere') : t('order.route.stopAhead');
 }
 
 /** The option price as shown next to its switch: "+2 000 so‘m" or "Bepul". */
 export function optionPriceLabel(price: number | undefined): string {
   if (price === undefined) return '';
-  return price > 0 ? `+${formatMoney(price)}` : 'Bepul';
+  return price > 0 ? `+${formatMoney(price)}` : t('order.options.free');
 }
 
 /** Intercity: the whole car's price, with what one seat would cost for comparison. */
 export function seatShareText(fare: Fare): string | null {
   if (fare.kind !== 'intercity' || !fare.seat) return null;
-  return (
-    `Narx butun mashina uchun. Bir o‘rindiq ulushi: orqada ${formatMoney(fare.seat.rear)}, ` +
-    `oldinda ${formatMoney(fare.seat.front)}. Yo‘lovchilar bilan bo‘lishib to‘lashingiz mumkin.`
-  );
+  return t('order.fare.seatShare', {
+    rear: formatMoney(fare.seat.rear),
+    front: formatMoney(fare.seat.front),
+  });
 }
 
 export interface WaitingState {
@@ -271,22 +320,20 @@ export function cancelTerms(
     (ride.status === 'scheduled' || ride.status === 'searching')
   ) {
     const d = rideDepositCancel(deposit, ride.scheduledFor ?? null, now);
-    return {
-      fee: d.refund ? 0 : deposit,
-      message: `${ride.status === 'scheduled' ? 'Oldindan buyurtmani bekor qilish.' : 'Haydovchi hali topilmadi.'} ${d.message}`,
-    };
+    const intro =
+      ride.status === 'scheduled'
+        ? t('order.cancel.scheduledIntro')
+        : t('order.cancel.noDriverYet');
+    return { fee: d.refund ? 0 : deposit, message: `${intro} ${d.message}` };
   }
   const terms = baseCancelTerms(ride, rules, now);
   if (terms.fee > 0 && ride.paymentMethod === 'cash') {
     // the API keeps a cash ride's fee owed until the rider's next cash ride collects it
-    return {
-      ...terms,
-      message: `${terms.message} U keyingi naqd safaringiz narxiga alohida qo‘shiladi.`,
-    };
+    return { ...terms, message: `${terms.message} ${t('order.cancel.owedNext')}` };
   }
   // a prepaid card ride is refunded in full (a fee, if any, is owed to the driver apart)
   return ride.paymentStatus === 'paid' && deposit <= 0
-    ? { ...terms, message: `${terms.message} Karta orqali to‘langan pul to‘liq qaytariladi.` }
+    ? { ...terms, message: `${terms.message} ${t('order.cancel.cardRefunded')}` }
     : terms;
 }
 
@@ -302,39 +349,34 @@ function baseCancelTerms(
     }
   }
   if (fee > 0) {
-    return {
-      fee,
-      message: `Haydovchi yetib kelib, bepul kutish vaqti tugadi. Bekor qilsangiz ${formatMoney(fee)} to‘lov haydovchiga yoziladi.`,
-    };
+    return { fee, message: t('order.cancel.feeNow', { fee: formatMoney(fee) }) };
   }
   if (ride.status === 'driver_arrived' && rules && ride.arrivedAt) {
     const left = waitingState(ride.arrivedAt, rules.waiting, now).freeLeftS;
     const minutes = Math.max(1, Math.ceil(left / 60));
     return {
       fee: 0,
-      message: `Hozir bekor qilish bepul. ${minutes} daqiqadan so‘ng bekor qilish ${formatMoney(rules.cancellationFee)} bo‘ladi.`,
+      message: t('order.cancel.freeUntil', { minutes, fee: formatMoney(rules.cancellationFee) }),
     };
   }
   if (ride.status === 'scheduled') {
-    return { fee: 0, message: 'Oldindan buyurtmani bekor qilish bepul.' };
+    return { fee: 0, message: t('order.cancel.freeScheduled') };
   }
   if (ride.status === 'awaiting_payment') {
-    return { fee: 0, message: 'To‘lov hali qilinmagan. Bekor qilish bepul.' };
+    return { fee: 0, message: t('order.cancel.freeUnpaid') };
   }
   if (ride.status === 'searching') {
-    return { fee: 0, message: 'Haydovchi hali topilmadi. Bekor qilish bepul.' };
+    return { fee: 0, message: t('order.cancel.freeSearching') };
   }
-  return {
-    fee: 0,
-    message:
-      'Bekor qilish bepul, lekin haydovchi allaqachon yo‘lda. Iltimos, zarur bo‘lsagina bekor qiling.',
-  };
+  return { fee: 0, message: t('order.cancel.freeOnWay') };
 }
 
 // Owed cancellation fees ---------------------------------------------------------------
 
-/** What the owed-fee line means, said the same way on every screen. */
-export const OWED_FEE_LABEL = 'Oldingi bekor qilingan safar uchun';
+/** What the owed-fee line means, said the same way on every screen (the app's language). */
+export function owedFeeLabel(): string {
+  return t('order.fare.owedFeeLabel');
+}
 
 /**
  * The owed-fee line of a quote for the chosen payment: a cash ride collects the fees owed
@@ -347,18 +389,19 @@ export function quoteOwedFee(
 ): { amount: number; collectedNow: boolean; note: string } | null {
   if (!owed || owed.amount <= 0) return null;
   const numbers = (owed.rides ?? []).map((r) => `#${r.number}`).join(', ');
-  const which = numbers ? ` (${numbers})` : '';
+  const rides = numbers ? ` (${numbers})` : '';
+  const amount = formatMoney(owed.amount);
   if (paymentMethod === 'cash') {
     return {
       amount: owed.amount,
       collectedNow: true,
-      note: `${OWED_FEE_LABEL}${which} bekor qilish to‘lovi: ${formatMoney(owed.amount)}. U shu safar narxiga alohida qo‘shiladi va haydovchiga naqd beriladi.`,
+      note: t('order.fare.owedCashNote', { rides, amount }),
     };
   }
   return {
     amount: owed.amount,
     collectedNow: false,
-    note: `${OWED_FEE_LABEL}${which} ${formatMoney(owed.amount)} qarzingiz bor. Karta bilan to‘lasangiz, u keyingi naqd safaringizda olinadi.`,
+    note: t('order.fare.owedCardNote', { rides, amount }),
   };
 }
 
@@ -404,8 +447,11 @@ export function waitingCashLine(ride: Parameters<typeof cashToPay>[0]): string |
   const cash = cashToPay(ride);
   if (cash.owedFee > 0) return null;
   return ride.paymentMethod === 'cash'
-    ? `Pullik kutish +${formatMoney(waiting)} · naqd jami ${formatMoney(cash.total)}`
-    : `Pullik kutish ${formatMoney(waiting)} haydovchiga naqd to‘lanadi`;
+    ? t('order.fare.waitingCash', {
+        waiting: formatMoney(waiting),
+        total: formatMoney(cash.total),
+      })
+    : t('order.fare.waitingCashCard', { waiting: formatMoney(waiting) });
 }
 
 /** What happened to this ride's own cancellation fee, for the summary. */
@@ -415,12 +461,12 @@ export function cancellationFeeNote(fare: {
 }): string {
   switch (fare.cancellationFeeStatus) {
     case 'owed':
-      return 'Haydovchi yetib kelib, bepul kutish vaqti tugaganidan keyin bekor qilindi. To‘lov keyingi naqd safaringiz narxiga alohida qo‘shiladi.';
+      return t('order.cancel.feeOwed');
     case 'collected':
-      return 'Haydovchi yetib kelib, bepul kutish vaqti tugaganidan keyin bekor qilindi. To‘lov keyingi safaringizda olingan.';
+      return t('order.cancel.feeCollected');
     case 'waived':
-      return 'Operator bu to‘lovni kechirdi: siz hech narsa to‘lamaysiz.';
+      return t('order.cancel.feeWaived');
     default:
-      return 'Haydovchi yetib kelib, bepul kutish vaqti tugaganidan keyin bekor qilindi.';
+      return t('order.cancel.feeDefault');
   }
 }

@@ -5,6 +5,7 @@
  * (the cached one included), else "unavailable". The watch is always stopped: no GPS is
  * left running after a lookup.
  */
+import { t } from '../i18n/dictionary';
 import { betterFix, type Fix, type FixRules, isGoodFix } from './fix';
 
 /** Why there is no position: each has its own advice for the rider (locationProblemText). */
@@ -116,32 +117,33 @@ export interface ProblemText {
   action: { label: string; kind: 'ask' | 'settings' | 'services' } | null;
 }
 
-/** What to tell the rider when there is no position, in Uzbek (Latin). */
+/** What to tell the rider when there is no position, in the app's language. */
 export function locationProblemText(problem: LocationProblem, withMap: boolean): ProblemText {
-  const place = withMap ? 'pinni xaritada o‘zingiz qo‘ying' : 'manzilni qidiruvdan tanlang';
+  // the other way to set the pickup: the pin where there is a map, else the search
+  const place = withMap ? t('home.locate.placeOnMap') : t('home.locate.placeFromSearch');
   switch (problem) {
     case 'denied':
       return {
-        title: 'Joylashuvga ruxsat berilmagan',
-        message: `Haydovchi sizni aniq topishi uchun joylashuvga ruxsat bering yoki ${place}.`,
-        action: { label: 'Ruxsat berish', kind: 'ask' },
+        title: t('home.locate.denied.title'),
+        message: t('home.locate.denied.message', { place }),
+        action: { label: t('home.locate.denied.action'), kind: 'ask' },
       };
     case 'blocked':
       return {
-        title: 'Joylashuv ruxsati o‘chirilgan',
-        message: `Sozlamalar → Ruxsatlar → Joylashuv bo‘limida «Ilova ishlatilayotganda»ni tanlang yoki ${place}.`,
-        action: { label: 'Sozlamalarni ochish', kind: 'settings' },
+        title: t('home.locate.blocked.title'),
+        message: t('home.locate.blocked.message', { place }),
+        action: { label: t('home.locate.blocked.action'), kind: 'settings' },
       };
     case 'services_off':
       return {
-        title: 'Telefonda joylashuv (GPS) o‘chiq',
-        message: `Joylashuvni yoqing — shunda olib ketish joyi aniq bo‘ladi. Yoki ${place}.`,
-        action: { label: 'Joylashuvni yoqish', kind: 'services' },
+        title: t('home.locate.servicesOff.title'),
+        message: t('home.locate.servicesOff.message', { place }),
+        action: { label: t('home.locate.servicesOff.action'), kind: 'services' },
       };
     case 'unavailable':
       return {
-        title: 'Joylashuv aniqlanmadi',
-        message: `Ochiqroq joyga chiqib qayta urinib ko‘ring yoki ${place}.`,
+        title: t('home.locate.unavailable.title'),
+        message: t('home.locate.unavailable.message', { place }),
         action: null,
       };
   }

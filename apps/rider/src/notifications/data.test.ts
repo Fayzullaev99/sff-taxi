@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   bookingIdFromData,
   complaintIdFromData,
-  pushLocale,
   pushPermissionState,
   pushTarget,
   resolveProjectId,
@@ -26,12 +25,6 @@ describe('push data', () => {
     );
     expect(bookingIdFromData({ kind: 'x', bookingId: 'nope' })).toBeNull();
     expect(bookingIdFromData({ kind: 'driver_assigned', rideId })).toBeNull();
-  });
-
-  it('picks the push language', () => {
-    expect(pushLocale('ru-RU')).toBe('ru');
-    expect(pushLocale('uz-Latn-UZ')).toBe('uz');
-    expect(pushLocale(undefined)).toBe('uz');
   });
 
   it('finds the EAS project id or none', () => {

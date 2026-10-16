@@ -4,7 +4,8 @@ import { useComplaints } from '../../api/queries';
 import { useLiveRides } from '../../api/realtime';
 import { useSupport } from '../../api/support';
 import type { ComplaintListItem } from '../../api/types';
-import { COMPLAINT_STATUS_LABELS, RESOLUTION_LABELS } from '../../lib/complaints';
+import { useT } from '../../i18n';
+import { complaintStatusLabel, resolutionLabel } from '../../lib/complaints';
 import { formatDateTime, formatPhone } from '../../lib/format';
 import { callPhone, openLink } from '../../lib/links';
 import { Button, Icon, PressableRow, T } from '../../ui/primitives';
@@ -19,6 +20,7 @@ const STATUS_COLOR = {
 
 /** The rider's complaints (support tickets) with their state; new answers arrive live. */
 export default function ComplaintsScreen() {
+  const { t } = useT();
   useLiveRides();
   const complaints = useComplaints();
   const support = useSupport();
@@ -64,8 +66,7 @@ export default function ComplaintsScreen() {
       ListHeaderComponent={
         <View style={styles.header}>
           <T variant="small" color={colors.textMuted}>
-            Yangi murojaat safar sahifasidan yoziladi (safarlar tarixi → safar → “Muammo
-            bo‘ldimi?”). Shoshilinch bo‘lsa, qo‘ng‘iroq qiling.
+            {t('support.howTo')}
           </T>
           {contacts}
         </View>
@@ -90,9 +91,9 @@ export default function ComplaintsScreen() {
       ListEmptyComponent={
         <EmptyView
           icon="chatbubbles-outline"
-          title="Murojaatlar yo‘q"
-          message="Safarda muammo bo‘lsa yoki mashinada narsangiz qolsa, safar sahifasidan yozing."
-          actionTitle="Safarlar tarixi"
+          title={t('support.emptyTitle')}
+          message={t('support.emptyMessage')}
+          actionTitle={t('common.screens.history')}
           onAction={() => router.push('/history')}
         />
       }
@@ -101,14 +102,19 @@ export default function ComplaintsScreen() {
 }
 
 function ComplaintRow({ item }: { item: ComplaintListItem }) {
+  const { t } = useT();
   const status = item.resolution
-    ? RESOLUTION_LABELS[item.resolution]
-    : COMPLAINT_STATUS_LABELS[item.status];
+    ? resolutionLabel(item.resolution)
+    : complaintStatusLabel(item.status);
   return (
     <PressableRow
       style={styles.row}
       onPress={() => router.push({ pathname: '/support/[id]', params: { id: item.id } })}
-      accessibilityLabel={`${item.typeLabel}, safar #${item.rideNumber}, ${status}`}
+      accessibilityLabel={t('support.rowA11y', {
+        type: item.typeLabel,
+        number: item.rideNumber,
+        status,
+      })}
     >
       <View style={styles.icon}>
         <Icon
@@ -122,7 +128,7 @@ function ComplaintRow({ item }: { item: ComplaintListItem }) {
           {item.typeLabel}
         </T>
         <T variant="small" color={colors.textMuted}>
-          Safar #{item.rideNumber} · {formatDateTime(item.updatedAt)}
+          {t('support.rideNumber', { number: item.rideNumber })} · {formatDateTime(item.updatedAt)}
         </T>
         <T variant="smallStrong" color={STATUS_COLOR[item.status]}>
           {status}

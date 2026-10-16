@@ -2,6 +2,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import type { CardProvider, Ride, RidePayment } from '../api/types';
+import { useT } from '../i18n';
 import { rideDepositRules } from '../lib/deposit';
 import { formatClock, formatMoney } from '../lib/format';
 import { useNow } from '../lib/hooks';
@@ -28,6 +29,7 @@ export function PaymentPanel({
   /** Re-reads the ride; resolves when the answer is in. */
   onCheck: () => Promise<unknown>;
 }) {
+  const { t } = useT();
   // a ride booked for later: only its deposit is paid by card now, the rest in cash
   const deposit = depositPayment(ride);
   const amount = ride.payment?.amount ?? deposit?.amount ?? ride.fare.quoted;
@@ -35,23 +37,15 @@ export function PaymentPanel({
     <CheckoutPanel
       payment={ride.payment}
       amount={amount}
-      label={deposit ? 'Oldindan to‘lov (depozit)' : 'To‘lanadigan summa'}
+      label={deposit ? t('ride.payment.depositLabel') : t('ride.payment.amountLabel')}
       cashLeft={deposit?.cashLeft ?? 0}
       info={
         deposit
           ? rideDepositRules(deposit.amount, deposit.amount + deposit.cashLeft, ride.scheduledFor)
-          : 'Narx o‘zgarmaydi. To‘lov tasdiqlangach haydovchi qidiruvi avtomatik boshlanadi. Bekor qilsangiz, pul to‘liq qaytariladi.'
+          : t('ride.payment.info')
       }
-      expiredText={
-        deposit
-          ? 'To‘lov tekshirilmoqda. To‘lamagan bo‘lsangiz, buyurtma bir necha daqiqada bekor qilinadi va kartadan pul yechilmaydi.'
-          : undefined
-      }
-      waitingText={
-        deposit
-          ? 'To‘lov hali kelmadi. To‘lov sahifasida to‘lovni yakunlang — tasdiq kelishi bilan buyurtma tasdiqlanadi.'
-          : undefined
-      }
+      expiredText={deposit ? t('ride.payment.expired') : undefined}
+      waitingText={deposit ? t('ride.payment.waitingDeposit') : undefined}
       onCheck={onCheck}
     />
   );
@@ -68,8 +62,8 @@ export function CheckoutPanel({
   label,
   cashLeft = 0,
   info,
-  expiredText = 'To‘lov tekshirilmoqda. To‘lamagan bo‘lsangiz, buyurtma bir necha daqiqada bekor qilinadi va kartadan pul yechilmaydi.',
-  waitingText = 'To‘lov hali kelmadi. To‘lov sahifasida to‘lovni yakunlang — tasdiq kelishi bilan haydovchi qidiruvi o‘zi boshlanadi.',
+  expiredText,
+  waitingText,
   onCheck,
 }: {
   payment: RidePayment | null;
@@ -83,6 +77,7 @@ export function CheckoutPanel({
   waitingText?: string;
   onCheck: () => Promise<unknown>;
 }) {
+  const { t } = useT();
   const now = useNow(1000);
   const [opening, setOpening] = useState<CardProvider | null>(null);
   // "I paid — check": a spinner, then a word when the payment has not arrived yet (the
@@ -132,14 +127,14 @@ export function CheckoutPanel({
           <T variant="price">{formatMoney(amount)}</T>
           {cashLeft > 0 ? (
             <T variant="small" color={colors.textMuted}>
-              Qolgan {formatMoney(cashLeft)} naqd haydovchiga
+              {t('ride.payment.cashLeft', { amount: formatMoney(cashLeft) })}
             </T>
           ) : null}
         </View>
         {left !== null && !expired ? (
           <View
             style={styles.timer}
-            accessibilityLabel={`To‘lash uchun ${formatClock(left)} qoldi`}
+            accessibilityLabel={t('ride.payment.timeLeftA11y', { time: formatClock(left) })}
           >
             <Icon name="time-outline" size={16} color={colors.ink} />
             <T variant="bodyStrong">{formatClock(left)}</T>
@@ -148,7 +143,11 @@ export function CheckoutPanel({
       </View>
 
       {expired ? (
-        <Banner tone="warning" title="To‘lov vaqti tugadi" message={expiredText} />
+        <Banner
+          tone="warning"
+          title={t('ride.payment.expiredTitle')}
+          message={expiredText ?? t('ride.payment.expired')}
+        />
       ) : (
         <T variant="body" color={colors.textMuted}>
           {info}
@@ -169,12 +168,12 @@ export function CheckoutPanel({
       ))}
       {!links.length && !expired ? (
         <T variant="small" color={colors.textMuted}>
-          To‘lov sahifasi tayyorlanmoqda…
+          {t('ride.payment.preparing')}
         </T>
       ) : null}
 
       <Button
-        title="To‘ladim — tekshirish"
+        title={t('ride.payment.check')}
         variant="secondary"
         icon="refresh"
         loading={checking}
@@ -182,7 +181,7 @@ export function CheckoutPanel({
       />
       {notYet && !checking && !expired ? (
         <T variant="small" color={colors.textMuted} accessibilityLiveRegion="polite">
-          {waitingText}
+          {waitingText ?? t('ride.payment.waiting')}
         </T>
       ) : null}
     </View>

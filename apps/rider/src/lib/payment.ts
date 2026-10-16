@@ -11,6 +11,7 @@ import type {
   RidePaymentStatus,
   RideStatus,
 } from '../api/types';
+import { t } from '../i18n/dictionary';
 import { formatDateTime, formatMoney } from './format';
 
 export const PROVIDER_LABELS: Record<CardProvider, string> = { payme: 'Payme', click: 'Click' };
@@ -21,7 +22,9 @@ const PROVIDER_ORDER: CardProvider[] = ['payme', 'click'];
 /** The card label on the payment choice: "Karta (Payme, Click)". */
 export function cardLabel(providers: readonly CardProvider[] | null | undefined): string {
   const names = PROVIDER_ORDER.filter((p) => providers?.includes(p)).map((p) => PROVIDER_LABELS[p]);
-  return names.length ? `Karta (${names.join(', ')})` : 'Karta';
+  return names.length
+    ? t('payments.cardWith', { providers: names.join(', ') })
+    : t('common.payment.card');
 }
 
 export interface CheckoutLink {
@@ -37,7 +40,7 @@ export function checkoutLinks(payment: RidePayment | null | undefined): Checkout
   return PROVIDER_ORDER.flatMap((provider) => {
     const url = checkout[provider];
     return url && /^https:\/\//.test(url)
-      ? [{ provider, label: `${PROVIDER_LABELS[provider]} orqali to‘lash`, url }]
+      ? [{ provider, label: t('payments.payVia', { provider: PROVIDER_LABELS[provider] }), url }]
       : [];
   });
 }
@@ -68,38 +71,40 @@ export function cardMoneyNote(ride: {
     case 'refund_pending':
       return {
         tone: 'info',
-        title: 'Pul kartangizga qaytariladi',
-        message: `Oldindan to‘langan ${amount} to‘liq qaytariladi. Bank odatda 1–3 ish kunida o‘tkazadi.`,
+        title: t('payments.refundPending.title'),
+        message: t('payments.refundPending.message', { amount }),
       };
     case 'refunded':
       return {
         tone: 'success',
-        title: 'Pul qaytarildi',
+        title: t('payments.refunded.title'),
         message: ride.payment?.refundedAt
-          ? `${amount} kartangizga qaytarildi (${formatDateTime(ride.payment.refundedAt)}).`
-          : `${amount} kartangizga qaytarildi.`,
+          ? t('payments.refunded.messageAt', {
+              amount,
+              when: formatDateTime(ride.payment.refundedAt),
+            })
+          : t('payments.refunded.message', { amount }),
       };
     case 'failed':
       return {
         tone: 'warning',
-        title: 'To‘lov amalga oshmadi',
-        message:
-          'To‘lov 10 daqiqa ichida qilinmadi, buyurtma bekor qilindi. Kartadan pul yechilmadi.',
+        title: t('payments.failed.title'),
+        message: t('payments.failed.message'),
       };
     case 'not_charged':
       return ride.status === 'cancelled'
         ? {
             tone: 'info',
-            title: 'Kartadan pul yechilmadi',
-            message: 'Buyurtma to‘lovdan oldin bekor qilindi.',
+            title: t('payments.notCharged.title'),
+            message: t('payments.notCharged.message'),
           }
         : null;
     case 'paid':
       return ride.status === 'completed'
         ? {
             tone: 'success',
-            title: 'Karta orqali to‘langan',
-            message: `Oldindan to‘langan: ${amount}.`,
+            title: t('payments.paid.title'),
+            message: t('payments.paid.message', { amount }),
           }
         : null;
     default:

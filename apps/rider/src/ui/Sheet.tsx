@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useT } from '../i18n';
 import { colors, radius, space } from './theme';
 
 /** A bottom sheet on a dimmed backdrop; tapping outside or back closes it. */
@@ -17,6 +18,7 @@ export function Sheet({
   footer?: ReactNode;
 }) {
   const insets = useSafeAreaInsets();
+  const { t } = useT();
   return (
     <Modal
       visible={visible}
@@ -30,7 +32,11 @@ export function Sheet({
         style={styles.root}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Yopish" />
+        <Pressable
+          style={styles.backdrop}
+          onPress={onClose}
+          accessibilityLabel={t('common.actions.close')}
+        />
         <View style={[styles.sheet, { paddingBottom: footer ? 0 : insets.bottom }]}>
           <View style={styles.handle} />
           {children}

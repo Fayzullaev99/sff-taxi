@@ -3,6 +3,7 @@
  * own connection tells whether that is the phone's internet or the server. Framework-free
  * so it is unit-tested in plain Node.
  */
+import { t } from '../i18n/dictionary';
 
 /** The API must stay silent this long before the strip shows (one slow 3G answer is not "offline"). */
 export const SHOW_AFTER_MS = 3_000;
@@ -18,10 +19,7 @@ export function offlineMessage(net: NetState): {
 } {
   // null = not known yet: only a definite "no" blames the phone's internet
   if (net.isConnected === false || net.isInternetReachable === false) {
-    return { icon: 'cloud-offline-outline', text: 'Internet aloqasi yo‘q. Qayta ulanmoqda…' };
+    return { icon: 'cloud-offline-outline', text: t('home.offline.noInternet') };
   }
-  return {
-    icon: 'server-outline',
-    text: 'Server bilan aloqa yo‘q. Qayta ulanmoqda…',
-  };
+  return { icon: 'server-outline', text: t('home.offline.noServer') };
 }

@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { RideStatus } from '../api/types';
+import { setLanguage } from '../i18n/dictionary';
 import {
   availabilityShort,
   availabilityText,
@@ -14,6 +15,23 @@ import {
 
 const screen = (status: RideStatus, extra: Partial<Parameters<typeof rideScreen>[0]> = {}) =>
   rideScreen({ status, cancelledBy: null, ...extra });
+
+afterEach(() => setLanguage('uz'));
+
+describe('ride state in Russian', () => {
+  it('titles the phases and explains cancellations in Russian', () => {
+    setLanguage('ru');
+    expect(screen('driver_arrived').title).toBe('Водитель на месте');
+    expect(screen('cancelled', { cancelledBy: 'system' }).title).toBe('Свободных машин не нашлось');
+    expect(
+      cancelledText({ status: 'cancelled', cancelledBy: 'operator', cancelReason: 'Тест' }),
+    ).toBe('Оператор отменил заказ: Тест.');
+    expect(
+      availabilityText({ etaS: 200, cars: 3 })?.split(String.fromCharCode(160)).join(' '),
+    ).toBe('Ближайшая машина ~4 мин');
+    expect(availabilityShort({ etaS: null, cars: 0 })).toBe('Машин нет');
+  });
+});
 
 describe('ride state -> screen', () => {
   it('maps every status to its phase', () => {
