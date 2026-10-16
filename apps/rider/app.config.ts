@@ -18,6 +18,14 @@ const googleServicesFile = process.env.GOOGLE_SERVICES_JSON || undefined;
 const LOCATION_REASON =
   'Taksi sizni qayerdan olib ketishini aniqlash va haydovchiga ko‘rsatish uchun';
 
+/**
+ * The landing site (apps/landing): https://<domain>/invite/CODE and /promo/CODE open in the
+ * app as app links (Android App Links / iOS Universal Links). The site must serve
+ * /.well-known/assetlinks.json with the signing fingerprint and apple-app-site-association
+ * with the team id, else the links open in the browser, which still shows the code.
+ */
+const LANDING_DOMAIN = process.env.EXPO_PUBLIC_LANDING_DOMAIN || 'taxi.sff.uz';
+
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: 'SFF Taxi',
@@ -29,10 +37,19 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   userInterfaceStyle: 'light',
   backgroundColor: '#ffffff',
   primaryColor: BRAND,
+  description: 'Guliston taksisi: qat’iy narx, surge yo‘q. Naqd yoki karta.',
+  // iOS permission texts and the display name per language (InfoPlist.strings)
+  locales: { uz: './locales/uz.json', ru: './locales/ru.json' },
   ios: {
     bundleIdentifier: 'uz.sff.taxi',
     supportsTablet: false,
-    infoPlist: { NSLocationWhenInUseUsageDescription: LOCATION_REASON },
+    infoPlist: {
+      NSLocationWhenInUseUsageDescription: LOCATION_REASON,
+      // only HTTPS and standard crypto: no export-compliance questions on each upload
+      ITSAppUsesNonExemptEncryption: false,
+    },
+    // universal links from the landing site (invitations, promo codes)
+    associatedDomains: [`applinks:${LANDING_DOMAIN}`],
     ...(googleMapsApiKey ? { config: { googleMapsApiKey } } : {}),
   },
   android: {
@@ -41,6 +58,18 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: BRAND,
     },
+    // app links from the landing site: https://<domain>/invite/CODE and /promo/CODE
+    intentFilters: [
+      {
+        action: 'VIEW',
+        autoVerify: true,
+        data: [
+          { scheme: 'https', host: LANDING_DOMAIN, pathPrefix: '/invite/' },
+          { scheme: 'https', host: LANDING_DOMAIN, pathPrefix: '/promo/' },
+        ],
+        category: ['BROWSABLE', 'DEFAULT'],
+      },
+    ],
     permissions: [
       'ACCESS_COARSE_LOCATION',
       'ACCESS_FINE_LOCATION',

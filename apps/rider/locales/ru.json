@@ -1,0 +1,6 @@
+{
+  "CFBundleDisplayName": "SFF Taxi",
+  "NSLocationWhenInUseUsageDescription": "Геолокация нужна, чтобы определить, откуда вас забрать, и показать это водителю.",
+  "NSCameraUsageDescription": "Съёмка фото для жалобы.",
+  "NSPhotoLibraryUsageDescription": "Выбор фото из галереи для жалобы."
+}

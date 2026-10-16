@@ -1,0 +1,8 @@
+{
+  "CFBundleDisplayName": "SFF Taxi Haydovchi",
+  "NSLocationWhenInUseUsageDescription": "Sizga eng yaqin buyurtmalarni berish va yo‘lovchiga yetib kelayotganingizni ko‘rsatish uchun joylashuvingiz kerak.",
+  "NSLocationAlwaysAndWhenInUseUsageDescription": "Liniyada bo‘lganingizda ilova yopiq bo‘lsa ham joylashuvingiz yuborilib turadi, shunda sizga yaqin buyurtmalar tushadi.",
+  "NSLocationAlwaysUsageDescription": "Liniyada bo‘lganingizda ilova yopiq bo‘lsa ham joylashuvingiz yuborilib turadi, shunda sizga yaqin buyurtmalar tushadi.",
+  "NSCameraUsageDescription": "Hujjatlar, avtomobil va o‘zingizni suratga olish uchun kamera kerak.",
+  "NSPhotoLibraryUsageDescription": "Hujjatlar va avtomobil rasmini galereyadan tanlash uchun."
+}
