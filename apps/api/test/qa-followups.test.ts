@@ -2,7 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Database } from '../src/core/db/database.js';
-import { api, createDriver, createTestApp, GULISTON, MID, signIn } from './helpers.js';
+import { api, createDriver, createTestApp, GULISTON, MID, signIn, signInAdmin } from './helpers.js';
 
 /** API findings of the emulator QA of the rider and driver apps. */
 describe('emulator QA follow-ups', () => {
@@ -54,6 +54,24 @@ describe('emulator QA follow-ups', () => {
       fare: { quoted: quote.body.fares.economy.total, cancellationFee: 0, total: null },
     });
     expect(item.fare.cancellationFeeStatus).toBeNull();
+  });
+
+  it('lets an operator set the car colour from the list, named per language (wave 5)', async () => {
+    const driver = await createDriver(app, { online: false });
+    const admin = api(app, (await signInAdmin(app)).accessToken);
+    const red = await admin
+      .patch(`/v1/admin/drivers/${driver.id}/vehicle`)
+      .send({ colour: 'Qizil' })
+      .expect(200);
+    expect(red.body.vehicle).toMatchObject({ colour: 'qizil', colourCode: 'red' });
+    const ru = await driver.http.get('/v1/driver/me').set('Accept-Language', 'ru').expect(200);
+    expect(ru.body.vehicle).toMatchObject({ colour: 'красный', colourCode: 'red' });
+    // text the list does not name stays as written, in every language
+    const own = await admin
+      .patch(`/v1/admin/drivers/${driver.id}/vehicle`)
+      .send({ colour: 'xameleon' })
+      .expect(200);
+    expect(own.body.vehicle).toMatchObject({ colour: 'xameleon', colourCode: null });
   });
 
   it('gives errors built from message templates the usual statusCode and error fields', async () => {

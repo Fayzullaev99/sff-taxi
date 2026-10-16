@@ -3,6 +3,7 @@ import { setLanguage } from '../i18n/dictionary';
 import {
   type ApplicationForm,
   CARGO_CARS,
+  colourChoices,
   DOCUMENTS,
   RULES,
   EMPTY_FORM,
@@ -12,6 +13,7 @@ import {
   toApplicationBody,
   validateApplication,
   VEHICLE_CLASS_LABELS,
+  VEHICLE_COLOURS,
 } from './application';
 import { formatPlate, isUzPlate, normalizePlate, plateProblem } from './plate';
 
@@ -29,7 +31,7 @@ const GOOD: ApplicationForm = {
   licenceCardExpiresOn: '31.12.2027',
   make: 'Chevrolet',
   model: 'Cobalt',
-  colour: 'Oq',
+  colour: 'white',
   plate: '20 a 123 bc',
   year: '2019',
   seats: '4',
@@ -62,7 +64,7 @@ describe('validateApplication', () => {
       vehicle: {
         make: 'Chevrolet',
         model: 'Cobalt',
-        colour: 'Oq',
+        colour: 'white',
         plate: '20A123BC',
         year: 2019,
         seats: 4,
@@ -275,5 +277,49 @@ describe('in Russian', () => {
     expect(plateProblem('')).toBe('Введите госномер');
     expect(VEHICLE_CLASS_LABELS.economy).toBe('Эконом');
     expect(DOCUMENTS[0]!.label).toBe('Лицензионная карточка');
+  });
+});
+
+describe('vehicle colours', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('offers the list in the language, plus a car’s own older text', () => {
+    expect(colourChoices('')).toHaveLength(VEHICLE_COLOURS.length);
+    expect(colourChoices('black')[1]).toEqual({ value: 'black', label: 'Qora' });
+    setLanguage('ru');
+    expect(colourChoices('black')[1]).toEqual({ value: 'black', label: 'Чёрный' });
+    // a colour registered before the list, which the API could not map: still selectable
+    const own = colourChoices('pushti');
+    expect(own.at(-1)).toEqual({ value: 'pushti', label: 'pushti' });
+    expect(own).toHaveLength(VEHICLE_COLOURS.length + 1);
+  });
+
+  it('reads the code back from the profile, the text when the API knows none', () => {
+    const profile = {
+      fullName: 'A B C',
+      birthDate: '1990-03-05',
+      pinfl: '30503900123456',
+      licence: { number: 'AF1234567', categories: ['B'], issuedOn: '2015-06-01' },
+      licenceCard: { number: 'LK1', expiresOn: '2027-12-31' },
+    };
+    const car = {
+      make: 'Chevrolet',
+      model: 'Cobalt',
+      plate: '20A123BC',
+      year: 2019,
+      seats: 4,
+      class: 'economy',
+      features: [],
+    };
+    expect(
+      formFromProfile({ ...profile, vehicle: { ...car, colour: 'Чёрный', colourCode: 'black' } })
+        .colour,
+    ).toBe('black');
+    expect(
+      formFromProfile({ ...profile, vehicle: { ...car, colour: 'pushti', colourCode: null } })
+        .colour,
+    ).toBe('pushti');
+    // an older API without the code
+    expect(formFromProfile({ ...profile, vehicle: { ...car, colour: 'Oq' } }).colour).toBe('Oq');
   });
 });

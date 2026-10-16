@@ -158,7 +158,13 @@ describe('safety', () => {
       expect(seen.body).toMatchObject({
         status: 'driver_assigned',
         driver: { name: 'Aziz', rating: 4.8 },
-        vehicle: { make: 'Chevrolet', model: 'Cobalt', colour: 'oq' },
+        // the colour in both languages: the page switches without a reload
+        vehicle: {
+          make: 'Chevrolet',
+          model: 'Cobalt',
+          colour: 'oq',
+          colourNames: { uz: 'oq', ru: 'белый' },
+        },
         position: { lat: GULISTON.lat + 0.001, heading: 180 },
       });
       expect(seen.body.trail.length).toBeGreaterThanOrEqual(1);

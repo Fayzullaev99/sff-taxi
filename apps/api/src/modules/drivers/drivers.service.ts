@@ -45,6 +45,7 @@ import {
 } from '../../lib/ride-classes.js';
 import { nextStopIndex } from '../../lib/stop-changes.js';
 import type { RideClass } from '../../lib/tariff.js';
+import { colourCode, colourText } from '../../lib/vehicle-colour.js';
 import { DriverTrackService } from '../geo/driver-track.service.js';
 import { PickupEtaService } from '../geo/pickup-eta.service.js';
 import { RealtimeBus } from '../realtime/realtime.publisher.js';
@@ -805,6 +806,8 @@ export class DriversService {
       class?: RideClass;
       features?: VehicleFeature[];
       cngInTrunk?: boolean;
+      /** A code of the colour list (or text the list does not name), as the schema stores it. */
+      colour?: string;
       /** Cargo cars: the payload measured at the inspection, and the class it serves. */
       payloadKg?: number;
       cargoClass?: CargoClass;
@@ -867,6 +870,7 @@ export class DriversService {
         body: next.body,
         features: [...new Set(next.features)],
         cng_in_trunk: input.cngInTrunk ?? v.cng_in_trunk,
+        colour: input.colour ?? v.colour,
         payload_kg: next.payload_kg,
         cargo_class: next.cargo_class,
         updated_at: new Date(),
@@ -1242,7 +1246,10 @@ export function vehicleView(v: Selectable<VehiclesTable>) {
   return {
     make: v.make,
     model: v.model,
-    colour: v.colour,
+    /** The colour in the request's language ("qora" / "чёрный"; free text as written). */
+    colour: colourText(v.colour, currentLanguage()),
+    /** The colour's code from the list, null for free text the list does not name. */
+    colourCode: colourCode(v.colour),
     plate: v.plate,
     plateFormatted: formatPlate(v.plate),
     year: v.year,

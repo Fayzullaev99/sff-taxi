@@ -19,7 +19,14 @@ interface SharedRide {
   dropoff: { address: string | null; landmark?: string | null; lat: number; lng: number };
   stops: { address: string | null; lat: number; lng: number; passed: boolean }[];
   driver: { name: string; rating: number | null } | null;
-  vehicle: { make: string; model: string; colour: string; plateFormatted: string } | null;
+  vehicle: {
+    make: string;
+    model: string;
+    /** In the API's default language; `colourNames` has both, for the page's own switch. */
+    colour: string;
+    colourNames?: { uz: string; ru: string };
+    plateFormatted: string;
+  } | null;
   position: { lat: number; lng: number; heading?: number | null } | null;
   trail: { lat: number; lng: number }[];
   startedAt: string | null;
@@ -75,7 +82,8 @@ function render(lang: Lang): void {
   if (vehicle) {
     vehicle.textContent = '';
     if (ride.vehicle) {
-      vehicle.append(`${ride.vehicle.colour} ${ride.vehicle.make} ${ride.vehicle.model}`);
+      const colour = ride.vehicle.colourNames?.[lang] ?? ride.vehicle.colour;
+      vehicle.append(`${colour} ${ride.vehicle.make} ${ride.vehicle.model}`);
       const plate = document.createElement('span');
       plate.className = 'plate';
       plate.textContent = ride.vehicle.plateFormatted;

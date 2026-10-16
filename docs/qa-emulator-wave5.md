@@ -169,9 +169,16 @@ Gradle was building timed two timing tests out at 20 s — the dispatch cascade 
 
 ## Open issues
 
-1. **Vehicle colour is free text in Uzbek** ("oq", "qora"): a Russian rider reads "qora Malibu",
-   "Oq Chevrolet Cobalt". A colour quick-pick in the driver wizard (a fixed list in both
-   languages) would fix it for new cars; existing cars need an operator's edit.
+1. **Fixed (polish, 2026-10-16).** Vehicle colour was free text in Uzbek ("oq", "qora"): a
+   Russian rider read "qora Malibu". A fixed list with a code per colour
+   (`src/lib/vehicle-colour.ts`, 16 colours) is picked in the driver's application (chips in
+   the app's language) and in the panel's vehicle editor; the API stores the code, migration
+   0029 mapped the existing free text (either language, any apostrophe; unmatched text stays),
+   every view names the colour in the request's language next to `colourCode`, SMS/push use the
+   recipient's language ("белый Chevrolet Cobalt") and the share page carries both names. Free
+   text from older clients is still accepted and mapped when it names a listed colour. Tests:
+   `vehicle-colour.test.ts`, `drivers.test.ts`, `qa-followups.test.ts`, `i18n.test.ts`,
+   `safety.test.ts`, the driver's `application.test.ts`, the panel's lib and smoke tests.
 2. **Fixed (polish, 2026-10-16).** Promo descriptions were operator text in Uzbek only:
    GULISTON's "Ochilish aksiyasi: birinchi safarga 50% chegirma" showed in the Russian wallet.
    `promo_codes.description_ru` (migration 0028), the panel's "Tavsif (ruscha)" field, the API
@@ -213,6 +220,16 @@ Texts operators type that riders and drivers read, and what a Russian app gets:
 | Intercity meeting point (one text)                                      | **as typed** (Uzbek): one free-text field per town; operators may write it bilingually ("Vokzal / Вокзал")                                              |
 | An operator's cancel reason, complaint answers, a driver's trip comment | **as typed**: free text from the person who wrote it, shown in the summary / push; system reasons are translated                                        |
 | Place names from geocoding                                              | not operator text; unchanged by this work                                                                                                               |
+
+Polish run (2026-10-16, open issues 1, 2 and 4 above): API 418 tests in 57 files
+(`TEST_DB_NAME=taxi_test TEST_REDIS_DB=5`; the delivery timing test and the migration
+lock-timeout test timed out once while the dev database was being migrated on the same
+server and passed alone), rider 297 (+3 skipped smoke), driver 270, web 185, landing 28;
+`npm run typecheck`, `rtk proxy npx eslint .`, `rtk proxy npx prettier --check .` clean.
+Migrations 0028 and 0029 were applied to the dev database (its 11 QA cars: "oq" ×9 →
+`white`, "qora" ×2 → `black`) and the campaign re-applied through the built CLI
+(`dist/scripts/launch-campaign.cli.js --apply`; the `tsx` dev entry cannot boot Nest on this
+machine: esbuild emits no constructor metadata, a pre-existing limitation).
 
 ## Needs the founder
 

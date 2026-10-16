@@ -419,7 +419,9 @@ export interface RidePlace extends LatLng {
 export interface RideVehicle {
   make: string;
   model: string;
+  /** Named in the app's language by the API ("qora" / "чёрный"); `colourCode` is the list's code. */
   colour: string;
+  colourCode?: string | null;
   plate: string;
   plateFormatted: string;
   class: RideClass;

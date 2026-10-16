@@ -17,6 +17,7 @@ import { AdminOnly, type AuthUser, CurrentUser } from '../../core/auth/auth-cont
 import { DOCUMENT_KINDS, DRIVER_STATUSES, VEHICLE_FEATURES } from '../../core/db/schema.js';
 import { ZodPipe } from '../../core/http/zod.pipe.js';
 import { isUzPlate, normalizeLicenceNumber, normalizePlate } from '../../lib/driver-rules.js';
+import { storedColour } from '../../lib/vehicle-colour.js';
 import { CARGO_CLASSES, VEHICLE_BODIES } from '../../lib/cargo.js';
 import { RIDE_CLASSES } from '../../lib/tariff.js';
 import { BillingModule } from '../billing/billing.module.js';
@@ -32,7 +33,8 @@ const Feature = z.enum(VEHICLE_FEATURES);
 const VehicleBody = z.object({
   make: z.string().trim().min(2).max(40),
   model: z.string().trim().min(1).max(40),
-  colour: z.string().trim().min(2).max(30),
+  /** A code of the colour list (the apps), or free text (older clients: mapped when it fits). */
+  colour: z.string().trim().min(2).max(30).transform(storedColour),
   plate: z
     .string()
     .trim()
@@ -137,6 +139,8 @@ const VehiclePatch = z
     class: z.enum(RIDE_CLASSES),
     features: z.array(Feature).max(4),
     cngInTrunk: z.boolean(),
+    /** Operators correct the colour from the list (free text is mapped the same way). */
+    colour: z.string().trim().min(2).max(30).transform(storedColour),
     /** Cargo cars only. */
     payloadKg: z.number().int().min(1).max(20_000),
     cargoClass: z.enum(CARGO_CLASSES),

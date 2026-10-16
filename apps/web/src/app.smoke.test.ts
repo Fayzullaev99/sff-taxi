@@ -3041,6 +3041,23 @@ describe('panel smoke', () => {
     });
   });
 
+  it('corrects a car’s colour from the list (sent as its code)', async () => {
+    calls.length = 0;
+    await render(`/drivers/${D2}`);
+    const label = [...document.querySelectorAll('label')].find((l) => l.textContent === 'Rangi')!;
+    const select = document.getElementById(label.htmlFor) as HTMLSelectElement;
+    expect([...select.options].map((o) => o.textContent)).toContain('To‘q qizil');
+    await act(async () => {
+      select.value = 'dark_red';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await click(button('Saqlash'));
+    await settle();
+    expect(posted(`/v1/admin/drivers/${D2}/vehicle`, 'PATCH').at(-1)!.body).toMatchObject({
+      colour: 'dark_red',
+    });
+  });
+
   it('books a seat along the way for the caller’s own towns', async () => {
     calls.length = 0;
     const text = await render('/intercity?tab=book');

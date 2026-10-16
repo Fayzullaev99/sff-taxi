@@ -153,6 +153,60 @@ export const FEATURE_LABELS: Record<VehicleFeature, string> = liveTable({
   big_trunk: 'apply.vehicle.featureLabels.big_trunk',
 });
 
+/**
+ * The colour list (apps/api src/lib/vehicle-colour.ts): the form keeps the code, the API
+ * stores it and names it in each rider's language. A car registered before the list may
+ * carry text the list does not name: it stays selectable as it is.
+ */
+export const VEHICLE_COLOURS = [
+  'white',
+  'black',
+  'silver',
+  'grey',
+  'blue',
+  'dark_blue',
+  'light_blue',
+  'red',
+  'dark_red',
+  'green',
+  'yellow',
+  'orange',
+  'brown',
+  'beige',
+  'purple',
+  'gold',
+] as const;
+export type VehicleColour = (typeof VEHICLE_COLOURS)[number];
+export const COLOUR_LABELS: Record<VehicleColour, string> = liveTable({
+  white: 'apply.vehicle.colours.white',
+  black: 'apply.vehicle.colours.black',
+  silver: 'apply.vehicle.colours.silver',
+  grey: 'apply.vehicle.colours.grey',
+  blue: 'apply.vehicle.colours.blue',
+  dark_blue: 'apply.vehicle.colours.dark_blue',
+  light_blue: 'apply.vehicle.colours.light_blue',
+  red: 'apply.vehicle.colours.red',
+  dark_red: 'apply.vehicle.colours.dark_red',
+  green: 'apply.vehicle.colours.green',
+  yellow: 'apply.vehicle.colours.yellow',
+  orange: 'apply.vehicle.colours.orange',
+  brown: 'apply.vehicle.colours.brown',
+  beige: 'apply.vehicle.colours.beige',
+  purple: 'apply.vehicle.colours.purple',
+  gold: 'apply.vehicle.colours.gold',
+});
+
+export function isVehicleColour(value: string): value is VehicleColour {
+  return (VEHICLE_COLOURS as readonly string[]).includes(value);
+}
+
+/** The colour chips: the list, plus the car's own text when it is not one of the list. */
+export function colourChoices(current: string): { value: string; label: string }[] {
+  const list = VEHICLE_COLOURS.map((c) => ({ value: c, label: COLOUR_LABELS[c] }));
+  const own = current.trim();
+  return own && !isVehicleColour(own) ? [...list, { value: own, label: own }] : list;
+}
+
 /** Popular cars in Sirdaryo (market analysis: Cobalt 27%, Nexia 19%, Lacetti 16%). */
 export const POPULAR_CARS = [
   { make: 'Chevrolet', model: 'Cobalt' },
@@ -478,7 +532,9 @@ export function formFromProfile(p: {
   vehicle: {
     make: string;
     model: string;
+    /** As the API names it in the app's language; `colourCode` is the list's code (newer APIs). */
     colour: string;
+    colourCode?: string | null;
     plate: string;
     year: number;
     seats: number;
@@ -507,7 +563,8 @@ export function formFromProfile(p: {
     licenceCardExpiresOn: showDate(p.licenceCard.expiresOn),
     make: v?.make ?? '',
     model: v?.model ?? '',
-    colour: v?.colour ?? '',
+    // the list's code when the API knows one; older free text stays as its own chip
+    colour: v?.colourCode ?? v?.colour ?? '',
     plate: v?.plate ?? '',
     year: v ? String(v.year) : '',
     seats: v ? String(v.seats) : '4',

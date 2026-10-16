@@ -22,7 +22,9 @@ import { msg } from '../../core/http/messages.js';
 import { emit } from '../../core/outbox/outbox.js';
 import { tashkentDayStart } from '../../lib/commission.js';
 import { depositAmount } from '../../lib/deposit.js';
+import { currentLanguage } from '../../core/i18n/language.js';
 import { formatPlate, tashkentDate } from '../../lib/driver-rules.js';
+import { colourCode, colourText } from '../../lib/vehicle-colour.js';
 import {
   alongStops,
   alongTheWayShare,
@@ -993,7 +995,9 @@ export class IntercityService {
         vehicle: {
           make: trip.vehicle.make,
           model: trip.vehicle.model,
-          colour: trip.vehicle.colour,
+          // the snapshot keeps the colour as stored: named in the request's language
+          colour: colourText(trip.vehicle.colour, currentLanguage()),
+          colourCode: colourCode(trip.vehicle.colour),
           class: trip.vehicle.class,
           photoUrl: (driver.vehicle_photo && urls.get(driver.vehicle_photo)) || null,
         },

@@ -146,9 +146,14 @@ describe('languages', () => {
   });
 
   it('writes SMS and push in the recipient’s language', async () => {
-    const car = { colour: 'oq', make: 'Chevrolet', model: 'Cobalt', plate: '20 A 123 BC' };
+    // the colour is a code (or older text): named in the recipient's language
+    const car = { colour: 'white', make: 'Chevrolet', model: 'Cobalt', plate: '20 A 123 BC' };
     expect(sms.driverAssigned('ru', 12, car, 4, '+998901234567')).toBe(
-      'SFF Taxi #12: oq Chevrolet Cobalt, 20 A 123 BC, ~4 мин. Водитель: +998901234567',
+      'SFF Taxi #12: белый Chevrolet Cobalt, 20 A 123 BC, ~4 мин. Водитель: +998901234567',
+    );
+    expect(sms.driverArrived('ru', 12, { ...car, colour: 'oq' })).toContain('белый Chevrolet');
+    expect(push.driverArrived('ru', { ...car, colour: 'pushti' }).body).toContain(
+      'pushti Chevrolet',
     );
     expect(sms.driverAssigned('uz', 12, car, 4, '+998901234567')).toBe(
       'SFF Taxi #12: oq Chevrolet Cobalt, 20 A 123 BC, ~4 daqiqada. Haydovchi: +998901234567',

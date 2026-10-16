@@ -260,6 +260,16 @@ the "transparent rules, human appeal" differentiator against opaque account bloc
 do not apply to them, cargo rules do (a van/pickup/truck body, a payload, ≤ 25 years, category
 C above 3.5 t), and they get cargo rides only — see [shared-rides.md §8](shared-rides.md).
 
+**The car's colour** is a code from a fixed list (`src/lib/vehicle-colour.ts`: white, black,
+silver, grey, blue, dark_blue, light_blue, red, dark_red, green, yellow, orange, brown, beige,
+purple, gold), picked in the driver's application and in the panel's vehicle editor;
+`vehicles.colour` stores the code (migration 0029 mapped the free text written before, in
+either language and any apostrophe; other text stays as typed). Every payload names it in the
+request's language (`colour`) next to the code (`colourCode`), ride and trip snapshots keep the
+stored value and are named on the way out, SMS and push use the recipient's language and the
+share page gets both names (`colourNames`). A client that still sends free text gets it mapped
+the same way when it names a colour of the list, kept otherwise.
+
 **Licence cards** are checked with the Ministry of Transport's registry through the
 `LicenceRegistry` adapter ('manual' today: operators check and record it); approval and going
 online need a verified card. **Electronic fiscal receipts** for every completed ride and seat

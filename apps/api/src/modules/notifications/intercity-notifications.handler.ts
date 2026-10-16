@@ -3,6 +3,7 @@ import { ENV, type Env } from '../../config/env.js';
 import { Database } from '../../core/db/database.js';
 import type { OutboxEvent, OutboxHandler } from '../../core/outbox/handler.js';
 import { formatPlate } from '../../lib/driver-rules.js';
+import { colourText } from '../../lib/vehicle-colour.js';
 import { intercityPush, intercitySms, type TripText } from './intercity-messages.js';
 import type { Locale } from './messages.js';
 import { Notifier } from './notifier.js';
@@ -89,7 +90,7 @@ export class IntercityNotificationsHandler implements OutboxHandler {
             b.seats,
             b.price,
             trip.driverPhone,
-            trip.car,
+            trip.car(l),
           ),
         });
       }
@@ -211,7 +212,9 @@ export class IntercityNotificationsHandler implements OutboxHandler {
       driverId: t.driver_id,
       driverPhone: t.driver_phone,
       cancelReason: t.cancel_reason,
-      car: `${t.vehicle.colour} ${t.vehicle.make} ${t.vehicle.model}, ${formatPlate(t.vehicle.plate)}`,
+      // the colour in the recipient's language (the snapshot keeps it as stored)
+      car: (l: Locale) =>
+        `${colourText(t.vehicle.colour, l)} ${t.vehicle.make} ${t.vehicle.model}, ${formatPlate(t.vehicle.plate)}`,
       text,
     };
   }

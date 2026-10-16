@@ -621,7 +621,9 @@ export interface Priority {
 export interface Vehicle {
   make: string;
   model: string;
+  /** Named in the panel's language (Uzbek); `colourCode` is the list's code, null for other text. */
   colour: string;
+  colourCode?: string | null;
   plate: string;
   plateFormatted: string;
   year: number;

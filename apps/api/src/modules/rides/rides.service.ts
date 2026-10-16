@@ -46,6 +46,7 @@ import { currentLanguage } from '../../core/i18n/language.js';
 import { tr, translate } from '../../core/i18n/translate.js';
 import { distanceM } from '../../lib/distance.js';
 import { formatPlate } from '../../lib/driver-rules.js';
+import { colourCode, colourText } from '../../lib/vehicle-colour.js';
 import type { Point } from '../../lib/geo.js';
 import { priority } from '../../lib/priority.js';
 import {
@@ -3030,8 +3031,14 @@ export class RidesService {
   }
 
   baseView(ride: ListedRide) {
+    // the snapshot keeps the colour as stored (a code, or older text): named in the language
     const vehicle = ride.vehicle
-      ? { ...ride.vehicle, plateFormatted: formatPlate(ride.vehicle.plate) }
+      ? {
+          ...ride.vehicle,
+          colour: colourText(ride.vehicle.colour, currentLanguage()),
+          colourCode: colourCode(ride.vehicle.colour),
+          plateFormatted: formatPlate(ride.vehicle.plate),
+        }
       : null;
     return {
       id: ride.id,

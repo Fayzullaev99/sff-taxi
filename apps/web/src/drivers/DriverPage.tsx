@@ -27,6 +27,7 @@ import {
 } from '../api/types';
 import { LedgerCard } from '../billing/LedgerCard';
 import { approvalChecks, approvalProblems, expiryState } from '../lib/drivers';
+import { colourOptions, currentColour } from '../lib/vehicles';
 import {
   ACTORS,
   ago,
@@ -231,6 +232,8 @@ function VehicleEditor({ driver }: { driver: AdminDriver }) {
   const [rideClass, setRideClass] = useState<RideClass>(v.class);
   const [features, setFeatures] = useState<VehicleFeature[]>(v.features);
   const [cng, setCng] = useState(v.cngInTrunk ?? false);
+  // the colour from the list (riders read it in their language); older free text stays until changed
+  const [colour, setColour] = useState(currentColour(v));
   // cargo cars: the payload measured at the inspection and the class it serves
   const cargoCar = Boolean(v.cargoClass);
   const [payloadKg, setPayloadKg] = useState<number | null>(v.payloadKg ?? null);
@@ -244,6 +247,7 @@ function VehicleEditor({ driver }: { driver: AdminDriver }) {
     (cargoCar && (payloadKg !== (v.payloadKg ?? null) || cargoClass !== v.cargoClass)) ||
     rideClass !== v.class ||
     cng !== (v.cngInTrunk ?? false) ||
+    colour !== currentColour(v) ||
     features.length !== v.features.length ||
     features.some((f) => !v.features.includes(f));
   const save = useMutation({
@@ -254,6 +258,7 @@ function VehicleEditor({ driver }: { driver: AdminDriver }) {
           class: rideClass,
           features,
           cngInTrunk: cng,
+          ...(colour !== currentColour(v) ? { colour } : {}),
           ...(cargoCar ? { payloadKg, cargoClass } : {}),
         },
       }),
@@ -296,6 +301,17 @@ function VehicleEditor({ driver }: { driver: AdminDriver }) {
           <p className="muted small">{classHint(driver, rideClass)}</p>
         </>
       )}
+      <Field label="Rangi" hint="Yo‘lovchi ilovasida o‘z tilida ko‘rinadi (ruscha: чёрный)">
+        {(p) => (
+          <select {...p} value={colour} onChange={(e) => setColour(e.target.value)}>
+            {colourOptions(v).map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        )}
+      </Field>
       <div className="toggles" role="group" aria-label="Imkoniyatlar">
         {VEHICLE_FEATURES.map((f) => (
           <label key={f} className="check">

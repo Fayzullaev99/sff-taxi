@@ -67,7 +67,27 @@ describe('drivers', () => {
         .post('/v1/driver/application')
         .send(application({}, { plate: '20 a 778 bc', colour: 'qora' }))
         .expect(200);
-      expect(fixed.body.vehicle).toMatchObject({ plate: '20A778BC', colour: 'qora' });
+      // free text that names a colour of the list is stored as its code and named per language
+      expect(fixed.body.vehicle).toMatchObject({
+        plate: '20A778BC',
+        colour: 'qora',
+        colourCode: 'black',
+      });
+      const ru = await http.get('/v1/driver/me').set('Accept-Language', 'ru').expect(200);
+      expect(ru.body.vehicle).toMatchObject({ colour: 'чёрный', colourCode: 'black' });
+      // the apps send the code itself; text the list does not name is kept as written
+      // (the account now remembers Russian: the header names Uzbek again)
+      const coded = await http
+        .post('/v1/driver/application')
+        .set('Accept-Language', 'uz')
+        .send(application({}, { plate: '20 a 778 bc', colour: 'dark_red' }))
+        .expect(200);
+      expect(coded.body.vehicle).toMatchObject({ colour: "to'q qizil", colourCode: 'dark_red' });
+      const own = await http
+        .post('/v1/driver/application')
+        .send(application({}, { plate: '20 a 778 bc', colour: 'Pushti' }))
+        .expect(200);
+      expect(own.body.vehicle).toMatchObject({ colour: 'Pushti', colourCode: null });
     });
 
     it('enforces Resolution 200: age 21+, 3 years of experience, car rules', async () => {

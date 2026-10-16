@@ -10,6 +10,7 @@ import {
 import { nextCursorOf, ridesQuery } from '../api/queries';
 import type { AdminDriver, AdminRideItem, LiveBoard, RideEvent, SosEvent } from '../api/types';
 import { faviconSvg, titleWithBadge } from './alert';
+import { colourOptions, currentColour, VEHICLE_COLOURS } from './vehicles';
 import { approvalChecks, approvalProblems, expiryState, isImageFile, isImageUrl } from './drivers';
 import {
   bookingPrice,
@@ -228,6 +229,18 @@ describe('dispatch helpers', () => {
     expect(freshKeys(new Set(['ride:w']), keys)).toEqual(['sos:s1']);
     expect(canAssign('searching') && canAssign('driver_assigned')).toBe(true);
     expect(canAssign('in_progress')).toBe(false);
+  });
+
+  it('offers the colour list, with a car’s older text first when the list lacks it', () => {
+    const listed = { colour: 'qora', colourCode: 'black' };
+    expect(currentColour(listed)).toBe('black');
+    expect(colourOptions(listed)).toHaveLength(VEHICLE_COLOURS.length);
+    expect(colourOptions(listed)[1]).toEqual({ value: 'black', label: 'Qora' });
+    const own = { colour: 'pushti', colourCode: null };
+    expect(currentColour(own)).toBe('pushti');
+    expect(colourOptions(own)[0]).toEqual({ value: 'pushti', label: 'pushti (ro‘yxatda yo‘q)' });
+    // an older API without the code: the text as it is
+    expect(currentColour({ colour: 'Oq' })).toBe('Oq');
   });
 
   it('says what a cancelled ride cost under its price (QA wave 5)', () => {

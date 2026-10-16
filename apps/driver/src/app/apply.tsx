@@ -22,6 +22,7 @@ import {
   CARGO_CARS,
   cargoClassText,
   classFitText,
+  colourChoices,
   STEP_FIELDS,
   tashkentToday,
   toApplicationBody,
@@ -325,13 +326,15 @@ export default function Apply() {
             placeholder="Cobalt"
             error={shown.model}
           />
-          <Field
-            label={t('apply.vehicle.colour')}
-            value={form.colour}
-            onChangeText={(v) => set('colour', v)}
-            placeholder={t('apply.vehicle.colourPlaceholder')}
-            error={shown.colour}
+          <SectionTitle>{t('apply.vehicle.colour')}</SectionTitle>
+          <Muted>{t('apply.vehicle.colourHint')}</Muted>
+          {/* a fixed list: riders read the colour in their own language */}
+          <Choice
+            options={colourChoices(form.colour)}
+            selected={[form.colour]}
+            onToggle={(v) => set('colour', v)}
           />
+          {shown.colour ? <Text style={styles.error}>{shown.colour}</Text> : null}
           <Field
             label={t('apply.vehicle.plate')}
             value={form.plate}

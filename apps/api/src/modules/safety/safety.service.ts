@@ -11,7 +11,9 @@ import type { AuthUser } from '../../core/auth/auth-context.js';
 import { Database } from '../../core/db/database.js';
 import { OPEN_RIDE_STATUSES } from '../../core/db/schema.js';
 import { emit } from '../../core/outbox/outbox.js';
+import { currentLanguage } from '../../core/i18n/language.js';
 import { formatPlate } from '../../lib/driver-rules.js';
+import { colourNames, colourText } from '../../lib/vehicle-colour.js';
 import { DriverTrackService } from '../geo/driver-track.service.js';
 import { RidesService } from '../rides/rides.service.js';
 
@@ -213,7 +215,9 @@ export class SafetyService {
         ? {
             make: ride.vehicle.make,
             model: ride.vehicle.model,
-            colour: ride.vehicle.colour,
+            /** In the request's language; `colourNames` has both, the page switches without a reload. */
+            colour: colourText(ride.vehicle.colour, currentLanguage()),
+            colourNames: colourNames(ride.vehicle.colour),
             plateFormatted: formatPlate(ride.vehicle.plate),
           }
         : null,

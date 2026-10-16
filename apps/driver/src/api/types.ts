@@ -34,7 +34,9 @@ export interface Account {
 export interface Vehicle {
   make: string;
   model: string;
+  /** In the app's language; `colourCode` is the list's code (null: text the list does not name). */
   colour: string;
+  colourCode?: string | null;
   plate: string;
   plateFormatted: string;
   year: number;
