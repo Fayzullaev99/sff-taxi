@@ -9,6 +9,7 @@ import { keys, useDriverMe } from '../../data/queries';
 import type { DriverRide } from '../../api/types';
 import { errorMessage } from '../../lib/api-client';
 import { useQueryClient } from '@tanstack/react-query';
+import { changeLanguage, type Language, LANGUAGES, useT } from '../../i18n';
 import { tashkentToday } from '../../lib/application';
 import { date, formatPhone, RIDE_CLASSES } from '../../lib/format';
 import { NAV_APPS, type NavApp } from '../../lib/links';
@@ -44,6 +45,28 @@ import { isCargoCar } from '../../lib/service';
 import { CARGO_CLASS_LABELS } from '../../lib/service';
 import { Screen } from '../../ui/screen';
 import { LicenceCardStatus, SupportCard } from '../../ui/widgets';
+
+/**
+ * The app's language: applied at once (every screen re-renders), kept on the phone and on
+ * the account (the API writes push and SMS in it).
+ */
+function LanguageCard() {
+  const { t, lang } = useT();
+  return (
+    <Card>
+      <Title>{t('common.language.title')}</Title>
+      <Choice
+        options={LANGUAGES.map((l) => ({ value: l, label: t(`common.language.${l}`) }))}
+        selected={[lang]}
+        onToggle={(next: Language) => {
+          haptics.select();
+          void changeLanguage(next);
+        }}
+      />
+      <Muted>{t('common.language.hint')}</Muted>
+    </Card>
+  );
+}
 
 /** Profile and settings: car and licence, documents, notifications, GPS, navigator, sign-out. */
 export default function Profile() {
@@ -183,6 +206,8 @@ export default function Profile() {
 
       {isCargoCar(d) ? null : <ClassesCard me={d} />}
       {isCargoCar(d) ? null : <WomenRidersCard me={d} />}
+
+      <LanguageCard />
 
       <Card>
         <Title>Bildirishnomalar</Title>

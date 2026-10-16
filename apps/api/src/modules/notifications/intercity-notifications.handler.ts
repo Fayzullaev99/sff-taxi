@@ -81,7 +81,15 @@ export class IntercityNotificationsHandler implements OutboxHandler {
           rideId: null,
           userId: b.rider_id,
           phone: b.rider_phone,
-          text: intercitySms.booked(b.number, text, b.seats, b.price, trip.driverPhone, trip.car),
+          text: intercitySms.booked(
+            await this.notifier.localeOfUser(b.rider_id),
+            b.number,
+            text,
+            b.seats,
+            b.price,
+            trip.driverPhone,
+            trip.car,
+          ),
         });
       }
       return;
@@ -154,8 +162,17 @@ export class IntercityNotificationsHandler implements OutboxHandler {
           phone: b.rider_phone,
           text:
             to === 'boarding'
-              ? intercitySms.boarding(b.number, trip.text)
-              : intercitySms.cancelled(b.number, trip.text, trip.cancelReason),
+              ? intercitySms.boarding(
+                  await this.notifier.localeOfUser(b.rider_id),
+                  b.number,
+                  trip.text,
+                )
+              : intercitySms.cancelled(
+                  await this.notifier.localeOfUser(b.rider_id),
+                  b.number,
+                  trip.text,
+                  trip.cancelReason,
+                ),
         });
       }
     }

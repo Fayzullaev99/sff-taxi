@@ -38,8 +38,18 @@ npm workspaces under `apps/*`: `apps/api` (NestJS API + worker) now; `apps/rider
   modules do I/O and call it.
 - Migrations: plain SQL `migrations/NNNN_name.sql`, never edited once committed (a checksum
   guards this). Mirror every table/column in `src/core/db/schema.ts` by hand.
-- Validation: zod schemas + `ZodPipe`. User-facing messages are Uzbek (Latin), code/comments
-  English.
+- Validation: zod schemas + `ZodPipe`. User-facing messages are written in Uzbek (Latin) in
+  the code, code/comments English. Russian comes from the catalog `src/core/i18n/ru.ts`,
+  keyed by the Uzbek text: every new message (exception, `msg()`, `tr()`, `message:`, zod
+  message, label table) needs an entry there, or `src/core/i18n/catalog.test.ts` fails.
+  Values go in as `{0}` templates (`msg('Faqat {0} ta joy qoldi', n)`), never by string
+  concatenation. Texts in response payloads use `tr()`; the exception filter translates
+  errors by itself. The language is per request (`Accept-Language`), the operator panel
+  always sends `uz`.
+- Apps (rider, driver): no hardcoded texts in screens or libs. Uzbek goes in
+  `src/i18n/uz/<namespace>.ts`, Russian in `src/i18n/ru/<namespace>.ts` (the same keys, by
+  type); components use `const { t } = useT()`, pure modules `t` from `src/i18n/dictionary`.
+  Counts that change a Russian noun use plural forms (`{count}`, one/few/many).
 - Money: integer so'm. Times: UTC in DB; tariff windows (night) are Tashkent local (UTC+5, no DST).
 - Access: `@Public()`, `@AdminOnly()` (operators, from `ADMIN_PHONES`); drivers are checked by
   the drivers service (`status = 'active'`).

@@ -1,9 +1,14 @@
+import type { Language } from '../../core/i18n/language.js';
+import { translate } from '../../core/i18n/translate.js';
+
 /**
- * Notification texts in Uzbek (Latin, the default) and Russian. SMS texts are Uzbek only
- * and short (one 160-character Latin segment where possible): each must also be approved
- * as a template in the SMS provider's cabinet before production.
+ * Notification texts in Uzbek (Latin, the default) and Russian. Push follows the device's
+ * registered language, SMS the recipient's account language (users.locale; Uzbek for a
+ * phone without an account). SMS texts are short (one 160-character Latin segment where
+ * possible; Russian ones fit one 70-character Cyrillic segment or two): each must also be
+ * approved as a template in the SMS provider's cabinet before production.
  */
-export type Locale = 'uz' | 'ru';
+export type Locale = Language;
 /** The ride's service: cargo and delivery rides get their own wording. */
 type Service = 'taxi' | 'cargo' | 'delivery';
 
@@ -66,9 +71,13 @@ export const push = {
     l === 'ru'
       ? { title: 'Посылка в пути', body: `Её везёт ${car(c)}.` }
       : { title: 'Posilka yo‘lda', body: `Uni ${car(c)} olib ketmoqda.` },
+  // a system reason is a known Uzbek text (translated); an operator's reason stays as typed
   cancelledForRider: (l: Locale, reason: string | null): PushText =>
     l === 'ru'
-      ? { title: 'Заказ отменён', body: reason ?? 'Свободных машин не нашлось' }
+      ? {
+          title: 'Заказ отменён',
+          body: reason ? translate(reason, l) : 'Свободных машин не нашлось',
+        }
       : { title: 'Buyurtma bekor qilindi', body: reason ?? 'Bo‘sh mashina topilmadi' },
   scheduledStarted: (l: Locale): PushText =>
     l === 'ru'
@@ -173,17 +182,33 @@ export const push = {
       : { title: 'Hisob blokdan chiqarildi', body: 'Yana liniyaga chiqishingiz mumkin.' },
 };
 
-/** SMS to riders who ordered by phone and have no app. */
+/**
+ * SMS to riders who ordered by phone and have no app, to passengers of rides ordered for
+ * them and to parcel recipients, in the recipient's language.
+ */
 export const sms = {
-  driverAssigned: (number: number, c: CarText, minutes: number | null, driverPhone: string) =>
-    `SFF Taxi #${number}: ${car(c)}${minutes ? `, ~${minutes} daqiqada` : ''}. Haydovchi: ${driverPhone}`,
-  driverArrived: (number: number, c: CarText) =>
-    `SFF Taxi #${number}: haydovchi yetib keldi, ${car(c)}.`,
+  driverAssigned: (
+    l: Locale,
+    number: number,
+    c: CarText,
+    minutes: number | null,
+    driverPhone: string,
+  ) =>
+    l === 'ru'
+      ? `SFF Taxi #${number}: ${car(c)}${minutes ? `, ~${minutes} мин` : ''}. Водитель: ${driverPhone}`
+      : `SFF Taxi #${number}: ${car(c)}${minutes ? `, ~${minutes} daqiqada` : ''}. Haydovchi: ${driverPhone}`,
+  driverArrived: (l: Locale, number: number, c: CarText) =>
+    l === 'ru'
+      ? `SFF Taxi #${number}: водитель на месте, ${car(c)}.`
+      : `SFF Taxi #${number}: haydovchi yetib keldi, ${car(c)}.`,
   /** The recipient of a parcel: who brings it and how to reach the driver. */
-  parcelOnTheWay: (number: number, c: CarText, driverPhone: string) =>
-    `SFF Taxi #${number}: sizga posilka yo‘lda, ${car(c)}. Haydovchi: ${driverPhone}`,
+  parcelOnTheWay: (l: Locale, number: number, c: CarText, driverPhone: string) =>
+    l === 'ru'
+      ? `SFF Taxi #${number}: к вам едет посылка, ${car(c)}. Водитель: ${driverPhone}`
+      : `SFF Taxi #${number}: sizga posilka yo‘lda, ${car(c)}. Haydovchi: ${driverPhone}`,
   /** The passenger of a ride someone ordered for them: the car, the driver, the live link. */
   passengerAssigned: (
+    l: Locale,
     number: number,
     c: CarText,
     minutes: number | null,
@@ -191,9 +216,14 @@ export const sms = {
     url: string,
     pin: string | null,
   ) =>
-    `SFF Taxi #${number}: sizga ${car(c)}${minutes ? `, ~${minutes} daqiqada` : ''}. Haydovchi: ${driverPhone}.${pin ? ` Kod: ${pin}.` : ''} Kuzatish: ${url}`,
-  cancelled: (number: number, reason: string | null) =>
-    `SFF Taxi #${number}: buyurtma bekor qilindi${reason ? ` (${reason})` : ''}.`,
+    l === 'ru'
+      ? `SFF Taxi #${number}: за вами ${car(c)}${minutes ? `, ~${minutes} мин` : ''}. Водитель: ${driverPhone}.${pin ? ` Код: ${pin}.` : ''} Отследить: ${url}`
+      : `SFF Taxi #${number}: sizga ${car(c)}${minutes ? `, ~${minutes} daqiqada` : ''}. Haydovchi: ${driverPhone}.${pin ? ` Kod: ${pin}.` : ''} Kuzatish: ${url}`,
+  cancelled: (l: Locale, number: number, reason: string | null) =>
+    l === 'ru'
+      ? `SFF Taxi #${number}: заказ отменён${reason ? ` (${translate(reason, l)})` : ''}.`
+      : `SFF Taxi #${number}: buyurtma bekor qilindi${reason ? ` (${reason})` : ''}.`,
+  /** To operators (always Uzbek: the panel's language). */
   sos: (number: number, role: 'rider' | 'driver', phone: string) =>
     `SFF Taxi SOS! Safar #${number}, ${role === 'rider' ? 'yo‘lovchi' : 'haydovchi'} ${phone}. Panelni oching.`,
 };

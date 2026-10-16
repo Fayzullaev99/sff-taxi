@@ -10,13 +10,17 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { api } from '../api/client';
+import { auth } from '../api/driver';
 import { SessionProvider, useSession } from '../auth/session';
 import { persistSnapshots, restoreSnapshot } from '../data/persist';
 import { createQueryClient, useDriverMe, usePublicConfig } from '../data/queries';
 import { installReactQueryNativeBindings } from '../data/react-native';
+import { initLanguage, onLanguageChange } from '../i18n';
 import { errorMessage } from '../lib/api-client';
 import { storeUrlFor } from '../lib/driver-config';
 import { mustUpdate } from '../lib/version';
+import { registerPushDevice } from '../notifications/push';
 import { usePushIntro, usePushRegistration } from '../notifications/use-push';
 import { ApplicantRuntime, DriverRuntime } from '../realtime/driver-runtime';
 import { Button, ErrorState, Loading } from '../ui/components';
@@ -34,8 +38,25 @@ export default function RootLayout() {
   // the last known profile and ride are shown at once after a cold start (then refetched)
   const [restored, setRestored] = useState(false);
   useEffect(() => {
-    void restoreSnapshot(queryClient).finally(() => setRestored(true));
-    return persistSnapshots(queryClient);
+    // the language (saved, else the phone's) alongside the snapshot, before the first screen
+    void Promise.all([initLanguage(), restoreSnapshot(queryClient)]).finally(() =>
+      setRestored(true),
+    );
+    const stopPersisting = persistSnapshots(queryClient);
+    // a switched language: the API keeps it (push, SMS), the push device is re-registered
+    // in it, and everything the API worded (labels, reasons, quick replies) is refetched
+    const stopLanguage = onLanguageChange((lang) => {
+      void api
+        .hasSession()
+        .then((signedIn) => (signedIn ? auth.updateLocale(lang) : undefined))
+        .catch(() => undefined);
+      void registerPushDevice();
+      void queryClient.invalidateQueries();
+    });
+    return () => {
+      stopPersisting();
+      stopLanguage();
+    };
   }, [queryClient]);
   return (
     <SafeAreaProvider>

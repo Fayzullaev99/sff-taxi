@@ -66,9 +66,11 @@ Images: `npm run docker:build` (API/worker/migrations and the operator panel). P
 ## API
 
 Base path `/v1` (health and metrics are at the root). JSON, bearer access tokens
-(`Authorization: Bearer …`), errors `{ statusCode, message, issues? }` with Uzbek messages;
-429 `{ retryAfterSeconds }` on rate limits; 409 "qayta urinib ko‘ring" when two requests raced.
-Money is whole so'm; times are ISO 8601 UTC.
+(`Authorization: Bearer …`), errors `{ statusCode, message, issues? }` with messages in the
+request's language (`Accept-Language: uz | ru`; Uzbek by default and for the operator panel;
+a `msg()` error also carries its Uzbek `key` template and `params`); 429 `{ retryAfterSeconds }`
+on rate limits; 409 "qayta urinib ko‘ring" when two requests raced. Money is whole so'm; times
+are ISO 8601 UTC.
 
 ### Accounts and configuration
 
@@ -78,7 +80,7 @@ Money is whole so'm; times are ISO 8601 UTC.
 | POST   | `/auth/verify`          | public           | `{ phone, code, client: rider\|driver\|admin }` → access + refresh (10 wrong codes/h lock)                                                                                                                                           |
 | POST   | `/auth/refresh`         | public           | Rotate the refresh token (reuse revokes the family: refresh one at a time)                                                                                                                                                           |
 | POST   | `/auth/logout`          | public           | Revoke the session                                                                                                                                                                                                                   |
-| GET    | `/me`, PATCH            | any              | Account, `isAdmin`, `driver` status; `{ fullName }`                                                                                                                                                                                  |
+| GET    | `/me`, PATCH            | any              | Account, `isAdmin`, `driver` status, `locale`; `{ fullName?, gender?, locale? }`                                                                                                                                                     |
 | PUT    | `/devices`              | any              | Register an Expo push token `{ token, app, platform, locale }`; DELETE `/devices/:token`                                                                                                                                             |
 | GET    | `/config`               | public           | Support, minimum app versions (null = no forced update), `storeUrls`, feature flags (`scheduledPhoneOrders`, `owedCancellationFees`), card providers, `intercity` cancellation and seating rules, `deposits` (booking deposit rules) |
 | GET    | `/uploads/config`       | any              | Whether uploads work, types and sizes per purpose                                                                                                                                                                                    |

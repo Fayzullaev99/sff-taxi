@@ -1,6 +1,7 @@
+import { money, translate } from '../../core/i18n/translate.js';
 import type { Locale, PushText } from './messages.js';
 
-/** Texts of the intercity trip board (Uzbek Latin default, Russian; SMS in Uzbek only). */
+/** Texts of the intercity trip board (Uzbek Latin default, Russian; SMS in the rider's language). */
 
 const soum = (n: number) => `${String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} so‘m`;
 
@@ -44,15 +45,33 @@ export const intercityPush = {
       : { title: 'Bron bekor qilindi', body: `${route(t)}: oldindan to‘lov vaqtida qilinmadi` },
   tripCancelled: (l: Locale, t: TripText, reason: string | null): PushText =>
     l === 'ru'
-      ? { title: 'Поездка отменена', body: `${route(t)}${reason ? `: ${reason}` : ''}` }
+      ? {
+          title: 'Поездка отменена',
+          body: `${route(t)}${reason ? `: ${translate(reason, l)}` : ''}`,
+        }
       : { title: 'Qatnov bekor qilindi', body: `${route(t)}${reason ? `: ${reason}` : ''}` },
 };
 
+/** SMS to riders who booked by phone, in their language. */
 export const intercitySms = {
-  booked: (b: number, t: TripText, seats: number, price: number, driver: string, car: string) =>
-    `SFF Taxi bron #${b}: ${route(t)}, ${seats} joy, ${soum(price)}. ${t.meetingPoint}. Haydovchi ${driver}, ${car}`,
-  boarding: (b: number, t: TripText) =>
-    `SFF Taxi bron #${b}: haydovchi kutmoqda, ${t.meetingPoint}.`,
-  cancelled: (b: number, t: TripText, reason: string | null) =>
-    `SFF Taxi bron #${b}: ${route(t)} qatnovi bekor qilindi${reason ? ` (${reason})` : ''}.`,
+  booked: (
+    l: Locale,
+    b: number,
+    t: TripText,
+    seats: number,
+    price: number,
+    driver: string,
+    car: string,
+  ) =>
+    l === 'ru'
+      ? `SFF Taxi бронь #${b}: ${route(t)}, мест: ${seats}, ${money(price, l)}. ${t.meetingPoint}. Водитель ${driver}, ${car}`
+      : `SFF Taxi bron #${b}: ${route(t)}, ${seats} joy, ${soum(price)}. ${t.meetingPoint}. Haydovchi ${driver}, ${car}`,
+  boarding: (l: Locale, b: number, t: TripText) =>
+    l === 'ru'
+      ? `SFF Taxi бронь #${b}: водитель ждёт, ${t.meetingPoint}.`
+      : `SFF Taxi bron #${b}: haydovchi kutmoqda, ${t.meetingPoint}.`,
+  cancelled: (l: Locale, b: number, t: TripText, reason: string | null) =>
+    l === 'ru'
+      ? `SFF Taxi бронь #${b}: рейс ${route(t)} отменён${reason ? ` (${translate(reason, l)})` : ''}.`
+      : `SFF Taxi bron #${b}: ${route(t)} qatnovi bekor qilindi${reason ? ` (${reason})` : ''}.`,
 };

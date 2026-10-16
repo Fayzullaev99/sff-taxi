@@ -42,6 +42,8 @@ import {
   computeCargoFare,
   deliveryFare,
 } from '../../lib/cargo.js';
+import { currentLanguage } from '../../core/i18n/language.js';
+import { tr, translate } from '../../core/i18n/translate.js';
 import { distanceM } from '../../lib/distance.js';
 import { formatPlate } from '../../lib/driver-rules.js';
 import type { Point } from '../../lib/geo.js';
@@ -1303,7 +1305,7 @@ export class RidesService {
       amount: rows.reduce((sum, r) => sum + r.cancellation_fee, 0),
       /** Only a cash ride collects it; a card ride leaves it owed. */
       collectedWith: 'cash' as const,
-      label: 'Oldingi bekor qilingan safar uchun to‘lov',
+      label: tr('Oldingi bekor qilingan safar uchun to‘lov'),
       rides: rows.map((r) => ({
         rideId: r.id,
         number: r.number,
@@ -2879,7 +2881,8 @@ export class RidesService {
       paymentStatus: ride.payment_status,
       vehicle,
       cancelledBy: ride.cancelled_by,
-      cancelReason: ride.cancel_reason,
+      // a system reason is a known text (translated); an operator's reason stays as typed
+      cancelReason: ride.cancel_reason && translate(ride.cancel_reason, currentLanguage()),
       requestedAt: ride.requested_at,
       assignedAt: ride.assigned_at,
       arrivedAt: ride.arrived_at,
@@ -3327,7 +3330,12 @@ function stopsBlock(stops: Point[], tariff: Tariff) {
 
 /** What the apps show of each orderable class: name, a line, car examples, people. */
 function classCatalog(classes: readonly RideClass[]) {
-  return classes.map((c) => ({ id: c, ...CLASS_INFO[c] }));
+  return classes.map((c) => ({
+    id: c,
+    ...CLASS_INFO[c],
+    label: tr(CLASS_INFO[c].label),
+    description: tr(CLASS_INFO[c].description),
+  }));
 }
 
 /**

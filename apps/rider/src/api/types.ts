@@ -32,6 +32,8 @@ export interface Me {
   gender?: Gender | null;
   /** Until when the declared gender cannot be changed again (once per 30 days); null: now. */
   genderLockedUntil?: string | null;
+  /** The language the API keeps for SMS and push (follows the app's setting). */
+  locale?: 'uz' | 'ru';
   isAdmin: boolean;
   driver: { status: string; statusReason: string | null; isOnline: boolean } | null;
 }

@@ -123,8 +123,9 @@ is cancelled after 10 minutes), drivers' top-ups do not arrive.
 **Symptoms**: nobody can sign in (no code), phone-order riders get no SMS, operators get no SOS
 SMS; `dc logs api worker | grep -i -E 'eskiz|playmobile|sms'`.
 
-1. Provider cabinet: balance, sender name, **template approval** (`SMS_OTP_TEMPLATE` and the
-   phone-order texts must match approved templates exactly).
+1. Provider cabinet: balance, sender name, **template approval** (`SMS_OTP_TEMPLATE`,
+   `SMS_OTP_TEMPLATE_RU` and the phone-order texts, in both languages, must match approved
+   templates exactly; the Russian texts are in `src/modules/notifications/*messages.ts`).
 2. Auth errors: update `ESKIZ_EMAIL`/`ESKIZ_PASSWORD`, `dc up -d api worker`.
 3. Switch providers if the other is configured (`SMS_PROVIDER=playmobile`).
 4. Signed-in users keep working (refresh tokens). SOS still reaches the panel in realtime; tell

@@ -3,7 +3,9 @@
  * the referral welcome discount and ride credit. Pure rules; the promos module does the I/O
  * and the locking. Amounts are whole so'm; a discount is rounded down to 100 so'm so the
  * cash the rider hands over stays a round amount (fares are rounded to 100 so'm).
+ * Texts for the rider are rendered in the language of the request (`tr`).
  */
+import { moneyNow, tr } from '../core/i18n/translate.js';
 
 export type PromoKind = 'percent' | 'fixed';
 
@@ -113,24 +115,24 @@ export function checkPromo(
     cityId: string | null;
   },
 ): PromoCheck {
-  if (!p.isActive) return refuse('inactive', 'Bu promokod faol emas');
+  if (!p.isActive) return refuse('inactive', tr('Bu promokod faol emas'));
   if (p.validFrom && ctx.now < p.validFrom) {
-    return refuse('not_started', `Promokod ${tashkentDate(p.validFrom)} dan amal qiladi`);
+    return refuse('not_started', tr('Promokod {0} dan amal qiladi', tashkentDate(p.validFrom)));
   }
   if (p.validUntil && ctx.now >= p.validUntil) {
-    return refuse('expired', 'Promokod muddati tugagan');
+    return refuse('expired', tr('Promokod muddati tugagan'));
   }
   if (p.usageLimit !== null && ctx.totalUses >= p.usageLimit) {
-    return refuse('exhausted', 'Promokodning limiti tugagan');
+    return refuse('exhausted', tr('Promokodning limiti tugagan'));
   }
   if (ctx.riderUses >= p.perRiderLimit) {
-    return refuse('used', 'Siz bu promokoddan foydalanib bo‘lgansiz');
+    return refuse('used', tr('Siz bu promokoddan foydalanib bo‘lgansiz'));
   }
   if (p.firstRideOnly && ctx.completedRides > 0) {
-    return refuse('first_ride', 'Bu promokod faqat birinchi safar uchun');
+    return refuse('first_ride', tr('Bu promokod faqat birinchi safar uchun'));
   }
   if (p.cityId && ctx.cityId && p.cityId !== ctx.cityId) {
-    return refuse('city', 'Promokod bu shaharda amal qilmaydi');
+    return refuse('city', tr('Promokod bu shaharda amal qilmaydi'));
   }
   return { ok: true };
 }
@@ -144,19 +146,18 @@ export function promoDiscount(
   fare: { total: number; service: string; rideClass: string },
 ): { ok: true; discount: number } | { ok: false; reason: PromoRefusal; message: string } {
   if (p.services.length && !p.services.includes(fare.service)) {
-    return refuse(
-      'service',
-      `Promokod «${SERVICE_LABELS[fare.service] ?? fare.service}» uchun emas`,
-    );
+    const label = SERVICE_LABELS[fare.service];
+    return refuse('service', tr('Promokod «{0}» uchun emas', label ? tr(label) : fare.service));
   }
   if (p.classes.length && !p.classes.includes(fare.rideClass)) {
+    const label = CLASS_LABELS[fare.rideClass];
     return refuse(
       'class',
-      `Promokod «${CLASS_LABELS[fare.rideClass] ?? fare.rideClass}» sinfi uchun emas`,
+      tr('Promokod «{0}» sinfi uchun emas', label ? tr(label) : fare.rideClass),
     );
   }
   if (fare.total < p.minFare) {
-    return refuse('min_fare', `Promokod ${soum(p.minFare)}dan qimmat safarlar uchun`);
+    return refuse('min_fare', tr('Promokod {0}dan qimmat safarlar uchun', moneyNow(p.minFare)));
   }
   const raw =
     p.kind === 'percent'
@@ -230,9 +231,18 @@ export function inviteLinks(code: string, webBase: string) {
 export function inviteText(code: string, url: string, rules: ReferralRules): string {
   const gift =
     rules.invitee_discount_percent > 0
-      ? `birinchi safaringizga ${rules.invitee_discount_percent}% chegirma (${soum(rules.invitee_max_discount)}gacha)`
-      : 'sovg‘a';
-  return `SFF Taxi — Guliston taksisi, narx oldindan ma’lum. Mening kodim ${code} bilan ${gift}: ${url}`;
+      ? tr(
+          'birinchi safaringizga {0}% chegirma ({1}gacha)',
+          rules.invitee_discount_percent,
+          moneyNow(rules.invitee_max_discount),
+        )
+      : tr('sovg‘a');
+  return tr(
+    'SFF Taxi — Guliston taksisi, narx oldindan ma’lum. Mening kodim {0} bilan {1}: {2}',
+    code,
+    gift,
+    url,
+  );
 }
 
 function refuse(reason: PromoRefusal, message: string) {

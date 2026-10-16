@@ -375,6 +375,22 @@ tokens are removed. Offers are pushed as urgent messages that expire with the of
 hear about card refunds (queued, made) and operators' answers to complaints; drivers about a paid
 top-up and an answered appeal (push and stream).
 
+**Languages.** The apps run in Uzbek (Latin, the default) or Russian: the phone's language at
+the first start, then the switch in the profile, applied at once (a typed dictionary per
+language in `src/i18n` of each app; the same keys are required by the typecheck). Every
+request carries `Accept-Language: uz | ru`; the API keeps it in AsyncLocalStorage for the
+request (`src/core/i18n`), the exception filter renders every error body in it (messages,
+`msg()` templates with their values, validation issues, Postgres mappings, Nest defaults),
+and payload texts (quote classes, driver config, complaint types, promo and tip refusals,
+quick replies, system cancel reasons) go through `tr()`. The catalog `ru.ts` is keyed by the
+Uzbek text; a test extracts every message the code produces and fails without a Russian
+entry. The operator panel sends `uz` and stays Uzbek. The account remembers its language
+(`users.locale`, migration 0026: the header when it changes, `PATCH /me { locale }`, the
+sign-in language for a new account), so the worker writes SMS in the recipient's language
+(phone orders, passengers, parcel recipients, intercity bookings; operators' SOS stays Uzbek)
+and the OTP SMS uses `SMS_OTP_TEMPLATE_RU` for Russian apps. Push follows the device's
+registered language, which the app re-registers on a switch.
+
 ## 11. Intercity trip board (MA §6.4)
 
 Drivers publish departures between towns (the 11 Sirdaryo towns and Tashkent, each with a

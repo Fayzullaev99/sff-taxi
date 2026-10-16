@@ -57,6 +57,11 @@ const EnvSchema = z
       .string()
       .includes('{code}')
       .default('SFF Taxi: tasdiqlash kodi {code}. Kodni hech kimga bermang.'),
+    /** The same for apps set to Russian (Accept-Language: ru); approved separately. */
+    SMS_OTP_TEMPLATE_RU: z
+      .string()
+      .includes('{code}')
+      .default('SFF Taxi: код подтверждения {code}. Никому не сообщайте его.'),
     ESKIZ_BASE_URL: z.url().default('https://notify.eskiz.uz'),
     ESKIZ_EMAIL: z.string().optional(),
     ESKIZ_PASSWORD: z.string().optional(),

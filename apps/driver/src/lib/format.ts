@@ -1,8 +1,9 @@
+import { liveTable, t } from '../i18n/dictionary';
 import { tashkentClock, tashkentDate } from './when';
 
-/** 45000 -> "45 000 so‘m" (thousands separated by spaces, as prices are written in Uzbekistan). */
+/** 45000 -> "45 000 so‘m" / "45 000 сум" (thousands separated by spaces, as prices are written). */
 export function som(amount: number): string {
-  return `${amount < 0 ? '−' : ''}${digits(amount)} so‘m`;
+  return `${amount < 0 ? '−' : ''}${digits(amount)} ${t('common.units.som')}`;
 }
 
 /** 45000 -> "45 000" (for very large figures with the currency set apart). */
@@ -12,15 +13,15 @@ export function digits(amount: number): string {
     .replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }
 
-/** 850 -> "850 m", 3420 -> "3,4 km" */
+/** 850 -> "850 m", 3420 -> "3,4 km" ("850 м", "3,4 км") */
 export function distance(m: number): string {
-  if (m < 1000) return `${Math.round(m / 10) * 10} m`;
-  return `${(m / 1000).toFixed(1).replace('.', ',')} km`;
+  if (m < 1000) return `${Math.round(m / 10) * 10} ${t('common.units.m')}`;
+  return `${(m / 1000).toFixed(1).replace('.', ',')} ${t('common.units.km')}`;
 }
 
-/** Seconds -> "~4 daqiqa" (at least one minute). */
+/** Seconds -> "~4 daqiqa" / "~4 мин" (at least one minute). */
 export function etaMinutes(seconds: number): string {
-  return `~${Math.max(1, Math.round(seconds / 60))} daqiqa`;
+  return t('common.units.eta', { minutes: Math.max(1, Math.round(seconds / 60)) });
 }
 
 /** 125 -> "2:05" (a running timer). */
@@ -60,6 +61,11 @@ export function date(ymd: string | null): string {
   return m ? `${m[3]}.${m[2]}.${m[1]}` : '';
 }
 
+/** "26.09 23:59 gacha" / "до 26.09 23:59": a moment something lasts until. */
+export function until(when: string): string {
+  return t('common.units.until', { time: when });
+}
+
 /** "+998901234567" -> "+998 90 123 45 67" */
 export function formatPhone(phone: string): string {
   const m = /^\+998(\d{2})(\d{3})(\d{2})(\d{2})$/.exec(phone);
@@ -77,85 +83,85 @@ export function uzPhoneDigits(input: string): string | null {
   return null;
 }
 
-export const PAYMENT_METHODS: Record<string, string> = {
-  cash: 'Naqd',
-  card: 'Karta',
-};
+// Label tables: each label is read in the app's language on access (src/i18n `liveTable`).
 
-export const RIDE_CLASSES: Record<string, string> = {
-  economy: 'Ekonom',
-  comfort: 'Komfort',
-  minivan: 'Miniven',
-  business: 'Biznes',
-  cargo_s: 'Kichik yuk',
-  cargo_m: 'O‘rta yuk',
-};
+export const PAYMENT_METHODS: Record<string, string> = liveTable({
+  cash: 'common.payment.cash',
+  card: 'common.payment.card',
+});
 
-export const RIDE_OPTIONS: Record<string, string> = {
-  child_seat: 'Bolalar o‘rindig‘i',
-  luggage: 'Katta yuk',
-  pets: 'Uy hayvoni',
-  ac: 'Konditsioner',
-};
+export const RIDE_CLASSES: Record<string, string> = liveTable({
+  economy: 'common.classes.economy',
+  comfort: 'common.classes.comfort',
+  minivan: 'common.classes.minivan',
+  business: 'common.classes.business',
+  cargo_s: 'common.classes.cargo_s',
+  cargo_m: 'common.classes.cargo_m',
+});
 
-export const RIDE_STATUSES: Record<string, string> = {
-  scheduled: 'Oldindan buyurtma',
-  searching: 'Haydovchi qidirilmoqda',
-  driver_assigned: 'Yo‘lovchiga borilmoqda',
-  driver_arrived: 'Yo‘lovchi kutilmoqda',
-  in_progress: 'Safarda',
-  completed: 'Yakunlangan',
-  cancelled: 'Bekor qilingan',
-};
+export const RIDE_OPTIONS: Record<string, string> = liveTable({
+  child_seat: 'common.options.child_seat',
+  luggage: 'common.options.luggage',
+  pets: 'common.options.pets',
+  ac: 'common.options.ac',
+});
 
-export const LEDGER_KINDS: Record<string, string> = {
-  topup: 'To‘ldirish',
-  commission: 'Komissiya',
-  tax: 'Soliq (1%)',
-  pass: 'Abonement',
-  adjustment: 'Tuzatish',
-  card_fare: 'Karta safari puli',
-  payout: 'Kartangizga o‘tkazildi',
-  cancel_fee: 'Bekor qilish haqi',
-  cancel_fee_collected: 'Olingan bekor qilish haqi',
-  deposit: 'Oldindan to‘lov (depozit)',
-  promo_compensation: 'Bonus kompensatsiya',
-  tip: 'Choychaqa (karta)',
-};
+export const RIDE_STATUSES: Record<string, string> = liveTable({
+  scheduled: 'common.rideStatus.scheduled',
+  searching: 'common.rideStatus.searching',
+  driver_assigned: 'common.rideStatus.driver_assigned',
+  driver_arrived: 'common.rideStatus.driver_arrived',
+  in_progress: 'common.rideStatus.in_progress',
+  completed: 'common.rideStatus.completed',
+  cancelled: 'common.rideStatus.cancelled',
+});
+
+export const LEDGER_KINDS: Record<string, string> = liveTable({
+  topup: 'common.ledgerKind.topup',
+  commission: 'common.ledgerKind.commission',
+  tax: 'common.ledgerKind.tax',
+  pass: 'common.ledgerKind.pass',
+  adjustment: 'common.ledgerKind.adjustment',
+  card_fare: 'common.ledgerKind.card_fare',
+  payout: 'common.ledgerKind.payout',
+  cancel_fee: 'common.ledgerKind.cancel_fee',
+  cancel_fee_collected: 'common.ledgerKind.cancel_fee_collected',
+  deposit: 'common.ledgerKind.deposit',
+  promo_compensation: 'common.ledgerKind.promo_compensation',
+  tip: 'common.ledgerKind.tip',
+});
 
 /** What each ledger entry means, one line (the ledger screen). */
-export const LEDGER_HINTS: Record<string, string> = {
-  topup: 'Balans to‘ldirildi (ofisda naqd yoki Payme/Click)',
-  commission: 'Platforma komissiyasi',
-  tax: 'Aylanma soliq: SFF siz uchun davlatga to‘laydi',
-  pass: 'Abonement sotib olindi',
-  adjustment: 'Operator tuzatishi',
-  card_fare: 'Yo‘lovchi kartada oldindan to‘lagan narx — sizniki',
-  payout: 'Karta safarlari puli sizga to‘lab berildi',
-  cancel_fee: 'Yo‘lovchi bekor qilgan safaringiz uchun haq (u keyingi naqd safarida to‘ladi)',
-  cancel_fee_collected:
-    'Yo‘lovchidan naqd olgan oldingi safar(lar) bekor qilish haqi — o‘sha safar haydovchisiga yozildi',
-  deposit: 'Yo‘lovchi kartada oldindan to‘lagan qism (yoki kech bekor qilgani uchun) — sizniki',
-  promo_compensation:
-    'Yo‘lovchi promokod yoki bonus bilan kamroq naqd berdi: farqini SFF balansingizga to‘ladi',
-  tip: 'Yo‘lovchi kartadan bergan choychaqa — to‘liq sizniki, komissiyasiz',
-};
+export const LEDGER_HINTS: Record<string, string> = liveTable({
+  topup: 'common.ledgerHint.topup',
+  commission: 'common.ledgerHint.commission',
+  tax: 'common.ledgerHint.tax',
+  pass: 'common.ledgerHint.pass',
+  adjustment: 'common.ledgerHint.adjustment',
+  card_fare: 'common.ledgerHint.card_fare',
+  payout: 'common.ledgerHint.payout',
+  cancel_fee: 'common.ledgerHint.cancel_fee',
+  cancel_fee_collected: 'common.ledgerHint.cancel_fee_collected',
+  deposit: 'common.ledgerHint.deposit',
+  promo_compensation: 'common.ledgerHint.promo_compensation',
+  tip: 'common.ledgerHint.tip',
+});
 
 /** Why a ride's commission was lower than the percentage (`commissionNote`). */
-export const COMMISSION_NOTES: Record<string, string> = {
-  promo: '0% aksiya',
-  pass: 'Abonement',
-  daily_cap: 'Kunlik chegara',
-  weekly_cap: 'Haftalik chegara',
-  trip_cap: 'Safar chegarasi',
-};
+export const COMMISSION_NOTES: Record<string, string> = liveTable({
+  promo: 'common.commissionNote.promo',
+  pass: 'common.commissionNote.pass',
+  daily_cap: 'common.commissionNote.daily_cap',
+  weekly_cap: 'common.commissionNote.weekly_cap',
+  trip_cap: 'common.commissionNote.trip_cap',
+});
 
 /** A cancelled cash ride's fee (`fare.cancellationFeeStatus`): the next cash ride collects it. */
-export const CANCEL_FEE_STATUS: Record<string, string> = {
-  owed: 'yo‘lovchi keyingi safarida to‘laydi',
-  collected: 'olindi, balansingizda',
-  waived: 'operator kechirdi',
-};
+export const CANCEL_FEE_STATUS: Record<string, string> = liveTable({
+  owed: 'common.cancelFeeStatus.owed',
+  collected: 'common.cancelFeeStatus.collected',
+  waived: 'common.cancelFeeStatus.waived',
+});
 
 /**
  * A date typed on the number pad (Android has no keypad with a dot): the dots come by

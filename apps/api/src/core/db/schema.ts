@@ -18,6 +18,8 @@ export interface UsersTable {
   /** Self-declared; the female-driver option is offered to women. */
   gender: Gender | null;
   gender_set_at: Timestamp | null;
+  /** The language of the apps (Accept-Language): SMS and push sent later are written in it. */
+  locale: Generated<'uz' | 'ru'>;
   created_at: CreatedAt;
 }
 

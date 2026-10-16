@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
+import { getLanguage } from '../i18n/core';
 import { secureStorage } from '../lib/secure-storage';
 import { createApiClient, type SessionTokens, type TokenStore } from './client';
 import { whenForeground } from './foreground';
@@ -50,6 +51,8 @@ export const api = createApiClient({
   // never rotate the refresh token while the app is in the background: the OS may cut the
   // request off after the server rotated it, and the next try would be a "reuse"
   refreshGate: () => whenForeground(AppState),
+  // the API answers, and later writes SMS and push, in the app's language
+  language: getLanguage,
 });
 
 /** Reads the saved session once at start-up. */
