@@ -12,6 +12,7 @@ import { useHistory } from '../api/queries';
 import type { RideSummary } from '../api/types';
 import { useT } from '../i18n';
 import { classLabel, SERVICE_NAMES } from '../lib/services';
+import { historyAmount } from '../lib/fare';
 import { formatDateTime, formatMoney, placeLine } from '../lib/format';
 import { rideScreen } from '../lib/ride-state';
 import { discountLine } from '../lib/sharing';
@@ -90,13 +91,7 @@ function Separator() {
 const RideRow = memo(function RideRow({ ride }: { ride: RideSummary }) {
   const { t } = useT();
   const screen = rideScreen(ride);
-  const amount =
-    ride.status === 'completed'
-      ? // what the rider paid, fees of earlier cancelled rides collected with it included
-        (ride.fare.total ?? ride.fare.quoted) + (ride.fare.owedFee ?? 0)
-      : ride.fare.cancellationFee > 0
-        ? ride.fare.cancellationFee
-        : (ride.fare.pays ?? ride.fare.quoted);
+  const amount = historyAmount(ride);
   const statusText =
     ride.status === 'completed'
       ? t('history.status.completed')
