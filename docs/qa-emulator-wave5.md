@@ -162,9 +162,9 @@ rides/:id/stops` with `confirmTotal` (409 `price_changed` when the price moved) 
 
 Verified on the devices after the fix: 1 (both APKs built and ran), 2 (r25), 3 (r24).
 
-Tests: API 411 (56 files; two timing tests — the dispatch cascade and the delivery — time out
-at 20 s while Gradle builds on the same machine and pass alone with a longer timeout), rider
-295 (+3 skipped smoke), driver 267, web 182. `npm run typecheck`, `rtk proxy npx eslint .`,
+Tests: API 411 passed (56 files, `TEST_DB_NAME=taxi_test TEST_REDIS_DB=5`; a run made while
+Gradle was building timed two timing tests out at 20 s — the dispatch cascade and the delivery
+— they passed alone and in the final run), rider 295 (+3 skipped smoke), driver 267, web 182. `npm run typecheck`, `rtk proxy npx eslint .`,
 `rtk proxy npx prettier --check .`: clean.
 
 ## Open issues
