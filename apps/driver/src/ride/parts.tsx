@@ -15,6 +15,7 @@ import {
 import { driver } from '../api/driver';
 import type { DriverRide } from '../api/types';
 import { keys } from '../data/queries';
+import { useT } from '../i18n';
 import { errorMessage, isApiError } from '../lib/api-client';
 import { clock, digits, distance, RIDE_OPTIONS, som } from '../lib/format';
 import { withRetry } from '../lib/ride-actions';
@@ -25,7 +26,7 @@ import {
   cashPartsText,
   owedFeeNote,
 } from '../lib/ride-flow';
-import { customerWord, depositLine, serviceOf } from '../lib/service';
+import { depositLine, serviceOf } from '../lib/service';
 import type { Stop } from '../lib/stops';
 import { waitingState, type WaitingRules } from '../lib/waiting';
 import { markRideEndedHere } from '../realtime/use-realtime';
@@ -64,28 +65,34 @@ export const WaitingCard = memo(function WaitingCard(props: {
   rules: WaitingRules;
 }) {
   const { rules } = props;
+  const { t } = useT();
   const now = useTick(true);
   const waiting = waitingState(props.arrivedAt, now, rules);
   const tone = waiting.paid ? colors.warning : colors.success;
   return (
     <Card style={{ borderColor: tone, borderWidth: 2 }}>
-      <Text style={styles.label}>{waiting.paid ? 'Pullik kutish' : 'Bepul kutish'}</Text>
+      <Text style={styles.label}>
+        {t(waiting.paid ? 'ride.waiting.paid' : 'ride.waiting.free')}
+      </Text>
       <Text style={[styles.clock, { color: tone }]} maxFontSizeMultiplier={1.2}>
         {waiting.paid ? clock(waiting.elapsedS - rules.freeMinutes * 60) : clock(waiting.freeLeftS)}
       </Text>
       <Muted>
         {waiting.paid
-          ? `${waiting.paidMinutes} daqiqa × ${som(rules.perMinute)} = ${som(waiting.fee)} narxga qo‘shiladi`
-          : `${rules.freeMinutes} daqiqa bepul, keyin har daqiqa ${som(rules.perMinute)}`}
+          ? t('ride.waiting.paidLine', {
+              minutes: waiting.paidMinutes,
+              perMinute: som(rules.perMinute),
+              fee: som(waiting.fee),
+            })
+          : t('ride.waiting.freeLine', {
+              minutes: rules.freeMinutes,
+              perMinute: som(rules.perMinute),
+            })}
       </Muted>
       {!waiting.canNoShow ? (
-        <Muted>“Yo‘lovchi chiqmadi” {clock(waiting.noShowInS)} dan keyin mumkin</Muted>
+        <Muted>{t('ride.waiting.noShowIn', { time: clock(waiting.noShowInS) })}</Muted>
       ) : (
-        <Banner
-          tone="info"
-          icon="information-circle"
-          text="Yo‘lovchi chiqmasa, bekor qilishda “Yo‘lovchi chiqmadi” ni tanlang — bekor qilish haqi sizga yoziladi (naqd safarda — yo‘lovchi keyingi safarida to‘laganda)."
-        />
+        <Banner tone="info" icon="information-circle" text={t('ride.waiting.noShowHint')} />
       )}
     </Card>
   );
@@ -99,6 +106,7 @@ export const CashCard = memo(function CashCard(props: {
   rules: WaitingRules;
 }) {
   const { ride } = props;
+  const { t } = useT();
   // the fee changes once a minute: a slow tick is enough here
   const now = useTick(props.waitingNow, 5_000);
   const liveWaiting =
@@ -114,10 +122,12 @@ export const CashCard = memo(function CashCard(props: {
     <Card>
       <Text style={styles.label}>
         {ride.paymentMethod === 'cash'
-          ? `${customerWord(serviceOf(ride))}dan olinadi (naqd)`
+          ? serviceOf(ride) === 'taxi'
+            ? t('ride.flow.cashFromRider')
+            : t('ride.flow.cashFromCustomer')
           : cash.total > 0
-            ? 'Kutish uchun naqd olinadi'
-            : 'Naqd olmang — safar kartada to‘langan'}
+            ? t('ride.flow.cashForWaiting')
+            : t('ride.flow.cashNoneCard')}
       </Text>
       <Text
         style={styles.collect}
@@ -125,35 +135,29 @@ export const CashCard = memo(function CashCard(props: {
         numberOfLines={1}
         maxFontSizeMultiplier={1.2}
       >
-        {digits(cash.total)} <Text style={styles.collectUnit}>so‘m</Text>
+        {digits(cash.total)} <Text style={styles.collectUnit}>{t('common.units.som')}</Text>
       </Text>
       {ride.paymentMethod === 'card' ? (
-        <Muted>
-          Safar narxi {som(ride.fare.quoted)} kartada oldindan to‘langan — balansingizga yoziladi
-        </Muted>
+        <Muted>{t('ride.flow.cashPrepaid', { amount: som(ride.fare.quoted) })}</Muted>
       ) : deposit ? (
         <Banner tone="info" icon="card" text={deposit} />
       ) : parts ? (
         <Muted>{parts}</Muted>
       ) : (
-        <Muted>Narx oldindan belgilangan va o‘zgarmaydi</Muted>
+        <Muted>{t('ride.flow.cashFixed')}</Muted>
       )}
       {owedNote ? (
         <Banner
           tone="info"
           icon="information-circle"
-          text={`${owedNote[0]!.toUpperCase()}${owedNote.slice(1)}. U balansingizdan o‘sha safar haydovchisiga o‘tkaziladi.`}
+          text={t('ride.flow.owedTransfer', {
+            note: `${owedNote[0]!.toUpperCase()}${owedNote.slice(1)}`,
+          })}
         />
       ) : null}
     </Card>
   );
 });
-
-const STOP_LABEL: Record<Stop['kind'], string> = {
-  pickup: 'Qayerdan',
-  via: 'Oraliq manzil',
-  dropoff: 'Qayerga',
-};
 
 /** The route as an ordered list of stops; the current one is highlighted. */
 export const StopList = memo(function StopList(props: {
@@ -161,6 +165,21 @@ export const StopList = memo(function StopList(props: {
   ride: DriverRide;
 }) {
   const { ride } = props;
+  const { t } = useT();
+  /** The first line of a stop: whose it is and what happens there. */
+  const stopLabel = (s: Stop): string => {
+    if (s.riderName !== undefined) {
+      // several riders: whose stop, how many get in or out
+      const what = t(s.kind === 'pickup' ? 'ride.stops.pickupWord' : 'ride.stops.dropoffWord');
+      const who = s.riderName ?? t('ride.flow.rider');
+      const people =
+        (s.passengers ?? 1) > 1 ? ` · ${t('ride.flow.people', { count: s.passengers! })}` : '';
+      return `${what} · ${who}${people}${s.rideNumber ? ` · #${s.rideNumber}` : ''}`;
+    }
+    if (s.kind === 'via') return t('ride.stops.viaN', { n: (s.index ?? 0) + 1 });
+    if (s.kind === 'dropoff') return `${t('ride.stops.dropoff')} · ${distance(ride.distanceM)}`;
+    return t('ride.stops.pickup');
+  };
   return (
     <Card>
       {props.stops.map((s) => (
@@ -172,19 +191,20 @@ export const StopList = memo(function StopList(props: {
           />
           <View style={{ flex: 1 }}>
             <Text style={styles.stopLabel}>
-              {s.riderName !== undefined
-                ? // several riders: whose stop, how many get in or out
-                  `${s.kind === 'pickup' ? 'Olish' : 'Tushirish'} · ${s.riderName ?? 'Yo‘lovchi'}${
-                    (s.passengers ?? 1) > 1 ? ` · ${s.passengers} kishi` : ''
-                  }${s.rideNumber ? ` · #${s.rideNumber}` : ''}`
-                : s.kind === 'via'
-                  ? `${(s.index ?? 0) + 1}-${STOP_LABEL.via.toLowerCase()}`
-                  : `${STOP_LABEL[s.kind]}${s.kind === 'dropoff' ? ` · ${distance(ride.distanceM)}` : ''}`}
-              {s.arrived ? ' · shu yerda' : s.current ? ' · hozir' : s.done ? ' · o‘tildi' : ''}
+              {stopLabel(s)}
+              {s.arrived
+                ? ` · ${t('ride.stops.here')}`
+                : s.current
+                  ? ` · ${t('ride.stops.now')}`
+                  : s.done
+                    ? ` · ${t('ride.stops.passed')}`
+                    : ''}
             </Text>
-            <Text style={styles.stopText}>{s.place.address ?? 'Xaritadagi nuqta'}</Text>
+            <Text style={styles.stopText}>{s.place.address ?? t('ride.stops.mapPoint')}</Text>
             {s.place.landmark ? (
-              <Text style={styles.landmark}>Mo‘ljal: {s.place.landmark}</Text>
+              <Text style={styles.landmark}>
+                {t('ride.stops.landmark', { landmark: s.place.landmark })}
+              </Text>
             ) : null}
           </View>
         </View>
@@ -210,17 +230,20 @@ export const PassengerCard = memo(function PassengerCard(props: {
   ordererName: string | null;
 }) {
   const { passenger } = props;
+  const { t } = useT();
   return (
     <Card>
       <View style={styles.riderRow}>
         <View style={{ flex: 1 }}>
-          <Muted>Yo‘lovchi (boshqa odam uchun buyurtma)</Muted>
-          <Title>{passenger.name ?? 'Yo‘lovchi'}</Title>
-          <Muted>Buyurtmachi: {props.ordererName ?? 'mijoz'}</Muted>
+          <Muted>{t('ride.flow.passengerTitle')}</Muted>
+          <Title>{passenger.name ?? t('ride.flow.rider')}</Title>
+          <Muted>
+            {t('ride.flow.orderer', { name: props.ordererName ?? t('ride.flow.customer') })}
+          </Muted>
         </View>
         {passenger.phone ? (
           <Button
-            title="Qo‘ng‘iroq"
+            title={t('ride.flow.call')}
             icon="call"
             variant="secondary"
             onPress={() => call(passenger.phone!)}
@@ -237,19 +260,20 @@ export const RiderCard = memo(function RiderCard(props: {
   channel: string;
 }) {
   const { rider } = props;
+  const { t } = useT();
   return (
     <Card>
       <View style={styles.riderRow}>
         <View style={{ flex: 1 }}>
-          <Title>{rider.name ?? 'Yo‘lovchi'}</Title>
+          <Title>{rider.name ?? t('ride.flow.rider')}</Title>
           <Muted>
             {rider.rating.toFixed(1)} ★
-            {props.channel === 'phone' ? ' · telefon orqali buyurtma' : ''}
+            {props.channel === 'phone' ? ` · ${t('ride.flow.byPhone')}` : ''}
           </Muted>
         </View>
         {rider.phone ? (
           <Button
-            title="Qo‘ng‘iroq"
+            title={t('ride.flow.call')}
             icon="call"
             variant="secondary"
             onPress={() => call(rider.phone)}
@@ -260,7 +284,7 @@ export const RiderCard = memo(function RiderCard(props: {
         <Banner
           tone="warning"
           icon="warning"
-          text={`Bu yo‘lovchi ${rider.noShows} marta chiqmagan`}
+          text={t('ride.flow.noShows', { count: rider.noShows })}
         />
       ) : null}
     </Card>
@@ -276,6 +300,7 @@ export function CancelPanel(props: {
 }) {
   const qc = useQueryClient();
   const router = useRouter();
+  const { t } = useT();
   const [note, setNote] = useState('');
   const waitingNow = props.ride.status === 'driver_arrived' && props.arrivedAt !== null;
   const now = useTick(waitingNow);
@@ -315,14 +340,14 @@ export function CancelPanel(props: {
     onSuccess: done,
     onError: (error) => {
       haptics.error();
-      Alert.alert('Bekor qilinmadi', errorMessage(error));
+      Alert.alert(t('ride.cancel.failed'), errorMessage(error));
       if (isApiError(error, 404)) void qc.invalidateQueries({ queryKey: keys.current });
     },
   });
 
   return (
     <Card style={{ borderColor: colors.danger, borderWidth: 2 }}>
-      <Title>Bekor qilish sababi</Title>
+      <Title>{t('ride.cancel.title')}</Title>
       {choices.map((c) => (
         <Pressable
           key={c.code}
@@ -351,32 +376,34 @@ export function CancelPanel(props: {
       <TextInput
         value={note}
         onChangeText={setNote}
-        placeholder="Izoh (ixtiyoriy)"
+        placeholder={t('ride.cancel.notePlaceholder')}
         placeholderTextColor={colors.muted}
         maxLength={200}
         style={styles.note}
       />
       <Button
-        title="Bekor qilish"
+        title={t('ride.cancel.confirm')}
         variant="danger"
         icon="close-circle"
         disabled={!picked}
         loading={cancel.isPending}
         onPress={() => picked && !cancel.isPending && cancel.mutate(picked)}
       />
-      <Button title="Safarni davom ettirish" variant="secondary" onPress={props.onClose} />
+      <Button title={t('ride.cancel.keepRiding')} variant="secondary" onPress={props.onClose} />
     </Card>
   );
 }
 
-const EMERGENCY: { label: string; number: string }[] = [
-  { label: 'Yagona xizmat', number: '112' },
-  { label: 'Politsiya', number: '102' },
-  { label: 'Tez yordam', number: '103' },
-];
+/** The emergency numbers, labelled in the app's language. */
+const EMERGENCY = [
+  { label: 'ride.flow.emergency', number: '112' },
+  { label: 'ride.flow.police', number: '102' },
+  { label: 'ride.flow.ambulance', number: '103' },
+] as const;
 
 /** SOS: operators are alerted with the position; emergency numbers one tap away. */
 export const SosButton = memo(function SosButton(props: { rideId: string }) {
+  const { t } = useT();
   const send = useMutation({
     mutationFn: async () => {
       const last = await Location.getLastKnownPositionAsync({ maxAge: 120_000 }).catch(() => null);
@@ -389,27 +416,30 @@ export const SosButton = memo(function SosButton(props: { rideId: string }) {
     onSuccess: () => {
       haptics.warning();
       Alert.alert(
-        'Operatorlar xabardor qilindi',
-        'Xavf bo‘lsa, darhol qo‘ng‘iroq qiling:',
-        EMERGENCY.map((e) => ({ text: `${e.label} ${e.number}`, onPress: () => call(e.number) })),
+        t('ride.flow.sosSentTitle'),
+        t('ride.flow.sosSentText'),
+        EMERGENCY.map((e) => ({
+          text: `${t(e.label)} ${e.number}`,
+          onPress: () => call(e.number),
+        })),
       );
     },
     onError: () =>
-      Alert.alert('SOS yuborilmadi', 'Internet yo‘q bo‘lishi mumkin. 112 ga qo‘ng‘iroq qiling.', [
+      Alert.alert(t('ride.flow.sosFailedTitle'), t('ride.flow.sosFailedText'), [
         { text: '112', onPress: () => call('112') },
-        { text: 'Yopish', style: 'cancel' },
+        { text: t('common.actions.close'), style: 'cancel' },
       ]),
   });
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={send.isPending ? 'SOS yuborilmoqda' : 'SOS: favqulodda holat'}
+      accessibilityLabel={send.isPending ? t('ride.flow.sosSendingA11y') : t('ride.flow.sosA11y')}
       accessibilityState={{ busy: send.isPending, disabled: send.isPending }}
       // while it is being sent (up to 3 tries) a second tap would raise a second alarm
       disabled={send.isPending}
       onPress={() =>
-        Alert.alert('SOS yuborilsinmi?', 'Operatorlarga joylashuvingiz bilan xabar boradi.', [
-          { text: 'Yo‘q', style: 'cancel' },
+        Alert.alert(t('ride.flow.sosConfirmTitle'), t('ride.flow.sosConfirmText'), [
+          { text: t('common.actions.no'), style: 'cancel' },
           { text: 'SOS', style: 'destructive', onPress: () => send.mutate() },
         ])
       }

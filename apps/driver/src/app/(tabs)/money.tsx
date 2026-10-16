@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { driver } from '../../api/driver';
 import { keys, useBalance, useDriverConfig, useEarnings, useFeatures } from '../../data/queries';
+import { useT } from '../../i18n';
 import { errorMessage } from '../../lib/api-client';
 import { tashkentToday } from '../../lib/application';
 import { passesOnSale } from '../../lib/driver-config';
@@ -32,6 +33,7 @@ import { TopUpCard } from '../../ui/widgets';
  * fares credited and payouts included).
  */
 export default function Money() {
+  const { t } = useT();
   const qc = useQueryClient();
   const router = useRouter();
   const [period, setPeriod] = useState<'day' | 'week'>('day');
@@ -45,14 +47,17 @@ export default function Money() {
     mutationFn: (kind: 'day' | 'week') => driver.buyPass(kind),
     onSuccess: (pass) => {
       haptics.success();
-      Alert.alert('Abonement olindi', `${passLabel(pass)}. Balans: ${som(pass.balance)}`);
+      Alert.alert(
+        t('money.passes.bought'),
+        t('money.passes.boughtText', { pass: passLabel(pass), balance: som(pass.balance) }),
+      );
       void qc.invalidateQueries({ queryKey: keys.balance });
       void qc.invalidateQueries({ queryKey: keys.me });
       void qc.invalidateQueries({ queryKey: keys.passes });
     },
     onError: (error) => {
       haptics.error();
-      Alert.alert('Abonement olinmadi', errorMessage(error));
+      Alert.alert(t('money.passes.buyFailed'), errorMessage(error));
     },
   });
 
@@ -74,18 +79,18 @@ export default function Money() {
   const confirmBuy = (kind: 'day' | 'week') => {
     const price = kind === 'day' ? billing.passDay : billing.passWeek;
     Alert.alert(
-      kind === 'day' ? 'Kunlik abonement' : 'Haftalik abonement',
-      `${som(price)} balansdan yechiladi. Shahar ichidagi safarlar komissiyasiz bo‘ladi (${billing.taxPercent}% soliq qoladi).`,
+      kind === 'day' ? t('money.passes.day') : t('money.passes.week'),
+      t('money.passes.confirmText', { price: som(price), tax: billing.taxPercent }),
       [
-        { text: 'Bekor qilish', style: 'cancel' },
-        { text: 'Sotib olish', onPress: () => buy.mutate(kind) },
+        { text: t('common.actions.cancel'), style: 'cancel' },
+        { text: t('money.passes.buy'), onPress: () => buy.mutate(kind) },
       ],
     );
   };
 
   return (
     <Screen
-      title="Daromad"
+      title={t('money.earnings.title')}
       refreshing={balance.isRefetching}
       onRefresh={() => {
         void balance.refetch();
@@ -94,7 +99,7 @@ export default function Money() {
       }}
     >
       <Card style={{ alignItems: 'center' }}>
-        <Text style={styles.label}>Balans</Text>
+        <Text style={styles.label}>{t('money.balance.label')}</Text>
         <Text
           style={[
             styles.balance,
@@ -109,15 +114,12 @@ export default function Money() {
           ]}
         >
           {b.balance < 0 ? '−' : ''}
-          {digits(b.balance)} <Text style={styles.unit}>so‘m</Text>
+          {digits(b.balance)} <Text style={styles.unit}>{t('common.units.som')}</Text>
         </Text>
-        <Muted center>
-          Minimal balans {som(b.minBalance)}: undan past bo‘lsa liniyaga chiqib bo‘lmaydi. Komissiya
-          va soliq har safardan keyin shu balansdan yechiladi.
-        </Muted>
+        <Muted center>{t('money.balance.hint', { min: som(b.minBalance) })}</Muted>
         {byCard && status.canWork && status.level === 'ok' ? (
           <Button
-            title="Karta bilan to‘ldirish"
+            title={t('money.balance.topUpByCard')}
             icon="card"
             variant="secondary"
             onPress={() => router.push('/topup')}
@@ -131,41 +133,50 @@ export default function Money() {
       <Banner
         tone={promo.active ? 'success' : 'info'}
         icon="pricetag"
-        title={promo.active ? `0% komissiya — yana ${promo.daysLeft} kun` : 'Komissiya'}
+        title={
+          promo.active
+            ? t('money.rules.promoTitle', { count: promo.daysLeft })
+            : t('money.rules.commission')
+        }
         text={promo.text}
       />
 
       <Card>
-        <Title>Qoidalar</Title>
+        <Title>{t('money.rules.title')}</Title>
         <Row
-          label="Shahar ichida komissiya"
-          value={promo.active ? '0% (aksiya)' : `${billing.commissionPercent}%`}
+          label={t('money.rules.cityCommission')}
+          value={promo.active ? t('money.rules.promoValue') : `${billing.commissionPercent}%`}
         />
-        <Row label="Kunlik chegara" value={som(billing.dailyCap)} />
-        <Row label="Haftalik chegara" value={som(billing.weeklyCap)} />
+        <Row label={t('common.commissionNote.daily_cap')} value={som(billing.dailyCap)} />
+        <Row label={t('common.commissionNote.weekly_cap')} value={som(billing.weeklyCap)} />
         <Row
-          label="Shaharlararo"
-          value={`${billing.intercityPercent}%, safarga ko‘pi bilan ${som(billing.intercityTripCap)}`}
+          label={t('common.screens.intercity')}
+          value={t('money.rules.intercityValue', {
+            percent: billing.intercityPercent,
+            cap: som(billing.intercityTripCap),
+          })}
         />
-        <Row label="Aylanma soliq" value={`${billing.taxPercent}%`} />
-        <Row label="Minimal balans" value={som(billing.minBalance)} />
+        <Row label={t('money.rules.turnoverTax')} value={`${billing.taxPercent}%`} />
+        <Row label={t('money.balance.minimum')} value={som(billing.minBalance)} />
       </Card>
 
       {passes ? (
         <Card>
-          <Title>Abonement</Title>
+          <Title>{t('money.passes.title')}</Title>
           {b.activePass ? (
             <Banner tone="success" icon="checkmark-circle" text={passLabel(b.activePass)} />
           ) : (
             <Muted>
-              Abonement bilan shahar ichidagi safarlar komissiyasiz. Kunlik {som(billing.passDay)} —
-              kuniga {som(passBreakEven('day', billing))}dan ko‘p ishlasangiz foydali.
+              {t('money.passes.hint', {
+                price: som(billing.passDay),
+                breakEven: som(passBreakEven('day', billing)),
+              })}
             </Muted>
           )}
           {advice ? <Muted>{advice}</Muted> : null}
           <View style={styles.pair}>
             <Button
-              title={`Kunlik · ${som(billing.passDay)}`}
+              title={t('money.passes.dayButton', { price: som(billing.passDay) })}
               variant="secondary"
               disabled={promo.active || buy.isPending}
               loading={buy.isPending && buy.variables === 'day'}
@@ -173,7 +184,7 @@ export default function Money() {
               style={{ flex: 1 }}
             />
             <Button
-              title={`Haftalik · ${som(billing.passWeek)}`}
+              title={t('money.passes.weekButton', { price: som(billing.passWeek) })}
               variant="secondary"
               disabled={promo.active || buy.isPending}
               loading={buy.isPending && buy.variables === 'week'}
@@ -187,51 +198,47 @@ export default function Money() {
       <Card>
         <Choice
           options={[
-            { value: 'day' as const, label: 'Bugun' },
-            { value: 'week' as const, label: 'Shu hafta' },
+            { value: 'day' as const, label: t('common.time.today') },
+            { value: 'week' as const, label: t('money.earnings.thisWeek') },
           ]}
           selected={[period]}
           onToggle={setPeriod}
         />
         {e ? (
           <>
-            <Row label="Safarlar" value={String(e.rides)} />
+            <Row label={t('common.screens.rides')} value={String(e.rides)} />
             {e.intercityBookings ? (
-              <Row label="Shaharlararo yo‘lovchilar" value={String(e.intercityBookings)} />
+              <Row
+                label={t('money.earnings.intercityPassengers')}
+                value={String(e.intercityBookings)}
+              />
             ) : null}
-            <Row label="Yo‘lovchilar to‘lagan" value={som(e.fares)} />
-            <Row label="Shundan naqd" value={som(e.cash)} />
+            <Row label={t('money.earnings.fares')} value={som(e.fares)} />
+            <Row label={t('money.earnings.cash')} value={som(e.cash)} />
             {e.fares - e.cash - (e.promoCompensation ?? 0) > 0 ? (
               <Row
-                label="Kartada (balansingizga)"
+                label={t('money.earnings.card')}
                 value={som(e.fares - e.cash - (e.promoCompensation ?? 0))}
               />
             ) : null}
             {(e.tipsCard ?? 0) > 0 ? (
-              <Row
-                label="Choychaqa kartadan (balansingizga)"
-                value={som(e.tipsCard!)}
-                tone="success"
-              />
+              <Row label={t('money.earnings.tipsCard')} value={som(e.tipsCard!)} tone="success" />
             ) : null}
             {(e.tipsCash ?? 0) > 0 ? (
-              <Row label="Choychaqa naqd (yo‘lovchi aytgan)" value={som(e.tipsCash!)} />
+              <Row label={t('money.earnings.tipsCash')} value={som(e.tipsCash!)} />
             ) : null}
             {(e.promoCompensation ?? 0) > 0 ? (
               <Row
-                label="Bonus kompensatsiya (balansingizga)"
+                label={t('money.earnings.promoCompensation')}
                 value={som(e.promoCompensation!)}
                 tone="success"
               />
             ) : null}
-            <Row label="Platforma komissiyasi" value={som(-e.commission)} />
-            <Row label={`Soliq ${billing.taxPercent}% (siz uchun to‘landi)`} value={som(-e.tax)} />
+            <Row label={t('money.earnings.commission')} value={som(-e.commission)} />
+            <Row label={t('money.earnings.tax', { tax: billing.taxPercent })} value={som(-e.tax)} />
             <View style={styles.divider} />
-            <Row label="Sof daromad" value={som(e.net)} strong tone="success" />
-            <Muted>
-              {billing.taxPercent}% aylanma soliqni SFF soliq agenti sifatida JShShIR bo‘yicha
-              ushlab, davlatga to‘laydi (PQ-247). Sizdan boshqa soliq hisobotini talab qilmaydi.
-            </Muted>
+            <Row label={t('money.earnings.net')} value={som(e.net)} strong tone="success" />
+            <Muted>{t('money.earnings.taxNote', { tax: billing.taxPercent })}</Muted>
           </>
         ) : earnings.isPending ? (
           <Loading />
@@ -244,8 +251,8 @@ export default function Money() {
       </Card>
 
       <Card>
-        <Title>So‘nggi amallar</Title>
-        {b.entries.length === 0 ? <Muted>Hali amallar yo‘q</Muted> : null}
+        <Title>{t('money.ledger.recent')}</Title>
+        {b.entries.length === 0 ? <Muted>{t('money.ledger.empty')}</Muted> : null}
         {b.entries.slice(0, 8).map((x) => (
           <Row
             key={x.id}
@@ -254,28 +261,23 @@ export default function Money() {
             tone={x.amount > 0 ? 'success' : undefined}
           />
         ))}
-        {hasCardMoney ? (
-          <Muted>
-            Karta bilan to‘langan safarlar puli balansingizga yoziladi; operator uni kartangizga
-            o‘tkazganda “Kartangizga o‘tkazildi” bo‘lib ko‘rinadi.
-          </Muted>
-        ) : null}
+        {hasCardMoney ? <Muted>{t('money.ledger.cardNote')}</Muted> : null}
         <Button
-          title="Barcha amallar"
+          title={t('money.ledger.all')}
           icon="list"
           variant="secondary"
           onPress={() => router.push('/ledger')}
         />
         {byCard ? (
           <Button
-            title="Karta to‘lovlari"
+            title={t('money.ledger.cardPayments')}
             icon="card"
             variant="secondary"
             onPress={() => router.push('/topup')}
           />
         ) : null}
         <Button
-          title="Safarlar tarixi"
+          title={t('money.rides.history')}
           icon="time"
           variant="secondary"
           onPress={() => router.push('/rides')}

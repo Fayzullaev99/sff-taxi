@@ -6,6 +6,7 @@ import { Alert, StyleSheet, Text, View } from 'react-native';
 import { intercity } from '../../api/driver';
 import type { DriverTrip, TripBooking } from '../../api/types';
 import { keys, useDriverConfig, useTrip } from '../../data/queries';
+import { type TKey, useT } from '../../i18n';
 import { errorMessage } from '../../lib/api-client';
 import { formatPhone, som } from '../../lib/format';
 import {
@@ -37,11 +38,12 @@ import { haptics } from '../../ui/haptics';
 import { Screen } from '../../ui/screen';
 import { colors, radius, space } from '../../ui/theme';
 
-const CANCEL_REASONS = [
-  'Avtomobil nosoz',
-  'Yo‘lovchi yetarli emas',
-  'Ob-havo yoki yo‘l yopiq',
-  'Shaxsiy sabab',
+/** The ready-made cancel reasons; the Uzbek text is what the API receives (see CancelCard). */
+const CANCEL_REASONS: TKey[] = [
+  'intercity.trip.cancelReasons.vehicle',
+  'intercity.trip.cancelReasons.fewRiders',
+  'intercity.trip.cancelReasons.weather',
+  'intercity.trip.cancelReasons.personal',
 ];
 
 /** Re-renders every 30 s: "boarding opens in …", "leaves in …". */
@@ -61,6 +63,7 @@ function useMinuteTick(): number {
  * passenger and counts against reliability once seats are booked.
  */
 export default function TripScreen() {
+  const { t } = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const qc = useQueryClient();
@@ -75,7 +78,7 @@ export default function TripScreen() {
   };
   const onError = (error: unknown) => {
     haptics.error();
-    Alert.alert('Amal bajarilmadi', errorMessage(error));
+    Alert.alert(t('intercity.trip.actionFailed'), errorMessage(error));
     void trip.refetch();
   };
 
@@ -113,7 +116,7 @@ export default function TripScreen() {
   // loading and errors keep the header's back button (the stack header is hidden)
   if (!trip.data) {
     return (
-      <Screen title="Qatnov" onBack={back}>
+      <Screen title={t('intercity.trip.title')} onBack={back}>
         {trip.isPending ? (
           <Loading />
         ) : (
@@ -122,13 +125,13 @@ export default function TripScreen() {
       </Screen>
     );
   }
-  const t = trip.data;
-  const actions = tripActions(t, now, rules.boardingOpensMinutes);
-  const editable = tripEditable(t);
-  const live = t.bookings.filter((b) => b.status !== 'cancelled');
-  const cancelledBookings = t.bookings.filter((b) => b.status === 'cancelled');
-  const leavesIn = minutesUntil(t.departureAt, now);
-  const collected = t.bookings
+  const x = trip.data;
+  const actions = tripActions(x, now, rules.boardingOpensMinutes);
+  const editable = tripEditable(x);
+  const live = x.bookings.filter((b) => b.status !== 'cancelled');
+  const cancelledBookings = x.bookings.filter((b) => b.status === 'cancelled');
+  const leavesIn = minutesUntil(x.departureAt, now);
+  const collected = x.bookings
     .filter((b) => b.status === 'completed')
     .reduce(
       (s, b) => ({
@@ -141,43 +144,48 @@ export default function TripScreen() {
 
   const confirmDepart = () =>
     Alert.alert(
-      'Jo‘naysizmi?',
+      t('intercity.trip.departConfirm'),
       actions.waiting
-        ? `${actions.waiting} ta o‘rin egasi hali o‘tirmagan: ular “kelmadi” deb belgilanadi.`
-        : 'Hamma yo‘lovchi mashinada.',
+        ? t('intercity.trip.departWaiting', { count: actions.waiting })
+        : t('intercity.trip.departAll'),
       [
-        { text: 'Kutish', style: 'cancel' },
-        { text: 'Jo‘nash', onPress: () => step.mutate('depart') },
+        { text: t('intercity.trip.wait'), style: 'cancel' },
+        { text: t('intercity.trip.depart'), onPress: () => step.mutate('depart') },
       ],
     );
   const confirmArrive = () =>
-    Alert.alert(
-      'Yetib keldingizmi?',
-      'Har bir yo‘lovchidan joy narxini naqd oling. Komissiya va soliq balansdan yechiladi.',
-      [
-        { text: 'Yo‘q', style: 'cancel' },
-        { text: 'Yetib keldik', onPress: () => step.mutate('arrive') },
-      ],
-    );
+    Alert.alert(t('intercity.trip.arriveConfirm'), t('intercity.trip.arriveText'), [
+      { text: t('common.actions.no'), style: 'cancel' },
+      { text: t('intercity.trip.arrived'), onPress: () => step.mutate('arrive') },
+    ]);
+
+  const formatMinutes = (m: number): string => {
+    if (m < 60) return t('intercity.trip.minutes', { count: m });
+    const h = Math.floor(m / 60);
+    const rest = m % 60;
+    return rest
+      ? t('intercity.trip.hoursMinutes', { hours: h, minutes: rest })
+      : t('intercity.trip.hours', { count: h });
+  };
 
   return (
     <Screen
-      title={`Qatnov #${t.number}`}
+      title={t('intercity.trip.numbered', { number: x.number })}
       refreshing={trip.isRefetching}
       onRefresh={() => void trip.refetch()}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/intercity'))}
       footer={
         cancelling ? null : actions.canOpenBoarding ? (
           <Button
-            title="Yo‘lovchilarni yig‘ish"
+            title={t('intercity.trip.openBoarding')}
             icon="people"
             big
             loading={step.isPending}
             onPress={() => step.mutate('boarding')}
           />
-        ) : t.status === 'boarding' ? (
+        ) : x.status === 'boarding' ? (
           <Button
-            title={actions.canDepart ? 'Jo‘nash' : 'Avval yo‘lovchini belgilang'}
+            title={actions.canDepart ? t('intercity.trip.depart') : t('intercity.trip.markFirst')}
             icon="car-sport"
             big
             variant="success"
@@ -187,7 +195,7 @@ export default function TripScreen() {
           />
         ) : actions.canArrive ? (
           <Button
-            title="Yetib keldik"
+            title={t('intercity.trip.arrived')}
             icon="flag"
             big
             variant="success"
@@ -199,77 +207,86 @@ export default function TripScreen() {
     >
       <Card>
         <Text style={styles.route}>
-          {t.from.nameUz} → {t.to.nameUz}
+          {x.from.nameUz} → {x.to.nameUz}
         </Text>
-        <Text style={styles.when}>{whenLabel(t.departureAt, now)}</Text>
+        <Text style={styles.when}>{whenLabel(x.departureAt, now)}</Text>
         <View style={styles.chips}>
-          <Chip label={TRIP_STATUS_TEXT[t.status] ?? t.status} tone="brand" />
+          <Chip label={TRIP_STATUS_TEXT[x.status] ?? x.status} tone="brand" />
           <Chip
-            label={`${t.seats.total - t.seats.free}/${t.seats.total} o‘rin band`}
-            tone={t.seats.free < t.seats.total ? 'success' : 'neutral'}
+            label={t('intercity.seats.booked', {
+              booked: x.seats.total - x.seats.free,
+              total: x.seats.total,
+            })}
+            tone={x.seats.free < x.seats.total ? 'success' : 'neutral'}
           />
         </View>
-        <Row label="Orqa o‘rindiq" value={som(t.price.rear)} />
-        {t.seats.frontOffered ? (
+        <Row label={t('intercity.seats.rear')} value={som(x.price.rear)} />
+        {x.seats.frontOffered ? (
           <Row
-            label={`Old o‘rindiq${t.seats.frontFree ? '' : ' (band)'}`}
-            value={som(t.price.front)}
+            label={x.seats.frontFree ? t('intercity.seats.front') : t('intercity.seats.frontTaken')}
+            value={som(x.price.front)}
           />
         ) : null}
-        <Row label="Uchrashuv joyi" value={t.meetingPoint ?? t.from.meetingPoint ?? '—'} />
-        {t.comment ? <Muted>“{t.comment}”</Muted> : null}
+        <Row
+          label={t('intercity.trip.meetingPoint')}
+          value={x.meetingPoint ?? x.from.meetingPoint ?? '—'}
+        />
+        {x.comment ? <Muted>“{x.comment}”</Muted> : null}
         {editable ? (
           <Button
-            title="O‘zgartirish (vaqt, o‘rinlar, narx)"
+            title={t('intercity.trip.edit')}
             icon="create"
             variant="secondary"
-            onPress={() => router.push(`/intercity/new?edit=${t.id}`)}
+            onPress={() => router.push(`/intercity/new?edit=${x.id}`)}
           />
         ) : null}
-        {t.status === 'scheduled' || t.status === 'boarding' ? (
+        {x.status === 'scheduled' || x.status === 'boarding' ? (
           <Button
-            title="Uchrashuv joyiga yo‘l"
+            title={t('intercity.trip.navigate')}
             icon="navigate"
             variant="secondary"
             onPress={() =>
-              void navigateTo({ lat: t.from.lat, lng: t.from.lng }, t.meetingPoint ?? t.from.nameUz)
+              void navigateTo({ lat: x.from.lat, lng: x.from.lng }, x.meetingPoint ?? x.from.nameUz)
             }
           />
         ) : null}
       </Card>
 
-      {t.status === 'cancelled' ? (
+      {x.status === 'cancelled' ? (
         <Banner
           tone="danger"
           icon="close-circle"
-          title="Qatnov bekor qilingan"
-          text={t.cancelReason ?? 'Sabab ko‘rsatilmagan'}
+          title={t('intercity.trip.cancelledTitle')}
+          text={x.cancelReason ?? t('intercity.trip.noReason')}
         />
       ) : null}
       {actions.boardingOpensAt ? (
         <Banner
           tone="info"
           icon="time"
-          text={`Yo‘lovchilarni yig‘ish ${tashkentClock(actions.boardingOpensAt)} dan ochiladi${
-            leavesIn !== null && leavesIn > 0 ? ` · jo‘nashga ${formatMinutes(leavesIn)}` : ''
-          }.`}
+          text={
+            leavesIn !== null && leavesIn > 0
+              ? t('intercity.trip.boardingOpensAtLeaves', {
+                  time: tashkentClock(actions.boardingOpensAt),
+                  left: formatMinutes(leavesIn),
+                })
+              : t('intercity.trip.boardingOpensAt', {
+                  time: tashkentClock(actions.boardingOpensAt),
+                })
+          }
         />
       ) : null}
-      {t.status === 'boarding' ? (
-        <Banner
-          tone="warning"
-          icon="people"
-          text="Yo‘lovchi mashinaga o‘tirganda “O‘tirdi” ni bosing. Jo‘nashda o‘tirmaganlar “kelmadi” bo‘ladi."
-        />
+      {x.status === 'boarding' ? (
+        <Banner tone="warning" icon="people" text={t('intercity.trip.boardingHint')} />
       ) : null}
-      {t.status === 'arrived' ? (
+      {x.status === 'arrived' ? (
         <Card>
-          <Title>Natija</Title>
-          <Row label="Yo‘lovchilardan naqd" value={som(collected.cash)} />
-          <Row label="Komissiya" value={som(-collected.commission)} />
-          <Row label="Soliq" value={som(-collected.tax)} />
+          <Title>{t('intercity.trip.result')}</Title>
+          <Row label={t('intercity.trip.cashFromRiders')} value={som(collected.cash)} />
+          <Row label={t('intercity.trip.commission')} value={som(-collected.commission)} />
+          <Row label={t('intercity.trip.tax')} value={som(-collected.tax)} />
           <Row
-            label="Sof daromad"
+            label={t('intercity.trip.net')}
             value={som(collected.cash - collected.commission - collected.tax)}
             strong
             tone="success"
@@ -277,11 +294,11 @@ export default function TripScreen() {
         </Card>
       ) : null}
 
-      <SectionTitle>Yo‘lovchilar ({live.length})</SectionTitle>
+      <SectionTitle>{t('intercity.trip.passengers', { count: live.length })}</SectionTitle>
       {!live.length ? (
         <Muted>
-          Hali hech kim joy band qilmagan. Bron qilinsa, shu yerda ism va telefon ko‘rinadi.
-          {editable ? ' Birinchi brongacha qatnovni o‘zgartirish mumkin.' : ''}
+          {t('intercity.trip.noBookings')}
+          {editable ? ` ${t('intercity.trip.noBookingsEditable')}` : ''}
         </Muted>
       ) : null}
       {live.map((b) => (
@@ -296,7 +313,9 @@ export default function TripScreen() {
       ))}
       {cancelledBookings.length ? (
         <Muted>
-          Bekor qilgan: {cancelledBookings.map((b) => b.riderName ?? `#${b.number}`).join(', ')}
+          {t('intercity.trip.cancelledBy', {
+            names: cancelledBookings.map((b) => b.riderName ?? `#${b.number}`).join(', '),
+          })}
         </Muted>
       ) : null}
 
@@ -310,7 +329,7 @@ export default function TripScreen() {
           />
         ) : (
           <Button
-            title="Qatnovni bekor qilish"
+            title={t('intercity.trip.cancelTrip')}
             icon="close-circle"
             variant="danger"
             onPress={() => setCancelling(true)}
@@ -321,19 +340,13 @@ export default function TripScreen() {
   );
 }
 
-function formatMinutes(m: number): string {
-  if (m < 60) return `${m} daqiqa`;
-  const h = Math.floor(m / 60);
-  const rest = m % 60;
-  return rest ? `${h} soat ${rest} daqiqa` : `${h} soat`;
-}
-
 function BookingCard(props: {
   booking: TripBooking;
   canBoard: boolean;
   boarding: boolean;
   onBoard: () => void;
 }) {
+  const { t } = useT();
   const b = props.booking;
   const money = bookingMoney(b);
   const along = alongTheWayText(b);
@@ -347,24 +360,36 @@ function BookingCard(props: {
     <Card>
       <View style={styles.bookingHead}>
         <View style={{ flex: 1, gap: 2 }}>
-          <Text style={styles.name}>{b.riderName ?? 'Yo‘lovchi'}</Text>
+          <Text style={styles.name}>{b.riderName ?? t('intercity.bookings.passenger')}</Text>
           {b.riderPhone ? <Text style={styles.phone}>{formatPhone(b.riderPhone)}</Text> : null}
         </View>
         <Chip label={BOOKING_STATUS_TEXT[b.status] ?? b.status} tone={tone} />
       </View>
       <View style={styles.chips}>
-        <Chip label={`${b.seats} o‘rin`} tone="neutral" icon="person" />
-        {b.front ? <Chip label="Old o‘rindiq" tone="info" /> : null}
-        {b.channel === 'phone' ? <Chip label="Operator orqali" tone="neutral" /> : null}
-        <Chip label={`Naqd: ${som(money.cash)}`} tone="success" icon="cash" />
+        <Chip label={t('intercity.seats.count', { count: b.seats })} tone="neutral" icon="person" />
+        {b.front ? <Chip label={t('intercity.seats.front')} tone="info" /> : null}
+        {b.channel === 'phone' ? (
+          <Chip label={t('intercity.bookings.viaOperator')} tone="neutral" />
+        ) : null}
+        <Chip
+          label={t('intercity.bookings.cash', { amount: som(money.cash) })}
+          tone="success"
+          icon="cash"
+        />
         {money.deposit > 0 ? (
-          <Chip label={`${som(money.deposit)} oldindan to‘langan`} tone="info" icon="card" />
+          <Chip
+            label={t('intercity.bookings.prepaid', { amount: som(money.deposit) })}
+            tone="info"
+            icon="card"
+          />
         ) : null}
       </View>
       {along ? (
         <View style={styles.note}>
           <Ionicons name="git-branch" size={18} color={colors.brand} />
-          <Text style={styles.noteText}>Yo‘l ustida: {along}</Text>
+          <Text style={styles.noteText}>
+            {t('intercity.bookings.alongTheWay', { route: along })}
+          </Text>
         </View>
       ) : null}
       {alongStopLines(b).map((line) => (
@@ -382,7 +407,7 @@ function BookingCard(props: {
       <View style={styles.pair}>
         {b.riderPhone ? (
           <Button
-            title="Qo‘ng‘iroq"
+            title={t('intercity.bookings.call')}
             icon="call"
             variant="secondary"
             onPress={() => call(b.riderPhone)}
@@ -391,7 +416,7 @@ function BookingCard(props: {
         ) : null}
         {props.canBoard && b.status === 'booked' ? (
           <Button
-            title="O‘tirdi"
+            title={t('intercity.bookings.boarded')}
             icon="checkmark"
             variant="success"
             loading={props.boarding}
@@ -410,39 +435,43 @@ function CancelCard(props: {
   onCancel: (reason: string) => void;
   onBack: () => void;
 }) {
+  const { t } = useT();
   const [choice, setChoice] = useState<string | null>(null);
   const [other, setOther] = useState('');
   const reason = (choice === 'other' ? other : (choice ?? '')).trim();
   return (
     <Card style={{ borderColor: colors.danger }}>
-      <Title>Nega bekor qilasiz?</Title>
+      <Title>{t('intercity.trip.whyCancel')}</Title>
       {props.booked ? (
-        <Banner
-          tone="warning"
-          icon="alert-circle"
-          text="Yo‘lovchilarga xabar boriladi. Joy band qilingan qatnovni bekor qilish ishonchlilik ko‘rsatkichingizni pasaytiradi."
-        />
+        <Banner tone="warning" icon="alert-circle" text={t('intercity.trip.cancelWarning')} />
       ) : null}
       <Choice
         options={[
-          ...CANCEL_REASONS.map((r) => ({ value: r, label: r })),
-          { value: 'other', label: 'Boshqa' },
+          // the reason sent to the API (and shown to the riders) stays the Uzbek text,
+          // whatever language the driver reads the choices in
+          ...CANCEL_REASONS.map((key) => ({ value: t(key, undefined, 'uz'), label: t(key) })),
+          { value: 'other', label: t('intercity.trip.cancelReasons.otherReason') },
         ]}
         selected={choice ? [choice] : []}
         onToggle={setChoice}
       />
       {choice === 'other' ? (
-        <Field label="Sabab" value={other} onChangeText={setOther} maxLength={300} />
+        <Field
+          label={t('intercity.trip.reason')}
+          value={other}
+          onChangeText={setOther}
+          maxLength={300}
+        />
       ) : null}
       <Button
-        title="Bekor qilish"
+        title={t('common.actions.cancel')}
         icon="close-circle"
         variant="danger"
         disabled={reason.length < 3}
         loading={props.loading}
         onPress={() => props.onCancel(reason)}
       />
-      <Button title="Orqaga" variant="ghost" onPress={props.onBack} />
+      <Button title={t('common.actions.back')} variant="ghost" onPress={props.onBack} />
     </Card>
   );
 }

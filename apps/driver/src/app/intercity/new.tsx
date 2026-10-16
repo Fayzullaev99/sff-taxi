@@ -12,6 +12,7 @@ import {
   useIntercityPoints,
   useTrip,
 } from '../../data/queries';
+import { useT } from '../../i18n';
 import { errorMessage } from '../../lib/api-client';
 import { distance, etaMinutes, RIDE_CLASSES, som } from '../../lib/format';
 import {
@@ -61,6 +62,7 @@ function ownMeetingPoint(trip: DriverTrip): string | null {
  * what changed) while nobody has booked it; the route stays. The API checks everything again.
  */
 export default function NewTrip() {
+  const { t } = useT();
   const router = useRouter();
   const qc = useQueryClient();
   const params = useLocalSearchParams<{ edit?: string }>();
@@ -161,21 +163,21 @@ export default function NewTrip() {
   // loading and errors keep the header's back button (the stack header is hidden)
   if (points.isPending || me.isPending || (editId && edited.isPending)) {
     return (
-      <Screen title="Qatnov" onBack={back}>
+      <Screen title={t('intercity.trip.title')} onBack={back}>
         <Loading />
       </Screen>
     );
   }
   if (!points.data) {
     return (
-      <Screen title="Qatnov" onBack={back}>
+      <Screen title={t('intercity.trip.title')} onBack={back}>
         <ErrorState message={errorMessage(points.error)} onRetry={() => void points.refetch()} />
       </Screen>
     );
   }
   if (editId && !trip) {
     return (
-      <Screen title="Qatnov" onBack={back}>
+      <Screen title={t('intercity.trip.title')} onBack={back}>
         <ErrorState message={errorMessage(edited.error)} onRetry={() => void edited.refetch()} />
       </Screen>
     );
@@ -187,16 +189,16 @@ export default function NewTrip() {
   const locked = trip !== null && !tripEditable(trip);
 
   const submit = () => {
-    const t = parseTime(time);
-    if (!from || !to) return setProblem('Qayerdan va qayerga ekanini tanlang');
-    if (from === to) return setProblem('Jo‘nash va borish shahri bir xil');
-    if (!t) return setProblem('Vaqtni SS:DD ko‘rinishida yozing, masalan 07:30');
-    const departureAt = departureIso(day, t);
+    const parsed = parseTime(time);
+    if (!from || !to) return setProblem(t('intercity.new.chooseRoute'));
+    if (from === to) return setProblem(t('intercity.new.sameTown'));
+    if (!parsed) return setProblem(t('intercity.new.badTime'));
+    const departureAt = departureIso(day, parsed);
     // an unchanged time of an edited trip is not checked again (it is not sent)
     const timeChanged = !trip || Date.parse(departureAt) !== Date.parse(trip.departureAt);
     const when = timeChanged ? departureProblem(departureAt, Date.now(), rules) : null;
     if (when) return setProblem(when);
-    if (!f || price === null) return setProblem('Narx hisoblanmoqda, biroz kuting');
+    if (!f || price === null) return setProblem(t('intercity.new.priceLoading'));
     const bad = priceProblem(price, f.band);
     if (bad) return setProblem(bad);
     setProblem(null);
@@ -212,7 +214,7 @@ export default function NewTrip() {
         comment,
       },
     );
-    if (!body) return setProblem('Hech narsa o‘zgarmadi');
+    if (!body) return setProblem(t('intercity.new.nothingChanged'));
     save.mutate(body);
   };
 
@@ -226,13 +228,15 @@ export default function NewTrip() {
   return (
     <Screen
       keyboard
-      title={trip ? `Qatnov #${trip.number}ni o‘zgartirish` : 'Yangi qatnov'}
+      title={
+        trip ? t('intercity.new.editTitle', { number: trip.number }) : t('intercity.new.title')
+      }
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/intercity'))}
       footer={
         <>
           {problem ? <Banner tone="danger" icon="alert-circle" text={problem} /> : null}
           <Button
-            title={trip ? 'Saqlash' : 'E’lon qilish'}
+            title={trip ? t('common.actions.save') : t('intercity.new.publish')}
             icon={trip ? 'checkmark' : 'megaphone'}
             big
             loading={publish.isPending || save.isPending}
@@ -247,21 +251,14 @@ export default function NewTrip() {
           <Text style={styles.route}>
             {trip.from.nameUz} → {trip.to.nameUz}
           </Text>
-          <Muted>
-            Yo‘nalishni o‘zgartirib bo‘lmaydi. Birinchi bron qilinguncha vaqt, o‘rinlar, narx,
-            uchrashuv joyi va izohni o‘zgartirish mumkin.
-          </Muted>
+          <Muted>{t('intercity.new.routeLocked')}</Muted>
           {locked ? (
-            <Banner
-              tone="warning"
-              icon="lock-closed"
-              text="Qatnovga bron bor yoki u boshlangan: endi o‘zgartirib bo‘lmaydi (bekor qilish mumkin)."
-            />
+            <Banner tone="warning" icon="lock-closed" text={t('intercity.new.locked')} />
           ) : null}
         </Card>
       ) : (
         <>
-          <SectionTitle>Qayerdan</SectionTitle>
+          <SectionTitle>{t('intercity.new.from')}</SectionTitle>
           <Choice
             options={towns.map((p) => ({ value: p.slug, label: p.nameUz }))}
             selected={from ? [from] : []}
@@ -271,7 +268,7 @@ export default function NewTrip() {
               setProblem(null);
             }}
           />
-          <SectionTitle>Qayerga</SectionTitle>
+          <SectionTitle>{t('intercity.new.to')}</SectionTitle>
           <Choice
             options={towns.map((p) => ({ value: p.slug, label: p.nameUz }))}
             selected={to ? [to] : []}
@@ -291,15 +288,20 @@ export default function NewTrip() {
           ) : f ? (
             <>
               <Row
-                label="Masofa"
+                label={t('intercity.new.distance')}
                 value={`${distance(f.distanceM)}${f.durationS ? ` · ${etaMinutes(f.durationS)}` : ''}`}
               />
               <Row
-                label={`Tavsiya narx (${RIDE_CLASSES[f.class] ?? f.class})`}
-                value={`orqa ${som(f.reference.rear)} · old ${som(f.reference.front)}`}
+                label={t('intercity.new.referencePrice', {
+                  class: RIDE_CLASSES[f.class] ?? f.class,
+                })}
+                value={t('intercity.new.referenceValue', {
+                  rear: som(f.reference.rear),
+                  front: som(f.reference.front),
+                })}
               />
               <Row
-                label={`Ruxsat etilgan (±${rules.priceBandPercent}%)`}
+                label={t('intercity.new.allowed', { percent: rules.priceBandPercent })}
                 value={`${som(f.band.min)} – ${som(f.band.max)}`}
               />
             </>
@@ -308,7 +310,7 @@ export default function NewTrip() {
               <Text style={styles.error}>{errorMessage(fare.error)}</Text>
               {/* without the price band the trip cannot be published: let the driver retry */}
               <Button
-                title="Qayta urinish"
+                title={t('common.actions.retry')}
                 icon="refresh"
                 variant="secondary"
                 loading={fare.isFetching}
@@ -319,19 +321,19 @@ export default function NewTrip() {
         </Card>
       ) : null}
 
-      <SectionTitle>Qachon (Toshkent vaqti)</SectionTitle>
+      <SectionTitle>{t('intercity.new.when')}</SectionTitle>
       <Choice
         options={days.map((d) => ({ value: d, label: dayLabel(d, Date.now()) }))}
         selected={[day]}
         onToggle={setDay}
       />
       <Choice
-        options={TIMES.map((t) => ({ value: t, label: t }))}
+        options={TIMES.map((x) => ({ value: x, label: x }))}
         selected={[parseTime(time) ?? time]}
         onToggle={setTime}
       />
       <Field
-        label="Jo‘nash vaqti"
+        label={t('intercity.new.departureTime')}
         value={time}
         onChangeText={(v) => {
           setTime(v.replace(/[^\d:.]/g, ''));
@@ -340,28 +342,32 @@ export default function NewTrip() {
         keyboardType="numbers-and-punctuation"
         placeholder="07:30"
         maxLength={5}
-        hint={`Kamida ${rules.publishMinMinutesAhead} daqiqadan keyin, ko‘pi bilan ${rules.publishMaxDaysAhead} kun oldin; qatnovlaringiz orasida kamida ${rules.tripSpacingHours} soat`}
+        hint={t('intercity.new.timeHint', {
+          minMinutes: rules.publishMinMinutesAhead,
+          maxDays: rules.publishMaxDaysAhead,
+          spacingHours: rules.tripSpacingHours,
+        })}
       />
 
-      <SectionTitle>O‘rinlar</SectionTitle>
+      <SectionTitle>{t('intercity.new.seats')}</SectionTitle>
       <Choice
         options={Array.from({ length: seatChoices }, (_, i) => ({
           value: String(i + 1),
-          label: `${i + 1} ta`,
+          label: t('intercity.new.seatCount', { count: i + 1 }),
         }))}
         selected={[seats]}
         onToggle={setSeats}
       />
       <ToggleRow
-        label="Old o‘rindiq ham sotiladi"
-        description="Old o‘rindiq qimmatroq bo‘ladi. Orqaga ko‘pi bilan 2 kishi olinadi."
+        label={t('intercity.new.frontSeatSold')}
+        description={t('intercity.new.frontSeatHint')}
         value={frontSeat}
         onChange={setFrontSeat}
       />
 
       {f && price !== null ? (
         <Card>
-          <SectionTitle>Orqa o‘rindiq narxi</SectionTitle>
+          <SectionTitle>{t('intercity.new.rearPrice')}</SectionTitle>
           <View style={styles.stepper}>
             <Button
               title="− 1 000"
@@ -385,7 +391,7 @@ export default function NewTrip() {
             />
           </View>
           <Field
-            label="Narx (so‘m)"
+            label={t('intercity.new.price')}
             value={priceText}
             onChangeText={(v) => {
               const digits = v.replace(/\D/g, '');
@@ -395,30 +401,27 @@ export default function NewTrip() {
             }}
             keyboardType="number-pad"
             maxLength={7}
-            error={price !== null ? priceProblem(price, f.band) : 'Narxni yozing'}
+            error={price !== null ? priceProblem(price, f.band) : t('intercity.new.priceRequired')}
           />
           {frontSeat && front !== null ? (
-            <Row label="Old o‘rindiq" value={som(front)} strong />
+            <Row label={t('intercity.seats.front')} value={som(front)} strong />
           ) : null}
-          <Muted>
-            Birinchi bron qilinguncha narxni o‘zgartirish mumkin, keyin — yo‘q. Ilovadagi bronda
-            narxning bir qismi kartadan oldindan to‘lanadi, qolganini yo‘lovchi sizga naqd beradi.
-          </Muted>
+          <Muted>{t('intercity.new.priceNote')}</Muted>
         </Card>
       ) : null}
 
       <Field
-        label="Uchrashuv joyi (ixtiyoriy)"
+        label={t('intercity.new.meetingPoint')}
         value={meetingPoint}
         onChangeText={setMeetingPoint}
-        placeholder={fromPoint?.meetingPoint ?? 'Avtovokzal'}
+        placeholder={fromPoint?.meetingPoint ?? t('intercity.new.meetingPlaceholder')}
         maxLength={200}
       />
       <Field
-        label="Izoh (ixtiyoriy)"
+        label={t('intercity.new.comment')}
         value={comment}
         onChangeText={setComment}
-        placeholder="Masalan: konditsioner bor, yuk joyi kichik"
+        placeholder={t('intercity.new.commentPlaceholder')}
         maxLength={500}
       />
     </Screen>

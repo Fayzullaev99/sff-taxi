@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { geo } from '../api/driver';
 import { useDriverMe, useIntercityPoints } from '../data/queries';
+import { useT } from '../i18n';
 import { errorMessage } from '../lib/api-client';
 import { type Destination, preferencesError } from '../lib/pool';
 import { loadRecentDestinations, rememberDestination, usePreferences } from '../home/preferences';
@@ -32,6 +33,7 @@ function useDebounced<T>(value: T, ms: number): T {
  */
 export default function DestinationScreen() {
   const router = useRouter();
+  const { t } = useT();
   const params = useLocalSearchParams<{ extra?: string }>();
   const extra = params.extra !== undefined ? Number(params.extra) : undefined;
   const me = useDriverMe();
@@ -71,15 +73,13 @@ export default function DestinationScreen() {
   };
 
   return (
-    <Screen title="Qayerga ketyapsiz?" onBack={() => router.back()} keyboard>
-      <Muted>
-        Faqat yo‘lingizdagi buyurtmalar keladi. Manzilga yetganingizda filtr o‘zi o‘chadi.
-      </Muted>
+    <Screen title={t('home.pool.whereTo')} onBack={() => router.back()} keyboard>
+      <Muted>{t('home.destination.hint')}</Muted>
       {extra ? (
         <Banner
           tone="info"
           icon="people"
-          text={`Mashinada ${extra} kishi: ular qayerga ketayotganini belgilang.`}
+          text={t('home.destination.peopleInCar', { count: extra })}
         />
       ) : null}
       {prefs.error ? (
@@ -88,10 +88,10 @@ export default function DestinationScreen() {
       {prefs.isPending ? <ActivityIndicator color={colors.brand} /> : null}
 
       <Field
-        label="Manzilni qidirish"
+        label={t('home.destination.search')}
         value={q}
         onChangeText={setQ}
-        placeholder="Masalan: Yangiyer, bozor"
+        placeholder={t('home.destination.searchPlaceholder')}
         autoCorrect={false}
         returnKeyType="search"
       />
@@ -105,7 +105,7 @@ export default function DestinationScreen() {
             text={errorMessage(search.error)}
             action={
               <Button
-                title="Qayta urinish"
+                title={t('common.actions.retry')}
                 icon="refresh"
                 variant="secondary"
                 onPress={() => void search.refetch()}
@@ -129,25 +129,25 @@ export default function DestinationScreen() {
             />
           ))
         ) : (
-          <Muted>Hech narsa topilmadi. Boshqacha yozib ko‘ring yoki shaharni tanlang.</Muted>
+          <Muted>{t('home.destination.nothingFound')}</Muted>
         )
       ) : null}
 
       {recent.length ? (
         <>
-          <SectionTitle>Oxirgi manzillar</SectionTitle>
+          <SectionTitle>{t('home.destination.recent')}</SectionTitle>
           {recent.map((d) => (
             <Row
               key={`${d.lat},${d.lng}`}
               icon="time"
-              title={d.address ?? 'Belgilangan nuqta'}
+              title={d.address ?? t('home.currentRide.somePoint')}
               onPress={() => pick(d)}
             />
           ))}
         </>
       ) : null}
 
-      <SectionTitle>Shaharlar</SectionTitle>
+      <SectionTitle>{t('home.destination.towns')}</SectionTitle>
       {towns.isPending ? (
         <ActivityIndicator color={colors.brand} />
       ) : towns.isError ? (
@@ -157,7 +157,7 @@ export default function DestinationScreen() {
           text={errorMessage(towns.error)}
           action={
             <Button
-              title="Qayta urinish"
+              title={t('common.actions.retry')}
               icon="refresh"
               variant="secondary"
               onPress={() => void towns.refetch()}
@@ -165,7 +165,7 @@ export default function DestinationScreen() {
           }
         />
       ) : towns.data?.length === 0 ? (
-        <Muted>Shaharlar ro‘yxati hozircha bo‘sh. Manzilni qidiring.</Muted>
+        <Muted>{t('home.destination.noTowns')}</Muted>
       ) : (
         <View style={styles.towns}>
           {(towns.data ?? []).map((t) => (

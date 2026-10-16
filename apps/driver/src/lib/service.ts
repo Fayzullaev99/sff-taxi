@@ -1,3 +1,4 @@
+import { liveTable, t } from '../i18n/dictionary';
 import { som } from './format';
 import { type RideStep, stepOf } from './ride-flow';
 
@@ -10,16 +11,17 @@ import { type RideStep, stepOf } from './ride-flow';
 
 export type Service = 'taxi' | 'cargo' | 'delivery';
 
-export const SERVICE_LABELS: Record<Service, string> = {
-  taxi: 'Taksi',
-  cargo: 'Yuk tashish',
-  delivery: 'Yetkazib berish',
-};
+/** Label tables: each label is read in the app's language on access (src/i18n `liveTable`). */
+export const SERVICE_LABELS: Record<Service, string> = liveTable({
+  taxi: 'common.services.taxi',
+  cargo: 'common.services.cargo',
+  delivery: 'common.services.delivery',
+});
 
-export const CARGO_CLASS_LABELS: Record<string, string> = {
-  cargo_s: 'Kichik yuk (Damas, Labo)',
-  cargo_m: 'O‘rta yuk (Gazel, Porter)',
-};
+export const CARGO_CLASS_LABELS: Record<string, string> = liveTable({
+  cargo_s: 'ride.service.cargoS',
+  cargo_m: 'ride.service.cargoM',
+});
 
 export function serviceOf(ride: { service?: string | null } | null | undefined): Service {
   return ride?.service === 'cargo' || ride?.service === 'delivery' ? ride.service : 'taxi';
@@ -43,23 +45,25 @@ export function cargoLines(cargo: CargoInfo | null | undefined, rideClass?: stri
   if (rideClass && CARGO_CLASS_LABELS[rideClass]) out.push(CARGO_CLASS_LABELS[rideClass]!);
   if (!cargo) return out;
   const loaders = Math.max(0, Math.floor(cargo.loaders ?? 0));
-  out.push(loaders > 0 ? `Yukchi: ${loaders} kishi` : 'Yukchisiz');
+  out.push(
+    loaders > 0 ? t('ride.service.loaders', { count: loaders }) : t('ride.service.noLoaders'),
+  );
   if (typeof cargo.weightKg === 'number' && cargo.weightKg > 0) {
-    out.push(`Taxminan ${cargo.weightKg} kg`);
+    out.push(t('ride.service.aboutKg', { kg: cargo.weightKg }));
   }
-  if (cargo.riderRides) out.push('Mijoz ham boradi (kabinada 1 kishi)');
+  if (cargo.riderRides) out.push(t('ride.service.customerRides'));
   const d = cargo.description?.trim();
-  if (d) out.push(`Yuk: ${d}`);
+  if (d) out.push(t('ride.service.load', { text: d }));
   return out;
 }
 
 /** The parcel of a delivery, as short lines. */
 export function parcelLines(parcel: ParcelInfo | null | undefined): string[] {
-  const out: string[] = ['Posilka: jo‘natuvchi mashinada bo‘lmaydi'];
+  const out: string[] = [t('ride.service.parcel')];
   const d = parcel?.description?.trim();
-  if (d) out.push(`Nima: ${d}`);
+  if (d) out.push(t('ride.service.what', { text: d }));
   if (typeof parcel?.weightKg === 'number' && parcel.weightKg > 0) {
-    out.push(`Og‘irligi: ~${parcel.weightKg} kg`);
+    out.push(t('ride.service.weight', { kg: parcel.weightKg }));
   }
   return out;
 }
@@ -73,16 +77,34 @@ export function serviceStep(status: string, service: Service): RideStep | null {
   if (!step || service === 'taxi') return step;
   if (service === 'delivery') {
     const words: Record<string, Pick<RideStep, 'title' | 'button'>> = {
-      driver_assigned: { title: 'Posilkani olishga boring', button: 'Yetib keldim' },
-      driver_arrived: { title: 'Posilkani oling', button: 'Posilkani oldim — Boshlash' },
-      in_progress: { title: 'Qabul qiluvchiga boring', button: 'Posilkani topshirdim' },
+      driver_assigned: {
+        title: t('ride.service.deliveryToPickupTitle'),
+        button: t('ride.flow.arrived'),
+      },
+      driver_arrived: {
+        title: t('ride.service.deliveryPickTitle'),
+        button: t('ride.service.deliveryStart'),
+      },
+      in_progress: {
+        title: t('ride.service.deliveryToRecipientTitle'),
+        button: t('ride.service.deliveryComplete'),
+      },
     };
     return { ...step, ...words[status] };
   }
   const words: Record<string, Pick<RideStep, 'title' | 'button'>> = {
-    driver_assigned: { title: 'Yuk olinadigan joyga boring', button: 'Yetib keldim' },
-    driver_arrived: { title: 'Yuklash', button: 'Yuklandi — Boshlash' },
-    in_progress: { title: 'Yukni manzilga olib boring', button: 'Yukni topshirdim — Yakunlash' },
+    driver_assigned: {
+      title: t('ride.service.cargoToPickupTitle'),
+      button: t('ride.flow.arrived'),
+    },
+    driver_arrived: {
+      title: t('ride.service.cargoLoadTitle'),
+      button: t('ride.service.cargoStart'),
+    },
+    in_progress: {
+      title: t('ride.service.cargoToDropoffTitle'),
+      button: t('ride.service.cargoComplete'),
+    },
   };
   return { ...step, ...words[status] };
 }
@@ -103,12 +125,21 @@ export function showRecipient(ride: {
 /** "Oldindan to‘langan 10 000 so‘m, naqd oling 40 000 so‘m" when part was paid in advance. */
 export function depositLine(deposit: number | null | undefined, cashToTake: number): string | null {
   if (!deposit || deposit <= 0) return null;
-  return `Oldindan to‘langan ${som(deposit)}, naqd oling ${som(Math.max(0, cashToTake))}`;
+  return t('ride.service.deposit', {
+    deposit: som(deposit),
+    cash: som(Math.max(0, cashToTake)),
+  });
 }
 
-/** Words for "the rider" by service (the confirm dialogs and the done screen). */
-export function customerWord(service: Service): string {
-  return service === 'taxi' ? 'Yo‘lovchi' : 'Mijoz';
+/**
+ * Words for "the rider" by service (the confirm dialogs and the done screen): the plain
+ * word, or the form after "from" ("from the rider": Russian declines it).
+ */
+export function customerWord(service: Service, form: 'plain' | 'from' = 'plain'): string {
+  if (form === 'from') {
+    return t(service === 'taxi' ? 'ride.service.riderFrom' : 'ride.service.customerFrom');
+  }
+  return t(service === 'taxi' ? 'ride.service.rider' : 'ride.service.customer');
 }
 
 /**

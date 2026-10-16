@@ -4,6 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { devices } from '../api/driver';
 import { getLanguage } from '../i18n/core';
+import { t } from '../i18n/dictionary';
 import { BRAND } from '../config';
 import { type PushPermission, pushPermissionState } from '../lib/push-permission';
 import { isChatOnScreen } from './chat-open';
@@ -83,8 +84,8 @@ export function ensureChannels(): Promise<void> {
   if (Platform.OS !== 'android') return Promise.resolve();
   channels ??= Promise.all([
     Notifications.setNotificationChannelAsync(OFFERS_CHANNEL, {
-      name: 'Yangi buyurtmalar',
-      description: 'Sizga taklif qilingan buyurtmalar (15 soniyada javob bering)',
+      name: t('profile.notifications.channels.offersName'),
+      description: t('profile.notifications.channels.offersDescription'),
       importance: Notifications.AndroidImportance.MAX,
       sound: OFFER_SOUND,
       vibrationPattern: OFFER_VIBRATION,
@@ -100,8 +101,8 @@ export function ensureChannels(): Promise<void> {
       },
     }),
     Notifications.setNotificationChannelAsync(RIDES_CHANNEL, {
-      name: 'Safarlar va hisob',
-      description: 'Yo‘lovchi bekor qildi, ariza holati, hisob o‘zgarishlari',
+      name: t('profile.notifications.channels.ridesName'),
+      description: t('profile.notifications.channels.ridesDescription'),
       importance: Notifications.AndroidImportance.HIGH,
       sound: 'default',
       vibrationPattern: [0, 300, 200, 300],

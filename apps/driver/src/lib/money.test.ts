@@ -1,9 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import { DEFAULT_BILLING } from './driver-config';
-import { balanceStatus, passAdvice, passBreakEven, promoStatus } from './money';
+import { balanceStatus, passAdvice, passBreakEven, passLabel, promoStatus } from './money';
 
 const until = (promoUntil: string | null) => ({ ...DEFAULT_BILLING, promoUntil });
 import { biggestGain, priorityParts, scoreLevel } from './priority';
+
+afterEach(() => setLanguage('uz'));
 
 describe('promoStatus', () => {
   it('shows the 0% period with the days left', () => {
@@ -55,6 +58,22 @@ describe('passes', () => {
     expect(passAdvice(promoStatus('2026-09-26'), false)).toMatch(/0%/);
     expect(passAdvice(promoStatus('2027-02-01'), true)).toMatch(/amalda/);
     expect(passAdvice(promoStatus('2027-02-01'), false)).toBeNull();
+  });
+});
+
+describe('in Russian', () => {
+  it('words the fee, the advice and the pass', () => {
+    setLanguage('ru');
+    expect(promoStatus('2026-12-31', until('2026-12-31')).text).toBe(
+      'До 31.12 комиссия 0% — удерживается только установленный законом налог 1%',
+    );
+    expect(promoStatus('2027-01-01', until('2026-12-31')).text).toMatch(
+      /^Комиссия 5%, не более 10 000 сум в день/,
+    );
+    expect(passAdvice(promoStatus('2027-02-01'), true)).toMatch(/абонемент действует/);
+    expect(passLabel({ kind: 'week', endsAt: '2026-09-26T18:59:00Z' })).toBe(
+      'Недельный абонемент · до 26.09 23:59',
+    );
   });
 });
 

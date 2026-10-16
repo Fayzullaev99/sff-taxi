@@ -1,3 +1,5 @@
+import { t } from '../i18n/dictionary';
+
 /**
  * Uzbek number plates, mirroring the API's check (apps/api src/lib/driver-rules.ts) so the
  * form can explain the format before sending. Two current formats:
@@ -23,7 +25,10 @@ export const PLATE_REGIONS: Record<string, string> = {
 const PRIVATE = /^(\d{2})([A-Z])(\d{3})([A-Z]{2})$/;
 const COMPANY = /^(\d{2})(\d{3})([A-Z]{3})$/;
 
-export const PLATE_HINT = 'Masalan: 20 A 123 BC yoki 20 123 ABC (20 — Sirdaryo)';
+/** The format example under the plate field, in the current language. */
+export function plateHint(): string {
+  return t('apply.validation.plate.hint');
+}
 
 /** "20 a 123 bc", "20-A-123-BC" -> "20A123BC". */
 export function normalizePlate(input: string): string {
@@ -43,13 +48,13 @@ export function formatPlate(plate: string): string {
   return c ? `${c[1]} ${c[2]} ${c[3]}` : plate;
 }
 
-/** A problem with a typed plate in Uzbek, or null when it is valid. */
+/** A problem with a typed plate (in the current language), or null when it is valid. */
 export function plateProblem(input: string): string | null {
   const plate = normalizePlate(input);
-  if (!plate) return 'Davlat raqamini kiriting';
+  if (!plate) return t('apply.validation.plate.required');
   const region = plate.slice(0, 2);
   if (/^\d{2}/.test(plate) && !(region in PLATE_REGIONS)) {
-    return `${region} — bunday viloyat kodi yo‘q`;
+    return t('apply.validation.plate.noSuchRegion', { region });
   }
-  return isUzPlate(plate) ? null : `Davlat raqami noto‘g‘ri. ${PLATE_HINT}`;
+  return isUzPlate(plate) ? null : t('apply.validation.plate.invalid');
 }

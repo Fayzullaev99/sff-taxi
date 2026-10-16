@@ -5,6 +5,7 @@
  * no-shows), arrive (each booking is charged tax and commission). Seats are paid in cash.
  */
 
+import { liveTable, t } from '../i18n/dictionary';
 import { DEFAULT_INTERCITY_RULES, type IntercityRules } from './driver-config';
 import { distance, time } from './format';
 
@@ -29,20 +30,20 @@ export function departureIso(date: string, time: string): string {
   return `${date}T${time}:00+05:00`;
 }
 
-/** Why a departure time cannot be published (Uzbek), or null. */
+/** Why a departure time cannot be published (in the app's language), or null. */
 export function departureProblem(
   iso: string,
   now: number,
   rules: { publishMinMinutesAhead: number; publishMaxDaysAhead: number } = INTERCITY_RULES,
 ): string | null {
   const at = Date.parse(iso);
-  if (Number.isNaN(at)) return 'Jo‘nash vaqtini SS:DD ko‘rinishida yozing';
+  if (Number.isNaN(at)) return t('intercity.new.departureBad');
   const minutes = (at - now) / 60_000;
   if (minutes < rules.publishMinMinutesAhead) {
-    return `Jo‘nash vaqti kamida ${rules.publishMinMinutesAhead} daqiqadan keyin bo‘lsin`;
+    return t('intercity.new.departureTooSoon', { minutes: rules.publishMinMinutesAhead });
   }
   if (minutes > rules.publishMaxDaysAhead * 1440) {
-    return `Qatnovni ${rules.publishMaxDaysAhead} kundan uzoqqa e’lon qilib bo‘lmaydi`;
+    return t('intercity.new.departureTooFar', { days: rules.publishMaxDaysAhead });
   }
   return null;
 }
@@ -54,10 +55,10 @@ export interface Band {
 
 /** Why a rear seat price is refused (the API's rule: within the band, a multiple of 100). */
 export function priceProblem(price: number, band: Band): string | null {
-  if (!Number.isInteger(price) || price <= 0) return 'Narxni so‘mda yozing';
-  if (price % 100 !== 0) return 'Narx 100 so‘mga karrali bo‘lsin';
+  if (!Number.isInteger(price) || price <= 0) return t('intercity.new.priceInSom');
+  if (price % 100 !== 0) return t('intercity.new.priceHundreds');
   if (price < band.min || price > band.max) {
-    return `Narx ${fmt(band.min)}–${fmt(band.max)} so‘m oralig‘ida bo‘lsin`;
+    return t('intercity.new.priceBand', { min: fmt(band.min), max: fmt(band.max) });
   }
   return null;
 }
@@ -82,21 +83,23 @@ export function frontPriceFor(rear: number, reference: { rear: number; front: nu
 export type TripStatus = 'scheduled' | 'boarding' | 'departed' | 'arrived' | 'cancelled';
 export type BookingStatus = 'booked' | 'boarded' | 'completed' | 'cancelled' | 'no_show';
 
-export const TRIP_STATUS_TEXT: Record<string, string> = {
-  scheduled: 'E’lon qilingan',
-  boarding: 'Yo‘lovchilar yig‘ilmoqda',
-  departed: 'Yo‘lda',
-  arrived: 'Yetib kelindi',
-  cancelled: 'Bekor qilingan',
-};
+// Label tables: each label is read in the app's language on access (src/i18n `liveTable`).
 
-export const BOOKING_STATUS_TEXT: Record<string, string> = {
-  booked: 'Bron qilgan',
-  boarded: 'Mashinada',
-  completed: 'Yetkazildi',
-  cancelled: 'Bekor qildi',
-  no_show: 'Kelmadi',
-};
+export const TRIP_STATUS_TEXT: Record<string, string> = liveTable({
+  scheduled: 'intercity.status.trip.scheduled',
+  boarding: 'intercity.status.trip.boarding',
+  departed: 'intercity.status.trip.departed',
+  arrived: 'intercity.status.trip.arrived',
+  cancelled: 'intercity.status.trip.cancelled',
+});
+
+export const BOOKING_STATUS_TEXT: Record<string, string> = liveTable({
+  booked: 'intercity.status.booking.booked',
+  boarded: 'intercity.status.booking.boarded',
+  completed: 'intercity.status.booking.completed',
+  cancelled: 'intercity.status.booking.cancelled',
+  no_show: 'intercity.status.booking.no_show',
+});
 
 export interface TripLike {
   status: string;
@@ -253,7 +256,9 @@ export function alongTheWayText(b: {
   dropoff?: { nameUz: string } | null;
 }): string | null {
   if (!b.alongTheWay) return null;
-  return `${b.pickup?.nameUz ?? 'Yo‘lda'} → ${b.dropoff?.nameUz ?? 'yo‘lda'}`;
+  const from = b.pickup?.nameUz ?? t('intercity.bookings.onTheWayFrom');
+  const to = b.dropoff?.nameUz ?? t('intercity.bookings.onTheWayTo');
+  return `${from} → ${to}`;
 }
 
 /** The API's boardingPoint / alightingPoint / partDistanceM of a booking. */
@@ -273,10 +278,22 @@ export function alongStopLines(b: BookingStops): string[] {
   if (!b.alongTheWay || !b.boardingPoint) return [];
   const p = b.boardingPoint;
   const at = time(p.estimatedAt);
-  const lines = ['Olish: ' + p.name + ', ' + p.meetingPoint + (at ? ' · taxminan ' + at : '')];
+  const pickup = { name: p.name, point: p.meetingPoint };
+  const lines = [
+    at
+      ? t('intercity.bookings.pickupLineAt', { ...pickup, time: at })
+      : t('intercity.bookings.pickupLine', pickup),
+  ];
   if (b.alightingPoint) {
-    lines.push('Tushirish: ' + b.alightingPoint.name + ', ' + b.alightingPoint.meetingPoint);
+    lines.push(
+      t('intercity.bookings.dropoffLine', {
+        name: b.alightingPoint.name,
+        point: b.alightingPoint.meetingPoint,
+      }),
+    );
   }
-  if (b.partDistanceM) lines.push('Uning yo‘li: ' + distance(b.partDistanceM));
+  if (b.partDistanceM) {
+    lines.push(t('intercity.bookings.partLine', { distance: distance(b.partDistanceM) }));
+  }
   return lines;
 }

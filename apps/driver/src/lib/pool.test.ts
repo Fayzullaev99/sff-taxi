@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import { ApiError } from './api-client';
 import {
   headcountText,
@@ -235,5 +236,40 @@ describe('headcountText', () => {
     expect(headcountText(undefined, pool)).toBe('Bu buyurtmada 1 kishi · Mashinada jami 3 kishi');
     expect(headcountText(2, { stops: [] })).toBe('Bu buyurtmada 2 kishi');
     expect(headcountText(2, null)).toBeNull();
+  });
+});
+
+describe('in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('words the seats, badges, chip and headcount with Russian plurals', () => {
+    setLanguage('ru');
+    expect(seatsText(seatLayout(2))).toBe('Спереди 1/1 · сзади 1/2 · 1 свободное');
+    expect(seatsText(seatLayout(3))).toBe('Спереди 1/1 · сзади 2/2 · свободных мест нет');
+    expect(offerBadges({ passengers: 2, shareable: true }).map((b) => b.label)).toEqual([
+      '2 человека',
+      'Попутчик',
+    ]);
+    expect(alongLine(230)).toBe('По пути: крюк +4 мин');
+    expect(destinationChip({ lat: 1, lng: 2, address: 'Yangiyer, Sirdaryo' })).toBe(
+      'Только заказы по пути: → Yangiyer',
+    );
+    expect(headcountText(2, { occupancy: { occupied: 3 }, stops: [] })).toBe(
+      'В этом заказе 2 человека · Всего в машине 3 человека',
+    );
+    expect(alongStopLines([{ rideId: null, type: 'destination' }], 'n')[0]!.text).toBe(
+      'Ваше направление',
+    );
+  });
+
+  it('recognises the API refusing a start code in Russian', () => {
+    setLanguage('ru');
+    expect(isPinError(new ApiError(400, 'Код неверный: спросите у пассажира 4-значный код'))).toBe(
+      true,
+    );
+    expect(pinErrorText(new ApiError(400, 'Код неверный'))).toBe(
+      'Код неверный. Спросите у пассажира ещё раз.',
+    );
+    expect(preferencesError(new ApiError(0, 'x'))).toMatch(/^Нет интернета/);
   });
 });

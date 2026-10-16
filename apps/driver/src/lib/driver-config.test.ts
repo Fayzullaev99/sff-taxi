@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import {
   DEFAULT_BILLING,
+  DEFAULT_CANCEL_REASONS,
   DEFAULT_DECLINE_REASONS,
   DEFAULT_DRIVER_CONFIG,
   mapDriverConfig,
@@ -153,5 +155,17 @@ describe('versions', () => {
     expect(mustUpdate(null, '2.0.0')).toBe(false);
     expect(mustUpdate('1.0.0', null)).toBe(false);
     expect(mustUpdate('dev', '2.0.0')).toBe(false);
+  });
+});
+
+describe('in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('names the default reasons in Russian', () => {
+    expect(DEFAULT_DECLINE_REASONS[0]!.label).toBe('Juda uzoq');
+    setLanguage('ru');
+    expect(DEFAULT_DECLINE_REASONS[0]!.label).toBe('Слишком далеко');
+    expect(DEFAULT_CANCEL_REASONS.map((r) => r.label)).toContain('Пассажир не вышел');
+    expect(mapDriverConfig(undefined).cancelReasons[0]!.label).toBe('Пассажир не вышел');
   });
 });

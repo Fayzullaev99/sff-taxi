@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import {
   badgeText,
   type ChatMessage,
@@ -87,5 +88,30 @@ describe('ride chat', () => {
     expect(badgeText(0)).toBeNull();
     expect(badgeText(3)).toBe('3');
     expect(badgeText(12)).toBe('9+');
+  });
+});
+
+describe('in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('labels receipts and the chat status', () => {
+    setLanguage('ru');
+    const mine = {
+      id: '1',
+      rideId: 'r',
+      authorRole: 'driver' as const,
+      mine: true,
+      text: 'x',
+      quickReply: null,
+      readAt: '2026-10-14T09:06:00Z',
+      createdAt: '2026-10-14T09:05:00Z',
+    };
+    expect(receiptText(mine)).toBe('Прочитано');
+    expect(receiptText({ ...mine, readAt: null })).toBe('Отправлено');
+    expect(receiptText({ ...mine, failed: true })).toMatch(/^Не отправлено/);
+    expect(chatStatusText({ writable: true, closesAt: '2026-10-14T09:35:00.000Z' })).toBe(
+      'Чат открыт до 14:35.',
+    );
+    expect(chatStatusText({ writable: false, closesAt: null })).toMatch(/^Чат закрыт/);
   });
 });

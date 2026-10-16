@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { useDriverMe } from '../../data/queries';
+import { useT } from '../../i18n';
 import { biggestGain, priorityParts, scoreLevel } from '../../lib/priority';
 import { Banner, Card, Loading, Muted, Row, Title } from '../../ui/components';
 import { Screen } from '../../ui/screen';
@@ -12,6 +13,7 @@ const LEVEL_COLOR = { high: colors.success, good: colors.brand, low: colors.dang
  * gives, what lowers it, and — our promise — what it is NOT used for.
  */
 export default function PriorityScreen() {
+  const { t } = useT();
   const me = useDriverMe();
   if (!me.data) return <Loading />;
   const p = me.data.priority;
@@ -21,28 +23,32 @@ export default function PriorityScreen() {
   const tip = biggestGain(p);
 
   return (
-    <Screen title="Reyting" refreshing={me.isRefetching} onRefresh={() => void me.refetch()}>
+    <Screen
+      title={t('home.priority.title')}
+      refreshing={me.isRefetching}
+      onRefresh={() => void me.refetch()}
+    >
       <Card style={{ alignItems: 'center' }}>
         <View style={[styles.big, { borderColor: LEVEL_COLOR[level.level] }]}>
           <Text style={[styles.score, { color: LEVEL_COLOR[level.level] }]}>{p.score}</Text>
           <Text style={styles.of}>/ 100</Text>
         </View>
         <Text style={[styles.level, { color: LEVEL_COLOR[level.level] }]}>{level.label}</Text>
-        <Muted center>Ustuvorlik ko‘rsatkichi. Yangi haydovchi 91 dan boshlaydi.</Muted>
+        <Muted center>{t('home.priority.hint')}</Muted>
       </Card>
 
       <Banner
         tone="info"
         icon="shield-checkmark"
-        title="Adolatli taqsimot"
-        text="Buyurtma har doim yo‘l bo‘yicha eng tez yetib boradigan haydovchiga beriladi. Reyting faqat yetib borish vaqti 1 daqiqa ichida teng bo‘lgan haydovchilar orasida hal qiladi. Pul to‘lab reytingni oshirib bo‘lmaydi."
+        title={t('home.priority.fairTitle')}
+        text={t('home.priority.fairText')}
       />
 
       {tip ? (
         <Banner
           tone="brand"
           icon="trending-up"
-          title={`Eng ko‘p ball: ${tip.title}`}
+          title={t('home.priority.biggestGain', { title: tip.title })}
           text={tip.improve}
         />
       ) : null}
@@ -57,40 +63,33 @@ export default function PriorityScreen() {
             <View style={[styles.fill, { width: `${(x.points / x.maxPoints) * 100}%` }]} />
           </View>
           <Text style={styles.points}>
-            {x.points} / {x.maxPoints} ball
+            {t('home.priority.points', { points: x.points, max: x.maxPoints })}
           </Text>
           <Muted>{x.explain}</Muted>
-          <Muted>Qanday oshirish: {x.improve}</Muted>
+          <Muted>{t('home.priority.howToImprove', { text: x.improve })}</Muted>
         </Card>
       ))}
 
       <Card>
-        <Title>Sizning statistikangiz</Title>
-        <Row label="Kelgan takliflar" value={String(s.offersReceived)} />
-        <Row label="Qabul qilingan" value={String(s.offersAccepted)} />
-        <Row label="Yakunlangan safarlar" value={String(s.ridesCompleted)} />
+        <Title>{t('home.priority.statsTitle')}</Title>
+        <Row label={t('home.priority.offersReceived')} value={String(s.offersReceived)} />
+        <Row label={t('home.priority.offersAccepted')} value={String(s.offersAccepted)} />
+        <Row label={t('home.priority.ridesCompleted')} value={String(s.ridesCompleted)} />
         <Row
-          label="Qabul qilib bekor qilingan"
+          label={t('home.priority.ridesCancelled')}
           value={String(s.ridesCancelled)}
           tone={s.ridesCancelled ? 'warning' : undefined}
         />
-        <Row label="Baholar soni" value={String(s.ratingCount)} />
-        <Muted>
-          Yangi haydovchi jazolanmasligi uchun har bir qism boshlang‘ich qiymatdan boshlanadi (10
-          tadan 8 ta qabul, 10 ta toza safar, beshta 4,8 baho) — ko‘rsatkich sizning ishingiz bilan
-          asta o‘zgaradi. U kunlik nolga tushmaydi.
-        </Muted>
+        <Row label={t('home.priority.ratingCount')} value={String(s.ratingCount)} />
+        <Muted>{t('home.priority.statsHint')}</Muted>
       </Card>
 
       <Card>
-        <Title>Nimalar reytingga ta’sir qilmaydi</Title>
-        <Muted>• Yo‘lovchi chiqmagani uchun bekor qilish (kutish vaqtidan keyin)</Muted>
-        <Muted>• Liniyadan chiqish va dam olish</Muted>
-        <Muted>• Balans va abonement</Muted>
-        <Muted>
-          Qaror bilan rozi bo‘lmasangiz, ofisga murojaat qiling — har bir shikoyatni inson ko‘rib
-          chiqadi.
-        </Muted>
+        <Title>{t('home.priority.notAffectedTitle')}</Title>
+        <Muted>{t('home.priority.notAffectedNoShow')}</Muted>
+        <Muted>{t('home.priority.notAffectedOffline')}</Muted>
+        <Muted>{t('home.priority.notAffectedBalance')}</Muted>
+        <Muted>{t('home.priority.disagree')}</Muted>
       </Card>
     </Screen>
   );

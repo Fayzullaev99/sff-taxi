@@ -9,6 +9,8 @@
  * config loads (or when the phone is offline on first start).
  */
 
+import { t } from '../i18n/dictionary';
+
 export type CardProvider = 'payme' | 'click';
 
 export interface BillingRules {
@@ -134,22 +136,52 @@ export const DEFAULT_INTERCITY_RULES: IntercityRules = {
   maxRearSeats: 2,
 };
 
+type DeclineCode =
+  'too_far' | 'destination' | 'rider_rating' | 'car_not_suitable' | 'break' | 'other';
+type CancelCode = 'rider_no_show' | 'car_problem' | 'cannot_reach' | 'rider_asked' | 'other';
+
+/** The dictionary key of a reason code ("other" would read as plural forms there). */
+function reasonKey<C extends string>(code: C): Exclude<C, 'other'> | 'otherReason' {
+  return code === 'other' ? 'otherReason' : (code as Exclude<C, 'other'>);
+}
+
+/** A default reason whose label reads in the current language on access. */
+function declineReason(code: DeclineCode): Reason {
+  const key = reasonKey(code);
+  return {
+    code,
+    get label() {
+      return t(`profile.reasons.decline.${key}`);
+    },
+  };
+}
+
+function cancelReason(code: CancelCode): Reason {
+  const key = reasonKey(code);
+  return {
+    code,
+    get label() {
+      return t(`profile.reasons.cancel.${key}`);
+    },
+  };
+}
+
 /** The API's DECLINE_REASONS (dispatch.module.ts), in its order. */
 export const DEFAULT_DECLINE_REASONS: Reason[] = [
-  { code: 'too_far', label: 'Juda uzoq' },
-  { code: 'destination', label: 'Bu tomonga bormayman' },
-  { code: 'rider_rating', label: 'Yo‘lovchi reytingi past' },
-  { code: 'car_not_suitable', label: 'Avtomobil mos emas' },
-  { code: 'break', label: 'Dam olyapman' },
-  { code: 'other', label: 'Boshqa sabab' },
+  declineReason('too_far'),
+  declineReason('destination'),
+  declineReason('rider_rating'),
+  declineReason('car_not_suitable'),
+  declineReason('break'),
+  declineReason('other'),
 ];
 
 export const DEFAULT_CANCEL_REASONS: Reason[] = [
-  { code: 'rider_no_show', label: 'Yo‘lovchi chiqmadi' },
-  { code: 'car_problem', label: 'Avtomobil nosoz' },
-  { code: 'cannot_reach', label: 'Manzilga yetib borolmayman' },
-  { code: 'rider_asked', label: 'Yo‘lovchi bekor qilishni so‘radi' },
-  { code: 'other', label: 'Boshqa sabab' },
+  cancelReason('rider_no_show'),
+  cancelReason('car_problem'),
+  cancelReason('cannot_reach'),
+  cancelReason('rider_asked'),
+  cancelReason('other'),
 ];
 
 export const DEFAULT_SUPPORT: Support = { phone: null, telegram: null, officeAddress: null };

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import { ApiError } from './api-client';
 import {
   contentTypeOf,
@@ -249,5 +250,19 @@ describe('upload helpers', () => {
     expect(uploadStateText({ status: 'uploading', progress: 0.426 })).toBe('Yuklanmoqda… 43%');
     expect(isBusy({ status: 'completing' })).toBe(true);
     expect(isBusy({ status: 'failed', step: 'put', message: 'x', retryable: true })).toBe(false);
+  });
+});
+
+describe('in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('words the file problems and the progress line in Russian', () => {
+    setLanguage('ru');
+    const photo = DEFAULT_UPLOADS_CONFIG.purposes.profile_photo;
+    expect(fileProblem({ contentType: 'image/png', sizeBytes: 6 * MB }, photo)).toBe(
+      'Файл слишком большой: 6 МБ, допустимо не больше 5 МБ',
+    );
+    expect(uploadStateText({ status: 'uploading', progress: 0.426 })).toBe('Загружаем… 43%');
+    expect(uploadStateText({ status: 'done', uploadId: 'up-1' })).toBe('Загружено');
   });
 });

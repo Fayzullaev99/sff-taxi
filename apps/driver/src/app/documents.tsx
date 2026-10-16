@@ -6,6 +6,7 @@ import { Image, StyleSheet, Text, View } from 'react-native';
 import { driver } from '../api/driver';
 import type { DriverDocument, DriverMe } from '../api/types';
 import { keys, useDriverMe, useUploadsConfig } from '../data/queries';
+import { useT } from '../i18n';
 import { DOCUMENTS, parseDate, showDate, tashkentToday } from '../lib/application';
 import { dateInput, dateTime } from '../lib/format';
 import { isPdfDocument, type UploadPurpose } from '../lib/upload-flow';
@@ -25,6 +26,7 @@ import { UploadButtons } from '../ui/upload';
  * without taking the photo again.
  */
 export default function Documents() {
+  const { t } = useT();
   const router = useRouter();
   const me = useDriverMe();
   const uploads = useUploadsConfig();
@@ -36,14 +38,18 @@ export default function Documents() {
   return (
     <Screen
       keyboard
-      title="Hujjatlar"
+      title={t('common.screens.documents')}
       refreshing={me.isRefetching}
       onRefresh={() => void me.refetch()}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/'))}
       footer={
         d.status !== 'active' ? (
           <Button
-            title={missing ? `Yana ${missing} ta hujjat kerak` : 'Tayyor — ariza holatini ko‘rish'}
+            title={
+              missing
+                ? t('apply.documents.needMore', { count: missing })
+                : t('apply.documents.allUploadedSeeStatus')
+            }
             icon={missing ? 'document-attach' : 'checkmark'}
             big
             disabled={missing > 0}
@@ -56,20 +62,17 @@ export default function Documents() {
         <Banner
           tone="warning"
           icon="cloud-offline"
-          title="Fayl yuklash hozircha ishlamayapti"
-          text="Hujjatlarni ofisga olib keling — operator o‘zi yuklaydi. Yoki birozdan so‘ng qayta urinib ko‘ring."
+          title={t('apply.documents.uploadsOffTitle')}
+          text={t('apply.documents.uploadsOffText')}
         />
       ) : (
-        <Muted>
-          Hujjatni tekis joyga qo‘ying, yorug‘ joyda suratga oling: matn o‘qilishi kerak. Fayllar
-          faqat sizga va operatorlarga ko‘rinadi.
-        </Muted>
+        <Muted>{t('apply.documents.tips')}</Muted>
       )}
 
-      <SectionTitle>Yo‘lovchilar ko‘radigan rasmlar</SectionTitle>
+      <SectionTitle>{t('apply.documents.ridersSee')}</SectionTitle>
       <PhotoCard
-        title="Sizning rasmingiz"
-        hint="Yuzingiz aniq ko‘rinsin, ko‘zoynaksiz, yorug‘ joyda"
+        title={t('apply.documents.yourPhoto')}
+        hint={t('apply.documents.yourPhotoHint')}
         purpose="profile_photo"
         url={d.photoUrl ?? null}
         front
@@ -77,8 +80,8 @@ export default function Documents() {
       />
       {d.vehicle ? (
         <PhotoCard
-          title="Avtomobil rasmi"
-          hint="Yon-old tomondan, butun mashina va davlat raqami ko‘rinsin"
+          title={t('apply.documents.carPhoto')}
+          hint={t('apply.documents.carPhotoHint')}
           purpose="vehicle_photo"
           url={d.vehicle.photoUrl ?? null}
           attach={driver.setVehiclePhoto}
@@ -86,7 +89,10 @@ export default function Documents() {
       ) : null}
 
       <SectionTitle>
-        Hujjatlar ({DOCUMENTS.length - missing}/{DOCUMENTS.length})
+        {t('apply.documents.sectionCount', {
+          have: DOCUMENTS.length - missing,
+          total: DOCUMENTS.length,
+        })}
       </SectionTitle>
       {DOCUMENTS.map((doc) => (
         <DocumentCard key={doc.kind} doc={doc} current={have.get(doc.kind) ?? null} />
@@ -97,13 +103,14 @@ export default function Documents() {
 
 /** A photo, or a file icon for a PDF (`pdf`: from the document's `contentType`). */
 function Thumb(props: { url: string | null | undefined; round?: boolean; pdf?: boolean }) {
+  const { t } = useT();
   const [broken, setBroken] = useState(false);
   if (!props.url) return null;
   if (props.pdf || broken) {
     return (
       <View style={[styles.thumb, styles.thumbIcon]}>
         <Ionicons name="document-text" size={36} color={colors.muted} />
-        <Text style={styles.thumbText}>{broken ? 'Fayl' : 'PDF'}</Text>
+        <Text style={styles.thumbText}>{broken ? t('apply.documents.file') : 'PDF'}</Text>
       </View>
     );
   }
@@ -127,6 +134,7 @@ function PhotoCard(props: {
   front?: boolean;
   attach: (uploadId: string) => Promise<DriverMe>;
 }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const upload = useUpload(props.purpose, async (id) => {
     const next = await props.attach(id);
@@ -154,20 +162,24 @@ function PhotoCard(props: {
           <Text style={styles.name}>{props.title}</Text>
           <Muted>{props.hint}</Muted>
         </View>
-        {props.url ? <Chip label="Bor" tone="success" /> : <Chip label="Kerak" tone="warning" />}
+        {props.url ? (
+          <Chip label={t('apply.documents.have')} tone="success" />
+        ) : (
+          <Chip label={t('apply.documents.needed')} tone="warning" />
+        )}
       </View>
       {show && !done && upload.enabled ? (
         <UploadButtons
           state={upload.state}
           busy={upload.busy}
           maxBytes={upload.limits.maxBytes}
-          cameraTitle={props.front ? 'Selfi olish' : 'Suratga olish'}
+          cameraTitle={props.front ? t('apply.upload.takeSelfie') : t('apply.upload.takePhoto')}
           onPick={(source: FileSource) => void upload.start(source, props.front)}
           onRetry={() => void upload.retry()}
         />
       ) : props.url ? (
         <Button
-          title="Yangi rasm"
+          title={t('apply.documents.newPhoto')}
           icon="camera-reverse"
           variant="secondary"
           disabled={!upload.enabled}
@@ -182,6 +194,7 @@ function PhotoCard(props: {
 }
 
 function DocumentCard(props: { doc: (typeof DOCUMENTS)[number]; current: DriverDocument | null }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const [open, setOpen] = useState(!props.current);
   const [expires, setExpires] = useState(showDate(props.current?.expiresOn));
@@ -199,8 +212,8 @@ function DocumentCard(props: { doc: (typeof DOCUMENTS)[number]; current: DriverD
   const pick = (source: FileSource) => {
     if (props.doc.expires && expires.trim()) {
       const d = parseDate(expires);
-      if (!d) return setProblem('Muddatni KK.OO.YYYY ko‘rinishida yozing');
-      if (d < tashkentToday()) return setProblem('Hujjat muddati o‘tgan: yangisini yuklang');
+      if (!d) return setProblem(t('apply.documents.expiryFormat'));
+      if (d < tashkentToday()) return setProblem(t('apply.documents.expiredUploadNew'));
     }
     setProblem(null);
     void upload.start(source, props.doc.kind === 'selfie');
@@ -225,21 +238,25 @@ function DocumentCard(props: { doc: (typeof DOCUMENTS)[number]; current: DriverD
           <Muted>{props.doc.hint}</Muted>
         </View>
         {expired ? (
-          <Chip label="Muddati o‘tgan" tone="danger" />
+          <Chip label={t('apply.documents.expired')} tone="danger" />
         ) : props.current ? (
-          <Chip label="Yuklangan" tone="success" />
+          <Chip label={t('apply.documents.uploaded')} tone="success" />
         ) : (
-          <Chip label="Kerak" tone="warning" />
+          <Chip label={t('apply.documents.needed')} tone="warning" />
         )}
       </View>
       {props.current && !open ? (
         <>
           <Muted>
-            {dateTime(props.current.uploadedAt)}
-            {props.current.expiresOn ? ` · muddati ${showDate(props.current.expiresOn)} gacha` : ''}
+            {props.current.expiresOn
+              ? t('apply.documents.uploadedValidUntil', {
+                  uploaded: dateTime(props.current.uploadedAt),
+                  date: showDate(props.current.expiresOn),
+                })
+              : dateTime(props.current.uploadedAt)}
           </Muted>
           <Button
-            title="Almashtirish"
+            title={t('apply.documents.replace')}
             icon="swap-horizontal"
             variant="secondary"
             disabled={!upload.enabled}
@@ -253,11 +270,11 @@ function DocumentCard(props: { doc: (typeof DOCUMENTS)[number]; current: DriverD
         <View style={{ gap: space.sm }}>
           {props.doc.expires ? (
             <Field
-              label="Amal qilish muddati (ixtiyoriy)"
+              label={t('apply.documents.expiryLabel')}
               value={expires}
               onChangeText={(v) => setExpires(dateInput(v))}
               keyboardType="number-pad"
-              placeholder="KK.OO.YYYY"
+              placeholder={t('apply.form.datePlaceholder')}
               maxLength={10}
               editable={!upload.busy}
               error={problem}
@@ -270,13 +287,17 @@ function DocumentCard(props: { doc: (typeof DOCUMENTS)[number]; current: DriverD
             busy={upload.busy}
             allowPdf
             maxBytes={upload.limits.maxBytes}
-            cameraTitle={props.doc.kind === 'selfie' ? 'Selfi olish' : 'Suratga olish'}
+            cameraTitle={
+              props.doc.kind === 'selfie'
+                ? t('apply.upload.takeSelfie')
+                : t('apply.upload.takePhoto')
+            }
             onPick={pick}
             onRetry={() => void upload.retry()}
           />
           {props.current ? (
             <Button
-              title="Bekor qilish"
+              title={t('common.actions.cancel')}
               variant="ghost"
               disabled={upload.busy}
               onPress={() => setOpen(false)}

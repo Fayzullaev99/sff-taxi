@@ -2,6 +2,7 @@
  * The ride chat on the rider's phone, without React Native (unit-tested): the stream's chat
  * events, merging sent and fetched messages, what the composer allows, the time labels.
  */
+import { t } from '../i18n/dictionary';
 
 export interface ChatMessage {
   id: string;
@@ -97,8 +98,8 @@ export function messageTime(iso: string): string {
 
 /** The line under the composer when it is closed, or until when it stays open. */
 export function chatStatusText(c: Pick<Conversation, 'writable' | 'closesAt'>): string | null {
-  if (!c.writable) return 'Suhbat yopilgan: safar tugaganiga 30 daqiqadan oshdi.';
-  if (c.closesAt) return `Suhbat ${messageTime(c.closesAt)} gacha ochiq.`;
+  if (!c.writable) return t('ride.chat.closed');
+  if (c.closesAt) return t('ride.chat.openUntil', { time: messageTime(c.closesAt) });
   return null;
 }
 
@@ -122,7 +123,7 @@ export function badgeText(unread: number): string | null {
 /** Read receipts on my last message: "O‘qildi" / "Yuborildi" / "Yuborilmoqda…". */
 export function receiptText(m: ChatMessage): string | null {
   if (!m.mine) return null;
-  if (m.failed) return 'Yuborilmadi — qayta urinish uchun bosing';
-  if (m.pending) return 'Yuborilmoqda…';
-  return m.readAt ? 'O‘qildi' : 'Yuborildi';
+  if (m.failed) return t('ride.chat.notSent');
+  if (m.pending) return t('ride.chat.sending');
+  return t(m.readAt ? 'ride.chat.read' : 'ride.chat.sent');
 }

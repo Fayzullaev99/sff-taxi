@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
+import { useT } from '../i18n';
 import { megabytes, type UploadState, uploadStateText } from '../lib/upload-flow';
 import type { FileSource } from '../uploads/files';
 import { Button } from './components';
@@ -44,14 +45,17 @@ export function UploadButtons(props: {
   onPick: (source: FileSource) => void;
   onRetry: () => void;
 }) {
+  const { t } = useT();
   const s = props.state;
   const canRetry = s.status === 'failed' && s.retryable && s.step !== 'prepare';
   return (
     <View style={{ gap: space.sm }}>
       <UploadProgress state={s} />
-      {canRetry ? <Button title="Qayta urinish" icon="refresh" onPress={props.onRetry} /> : null}
+      {canRetry ? (
+        <Button title={t('common.actions.retry')} icon="refresh" onPress={props.onRetry} />
+      ) : null}
       <Button
-        title={props.cameraTitle ?? 'Suratga olish'}
+        title={props.cameraTitle ?? t('apply.upload.takePhoto')}
         icon="camera"
         variant={canRetry ? 'secondary' : 'primary'}
         loading={props.busy}
@@ -59,7 +63,7 @@ export function UploadButtons(props: {
       />
       <View style={styles.pair}>
         <Button
-          title="Galereya"
+          title={t('apply.upload.gallery')}
           icon="images"
           variant="secondary"
           disabled={props.busy}
@@ -68,7 +72,7 @@ export function UploadButtons(props: {
         />
         {props.allowPdf ? (
           <Button
-            title="PDF fayl"
+            title={t('apply.upload.pdf')}
             icon="document"
             variant="secondary"
             disabled={props.busy}
@@ -78,8 +82,9 @@ export function UploadButtons(props: {
         ) : null}
       </View>
       <Text style={styles.hint}>
-        Rasm avtomatik kichraytiriladi. Ko‘pi bilan {megabytes(props.maxBytes)} MB
-        {props.allowPdf ? ', JPEG, PNG yoki PDF' : ', JPEG yoki PNG'}.
+        {t(props.allowPdf ? 'apply.upload.hintWithPdf' : 'apply.upload.hintImages', {
+          mb: megabytes(props.maxBytes),
+        })}
       </Text>
     </View>
   );

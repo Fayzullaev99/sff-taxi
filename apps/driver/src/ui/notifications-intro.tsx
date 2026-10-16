@@ -1,28 +1,25 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useT } from '../i18n';
 import { registerPushDevice, requestPushPermission } from '../notifications/push';
 import { Button, Muted } from './components';
 import { Screen } from './screen';
 import { colors, radius, space } from './theme';
 
-const REASONS: { icon: 'flash' | 'volume-high' | 'swap-horizontal'; text: string }[] = [
-  { icon: 'flash', text: 'Yangi buyurtma kelishi bilan xabar beramiz — 15 soniyada javob bering' },
-  {
-    icon: 'volume-high',
-    text: 'Baland, alohida ovoz va tebranish: navigator ochiq bo‘lsa ham eshitasiz',
-  },
-  {
-    icon: 'swap-horizontal',
-    text: 'Yo‘lovchi bekor qilsa yoki arizangiz ko‘rib chiqilsa, darhol bilasiz',
-  },
-];
+/** Why to allow notifications: an icon and its text (`profile.pushIntro.reasons.*`). */
+const REASONS = [
+  { icon: 'flash', key: 'fast' },
+  { icon: 'volume-high', key: 'loud' },
+  { icon: 'swap-horizontal', key: 'changes' },
+] as const;
 
 /**
  * Onboarding step shown once before the system permission prompt: drivers who allow
  * notifications get offers even with the app in the background.
  */
 export function NotificationsIntro(props: { onDone: () => void }) {
+  const { t } = useT();
   const [busy, setBusy] = useState(false);
   const allow = async () => {
     setBusy(true);
@@ -39,28 +36,30 @@ export function NotificationsIntro(props: { onDone: () => void }) {
         <View style={styles.icon}>
           <Ionicons name="notifications" size={52} color={colors.onBrand} />
         </View>
-        <Text style={styles.title}>Buyurtmalarni o‘tkazib yubormang</Text>
-        <Muted center>
-          Bildirishnomalarga ruxsat bering — ilova yopiq yoki telefon qulflangan bo‘lsa ham
-          buyurtmalar keladi.
-        </Muted>
+        <Text style={styles.title}>{t('profile.pushIntro.title')}</Text>
+        <Muted center>{t('profile.pushIntro.text')}</Muted>
       </View>
       <View style={styles.list}>
         {REASONS.map((r) => (
           <View key={r.icon} style={styles.reason}>
             <Ionicons name={r.icon} size={26} color={colors.brand} />
-            <Text style={styles.reasonText}>{r.text}</Text>
+            <Text style={styles.reasonText}>{t(`profile.pushIntro.reasons.${r.key}`)}</Text>
           </View>
         ))}
       </View>
       <Button
-        title="Ruxsat berish"
+        title={t('profile.pushIntro.allow')}
         icon="notifications"
         big
         loading={busy}
         onPress={() => void allow()}
       />
-      <Button title="Keyinroq" variant="ghost" disabled={busy} onPress={props.onDone} />
+      <Button
+        title={t('profile.pushIntro.later')}
+        variant="ghost"
+        disabled={busy}
+        onPress={props.onDone}
+      />
     </Screen>
   );
 }

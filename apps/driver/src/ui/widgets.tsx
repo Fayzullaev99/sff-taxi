@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { memo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useDriverConfig, useFeatures, useSupport } from '../data/queries';
+import { useT } from '../i18n';
 import { litSegments } from '../lib/countdown';
 import { som } from '../lib/format';
 import { OFFICE_TOP_UP_STEPS } from '../lib/money';
@@ -25,6 +26,7 @@ export const CountdownRing = memo(function CountdownRing(props: {
   urgent: boolean;
   size?: number;
 }) {
+  const { t } = useT();
   const size = props.size ?? 200;
   const lit = litSegments(props.fraction, SEGMENTS);
   const color = props.urgent ? colors.danger : colors.brand;
@@ -34,7 +36,7 @@ export const CountdownRing = memo(function CountdownRing(props: {
       style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}
       accessible
       accessibilityRole="timer"
-      accessibilityLabel={`${props.seconds} soniya qoldi`}
+      accessibilityLabel={t('profile.widgets.secondsLeft', { count: props.seconds })}
     >
       {Array.from({ length: SEGMENTS }, (_, i) => (
         <View
@@ -60,7 +62,7 @@ export const CountdownRing = memo(function CountdownRing(props: {
         {props.seconds}
       </Text>
       <Text style={styles.ringUnit} maxFontSizeMultiplier={1.15}>
-        soniya
+        {t('profile.widgets.seconds')}
       </Text>
     </View>
   );
@@ -68,6 +70,7 @@ export const CountdownRing = memo(function CountdownRing(props: {
 
 /** The GPS indicator: how good the fixes are and whether the API takes them. */
 export const GpsIndicator = memo(function GpsIndicator() {
+  const { t: tr } = useT();
   const q = useGpsQuality();
   const saving = useSavingBattery();
   const tone =
@@ -94,7 +97,7 @@ export const GpsIndicator = memo(function GpsIndicator() {
         <View style={[styles.gps, { backgroundColor: TONES.warning.bg }]}>
           <Ionicons name="battery-dead" size={18} color={TONES.warning.fg} />
           <Text style={[styles.gpsText, { color: TONES.warning.fg }]}>
-            Batareya kam: joylashuv kamroq yuboriladi
+            {tr('profile.widgets.lowBattery')}
           </Text>
         </View>
       ) : null}
@@ -107,6 +110,7 @@ export const GpsIndicator = memo(function GpsIndicator() {
  * (Payme/Click) when the API has a provider, and in cash at the office.
  */
 export function TopUpCard(props: { shortBy?: number }) {
+  const { t } = useT();
   const router = useRouter();
   const support = useSupport();
   const features = useFeatures();
@@ -115,23 +119,25 @@ export function TopUpCard(props: { shortBy?: number }) {
   const amount = suggestedTopup(props.shortBy ?? 0, config.topups);
   return (
     <Card>
-      <Title>Balansni to‘ldirish</Title>
+      <Title>{t('common.screens.topup')}</Title>
       {props.shortBy ? (
         <Banner
           tone="danger"
           icon="wallet"
-          text={`Liniyaga chiqish uchun kamida ${som(props.shortBy)} to‘ldiring`}
+          text={t('profile.widgets.topupShort', { amount: som(props.shortBy) })}
         />
       ) : null}
       {byCard ? (
         <Button
-          title="Karta bilan to‘ldirish"
+          title={t('profile.widgets.topupByCard')}
           icon="card"
           big
           onPress={() => router.push(`/topup?amount=${props.shortBy ? amount : ''}`)}
         />
       ) : null}
-      <Text style={styles.stepsTitle}>{byCard ? 'Yoki ofisda naqd:' : 'Ofisda naqd:'}</Text>
+      <Text style={styles.stepsTitle}>
+        {byCard ? t('profile.widgets.orCashAtOffice') : t('profile.widgets.cashAtOffice')}
+      </Text>
       {OFFICE_TOP_UP_STEPS.map((s, i) => (
         <View key={s} style={styles.step}>
           <View style={styles.stepNo}>
@@ -143,7 +149,7 @@ export function TopUpCard(props: { shortBy?: number }) {
       <Muted>{support.officeAddress}</Muted>
       {support.phone ? (
         <Button
-          title="Ofisga qo‘ng‘iroq qilish"
+          title={t('profile.support.callOffice')}
           icon="call"
           variant="secondary"
           onPress={() => call(support.phone)}
@@ -153,21 +159,14 @@ export function TopUpCard(props: { shortBy?: number }) {
   );
 }
 
+/** The tone of each verification; its label and text are `profile.widgets.licence.*`. */
 const LICENCE_LOOK: Record<
   LicenceVerification,
-  { label: string; tone: 'success' | 'warning' | 'danger'; text: string | null }
+  { tone: 'success' | 'warning' | 'danger'; text: 'unverifiedText' | 'invalidText' | null }
 > = {
-  unverified: {
-    label: 'Tekshirilmoqda',
-    tone: 'warning',
-    text: 'Operator kartochkangizni Transport vazirligi reyestrida tekshiradi. Tasdiqlanmaguncha ariza tasdiqlanmaydi va liniyaga chiqib bo‘lmaydi.',
-  },
-  valid: { label: 'Reyestrda tasdiqlangan', tone: 'success', text: null },
-  invalid: {
-    label: 'Tasdiqlanmadi',
-    tone: 'danger',
-    text: 'Kartochka reyestrda topilmadi yoki amal qilmaydi. Raqamini tekshiring: arizani tuzatib qayta yuboring yoki ofisga murojaat qiling.',
-  },
+  unverified: { tone: 'warning', text: 'unverifiedText' },
+  valid: { tone: 'success', text: null },
+  invalid: { tone: 'danger', text: 'invalidText' },
 };
 
 /**
@@ -178,36 +177,44 @@ export function LicenceCardStatus(props: {
   verification: LicenceVerification | undefined;
   showOk?: boolean;
 }) {
+  const { t } = useT();
   const look = props.verification ? LICENCE_LOOK[props.verification] : null;
-  if (!look || (props.verification === 'valid' && !props.showOk)) return null;
+  if (!look || !props.verification || (props.verification === 'valid' && !props.showOk)) {
+    return null;
+  }
   return (
     <View style={{ gap: space.xs }}>
       <Chip
-        label={`Litsenziya kartochkasi: ${look.label}`}
+        label={t('profile.widgets.licence.chip', {
+          status: t(`profile.widgets.licence.${props.verification}`),
+        })}
         tone={look.tone}
         icon={props.verification === 'valid' ? 'shield-checkmark' : 'shield-half'}
       />
-      {look.text ? <Muted>{look.text}</Muted> : null}
+      {look.text ? <Muted>{t(`profile.widgets.licence.${look.text}`)}</Muted> : null}
     </View>
   );
 }
 
 /** Contact for appeals and questions: the "human appeal" promise (market analysis §1.5). */
 export function SupportCard(props: { title?: string; text: string }) {
+  const { t } = useT();
   const support = useSupport();
   return (
     <Card>
-      <Title>{props.title ?? 'Operator bilan bog‘lanish'}</Title>
+      <Title>{props.title ?? t('profile.support.contactTitle')}</Title>
       <Muted>{props.text}</Muted>
       <Muted>{support.officeAddress}</Muted>
       {support.phone ? (
-        <Button title="Qo‘ng‘iroq qilish" icon="call" onPress={() => call(support.phone)} />
+        <Button title={t('common.actions.call')} icon="call" onPress={() => call(support.phone)} />
       ) : (
-        <Muted>Telefon: ofisdan so‘rang</Muted>
+        <Muted>{t('profile.support.askPhone')}</Muted>
       )}
       {support.telegram ? (
         <Button
-          title={`Telegram: ${support.telegram.replace(/^https?:\/\/t\.me\//, '@')}`}
+          title={t('profile.support.telegram', {
+            handle: support.telegram.replace(/^https?:\/\/t\.me\//, '@'),
+          })}
           icon="paper-plane"
           variant="secondary"
           onPress={() => openTelegram(support.telegram!)}

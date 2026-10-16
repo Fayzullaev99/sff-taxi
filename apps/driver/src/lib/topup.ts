@@ -1,3 +1,4 @@
+import { liveTable, t } from '../i18n/dictionary';
 import { som } from './format';
 
 /**
@@ -21,10 +22,10 @@ export function parseTopupAmount(
   limits: { min: number; max: number },
 ): { amount: number } | { error: string } {
   const digits = input.replace(/[\s.,’'‘]/g, '');
-  if (!/^\d+$/.test(digits)) return { error: 'Summani raqamlar bilan yozing' };
+  if (!/^\d+$/.test(digits)) return { error: t('money.topup.digitsOnly') };
   const amount = Number(digits);
-  if (amount < limits.min) return { error: `Kamida ${som(limits.min)}` };
-  if (amount > limits.max) return { error: `Ko‘pi bilan ${som(limits.max)}` };
+  if (amount < limits.min) return { error: t('money.topup.min', { min: som(limits.min) }) };
+  if (amount > limits.max) return { error: t('money.topup.max', { max: som(limits.max) }) };
   return { amount };
 }
 
@@ -80,11 +81,12 @@ export function withPaidEvent<T extends { id: string; status: string; amount: nu
   return { ...topup, status: 'paid', amount: event.amount || topup.amount };
 }
 
-export const TOPUP_STATUS_TEXT: Record<TopupStatus, string> = {
-  pending: 'To‘lov kutilmoqda',
-  paid: 'To‘landi',
-  expired: 'Muddati o‘tdi',
-  cancelled: 'Bekor qilindi',
-  refund_pending: 'Qaytarilmoqda',
-  refunded: 'Qaytarildi',
-};
+/** A top-up's status as the driver reads it (in the app's language on access). */
+export const TOPUP_STATUS_TEXT: Record<TopupStatus, string> = liveTable({
+  pending: 'money.topup.status.pending',
+  paid: 'money.topup.status.paid',
+  expired: 'money.topup.status.expired',
+  cancelled: 'money.topup.status.cancelled',
+  refund_pending: 'money.topup.status.refund_pending',
+  refunded: 'money.topup.status.refunded',
+});

@@ -4,6 +4,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
 import { Alert } from 'react-native';
+import { t } from '../i18n/dictionary';
 import {
   contentTypeOf,
   IMAGE_PASSES,
@@ -26,10 +27,10 @@ interface Picked {
   size: number | null;
 }
 
-function askForSettings(what: string): void {
-  Alert.alert(`${what} uchun ruxsat kerak`, 'Telefon sozlamalarida ruxsat bering.', [
-    { text: 'Bekor qilish', style: 'cancel' },
-    { text: 'Sozlamalarni ochish', onPress: () => void Linking.openSettings() },
+function askForCameraPermission(): void {
+  Alert.alert(t('apply.upload.cameraPermissionTitle'), t('apply.upload.permissionText'), [
+    { text: t('common.actions.cancel'), style: 'cancel' },
+    { text: t('common.actions.openSettings'), onPress: () => void Linking.openSettings() },
   ]);
 }
 
@@ -55,7 +56,7 @@ async function pick(source: FileSource, front: boolean): Promise<Picked | null> 
   if (source === 'camera') {
     const p = await ImagePicker.requestCameraPermissionsAsync();
     if (!p.granted) {
-      askForSettings('Kamera');
+      askForCameraPermission();
       return null;
     }
   }
@@ -111,7 +112,7 @@ export async function pickAndPrepare(
     return { uri: picked.uri, contentType: type, sizeBytes: sizeOf(picked.uri, picked.size) };
   }
   if (!type && source === 'pdf') {
-    throw new UploadRefused('Faqat PDF yoki rasm (JPEG, PNG, WebP) tanlang');
+    throw new UploadRefused(t('apply.upload.pickPdfOrImage'));
   }
   let last: LocalFile | null = null;
   for (const pass of IMAGE_PASSES[purpose]) {

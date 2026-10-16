@@ -1,3 +1,4 @@
+import { t } from '../i18n/dictionary';
 import { som } from './format';
 
 /** A ride's tip as the driver sees it (GET /driver/rides/:id/tip). */
@@ -18,11 +19,11 @@ export interface DriverTip {
 export function tipLine(tip: Pick<DriverTip, 'amount' | 'method' | 'status'>): string | null {
   switch (tip.status) {
     case 'recorded':
-      return `Yo‘lovchi ${som(tip.amount)} choychaqa beradi (naqd)`;
+      return t('ride.tips.cash', { amount: som(tip.amount) });
     case 'paid':
-      return `Choychaqa ${som(tip.amount)} kartadan — balansingizga to‘liq tushdi`;
+      return t('ride.tips.paid', { amount: som(tip.amount) });
     case 'awaiting_payment':
-      return `Yo‘lovchi ${som(tip.amount)} choychaqani kartadan to‘lamoqda`;
+      return t('ride.tips.awaiting', { amount: som(tip.amount) });
     default:
       return null;
   }

@@ -1,9 +1,8 @@
 import type { DriverMe } from '../api/types';
+import { useT } from '../i18n';
 import { preferencesError } from '../lib/pool';
 import { Banner, Card, Muted, Row, Title, ToggleRow } from '../ui/components';
 import { usePreferences } from './preferences';
-
-const GENDER_LABEL = { female: 'Ayol', male: 'Erkak' } as const;
 
 /**
  * The gender the driver declared and whether an operator verified it against the passport;
@@ -11,34 +10,36 @@ const GENDER_LABEL = { female: 'Ayol', male: 'Erkak' } as const;
  * Nothing is shown on an API without these fields.
  */
 export function WomenRidersCard(props: { me: DriverMe }) {
+  const { t } = useT();
   const prefs = usePreferences();
   const { me } = props;
   if (me.gender === undefined && me.womenRidersOnly === undefined) return null;
   const verifiedWoman = me.gender === 'female' && me.genderVerified === true;
   return (
     <Card>
-      <Title>Yo‘lovchilar</Title>
+      <Title>{t('home.women.title')}</Title>
       <Row
-        label="Jinsi"
+        label={t('home.women.gender')}
         value={
           me.gender
-            ? `${GENDER_LABEL[me.gender]} · ${me.genderVerified ? 'tasdiqlangan' : 'tekshirilmoqda'}`
-            : 'Ko‘rsatilmagan'
+            ? t('home.women.genderValue', {
+                gender: t(me.gender === 'female' ? 'home.women.female' : 'home.women.male'),
+                state: t(me.genderVerified ? 'home.women.verified' : 'home.women.pending'),
+              })
+            : t('home.women.notSet')
         }
       />
       {verifiedWoman ? (
         <ToggleRow
-          label="Faqat ayol yo‘lovchilar"
-          description="Faqat ayol yo‘lovchilarning buyurtmalari keladi."
+          label={t('home.women.onlyWomen')}
+          description={t('home.women.onlyWomenHint')}
           value={me.womenRidersOnly === true}
           disabled={prefs.isPending}
           onChange={(v) => prefs.mutate({ womenRidersOnly: v })}
         />
       ) : (
         <Muted>
-          {me.gender === 'female'
-            ? 'Operator jinsingizni pasport bo‘yicha tasdiqlagach, “Faqat ayol yo‘lovchilar” ni yoqish mumkin.'
-            : 'Jinsni o‘zgartirish uchun operatorga murojaat qiling (pasport bo‘yicha tasdiqlanadi).'}
+          {me.gender === 'female' ? t('home.women.afterVerify') : t('home.women.changeGender')}
         </Muted>
       )}
       {prefs.error ? (

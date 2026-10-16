@@ -15,9 +15,11 @@ import {
   useStreamOpen,
   useTopups,
 } from '../data/queries';
+import { useT } from '../i18n';
+import { t as tr } from '../i18n/dictionary';
 import { errorMessage } from '../lib/api-client';
 import type { CardProvider } from '../lib/driver-config';
-import { dateTime, som } from '../lib/format';
+import { dateTime, som, until } from '../lib/format';
 import {
   parseTopupAmount,
   PROVIDER_LABELS,
@@ -52,7 +54,7 @@ async function openCheckout(url: string): Promise<void> {
       enableBarCollapsing: true,
     });
   } catch {
-    Alert.alert('To‘lov sahifasi ochilmadi', 'Telefoningizda brauzer bormi, tekshiring.');
+    Alert.alert(tr('money.topup.checkoutFailed'), tr('money.topup.checkoutFailedText'));
   }
 }
 
@@ -64,6 +66,7 @@ async function openCheckout(url: string): Promise<void> {
  * fallback, slowly while the stream is up.
  */
 export default function TopupScreen() {
+  const { t } = useT();
   const router = useRouter();
   const qc = useQueryClient();
   const params = useLocalSearchParams<{ amount?: string; id?: string }>();
@@ -124,7 +127,7 @@ export default function TopupScreen() {
       void qc.invalidateQueries({ queryKey: keys.topups });
       const url = created.checkout?.[provider] ?? Object.values(created.checkout ?? {})[0];
       if (url) void openCheckout(url).then(() => void intent.refetch());
-      else Alert.alert('To‘lov sahifasi yo‘q', 'Birozdan so‘ng qayta urinib ko‘ring.');
+      else Alert.alert(t('money.topup.noCheckout'), t('money.topup.noCheckoutText'));
     },
     onError: (error) => {
       haptics.error();
@@ -146,12 +149,12 @@ export default function TopupScreen() {
   };
 
   const current = intent.data ?? null;
-  const recent = (history.data ?? []).filter((t) => t.purpose === 'topup').slice(0, 10);
+  const recent = (history.data ?? []).filter((x) => x.purpose === 'topup').slice(0, 10);
 
   return (
     <Screen
       keyboard
-      title="Balansni to‘ldirish"
+      title={t('common.screens.topup')}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/money'))}
       refreshing={history.isRefetching}
       onRefresh={() => {
@@ -161,7 +164,7 @@ export default function TopupScreen() {
       }}
     >
       {balance.data ? (
-        <Row label="Hozirgi balans" value={som(balance.data.balance)} strong />
+        <Row label={t('money.balance.current')} value={som(balance.data.balance)} strong />
       ) : null}
 
       {!providers.length ? (
@@ -169,10 +172,10 @@ export default function TopupScreen() {
           <Banner
             tone="warning"
             icon="card"
-            title="Karta orqali to‘lov hali ulanmagan"
-            text="Balansni ofisda naqd to‘ldiring: operator darhol yozib qo‘yadi."
+            title={t('money.topup.notConnected')}
+            text={t('money.topup.notConnectedText')}
           />
-          <SupportCard text="Ofisga kelib naqd to‘ldiring yoki qo‘ng‘iroq qiling." />
+          <SupportCard text={t('money.topup.supportText')} />
         </>
       ) : intentId && !current && intent.isError ? (
         // opened from the "paid" push or after a restart: the payment is looked up, never
@@ -192,7 +195,7 @@ export default function TopupScreen() {
         />
       ) : (
         <Card>
-          <Title>Qancha to‘ldirasiz?</Title>
+          <Title>{t('money.topup.howMuch')}</Title>
           <Choice
             options={TOPUP_PRESETS.map((v) => ({ value: String(v), label: som(v) }))}
             selected={[text.replace(/\s/g, '')]}
@@ -202,7 +205,7 @@ export default function TopupScreen() {
             }}
           />
           <Field
-            label="Summa (so‘m)"
+            label={t('money.topup.amount')}
             value={text}
             onChangeText={(v) => {
               setText(v.replace(/[^\d\s]/g, ''));
@@ -211,12 +214,12 @@ export default function TopupScreen() {
             keyboardType="number-pad"
             maxLength={9}
             error={problem}
-            hint={`${som(limits.min)}dan ${som(limits.max)}gacha`}
+            hint={t('money.topup.range', { min: som(limits.min), max: som(limits.max) })}
           />
           {providers.map((p) => (
             <Button
               key={p}
-              title={`${PROVIDER_LABELS[p] ?? p} orqali to‘lash`}
+              title={t('money.topup.payVia', { provider: PROVIDER_LABELS[p] ?? p })}
               icon="card"
               big
               loading={create.isPending && create.variables === p}
@@ -224,24 +227,21 @@ export default function TopupScreen() {
               onPress={() => pay(p)}
             />
           ))}
-          <Muted>
-            To‘lov sahifasi ochiladi. To‘laganingizdan so‘ng shu yerga qayting — balans avtomatik
-            to‘ldiriladi. To‘lov 30 daqiqa ichida qilinishi kerak.
-          </Muted>
+          <Muted>{t('money.topup.note')}</Muted>
         </Card>
       )}
 
       {recent.length ? (
         <Card>
-          <Title>Karta to‘lovlari</Title>
-          {recent.map((t) => (
+          <Title>{t('money.ledger.cardPayments')}</Title>
+          {recent.map((x) => (
             <Row
-              key={t.id}
-              label={`${dateTime(t.createdAt)} · ${TOPUP_STATUS_TEXT[t.status] ?? t.status}${
-                t.provider ? ` · ${PROVIDER_LABELS[t.provider] ?? t.provider}` : ''
+              key={x.id}
+              label={`${dateTime(x.createdAt)} · ${TOPUP_STATUS_TEXT[x.status] ?? x.status}${
+                x.provider ? ` · ${PROVIDER_LABELS[x.provider] ?? x.provider}` : ''
               }`}
-              value={som(t.amount)}
-              tone={t.status === 'paid' ? 'success' : undefined}
+              value={som(x.amount)}
+              tone={x.status === 'paid' ? 'success' : undefined}
             />
           ))}
         </Card>
@@ -259,14 +259,21 @@ function PaymentState(props: {
   onAgain: () => void;
   onDone: () => void;
 }) {
-  const t = props.topup;
+  const { t } = useT();
+  const tp = props.topup;
   if (props.phase === 'paid') {
     return (
       <Card style={{ alignItems: 'center' }}>
         <Ionicons name="checkmark-circle" size={72} color={colors.success} />
-        <Text style={styles.big}>{som(t.amount)}</Text>
-        <Title>Balans to‘ldirildi</Title>
-        <Button title="Tayyor" icon="checkmark" big onPress={props.onDone} style={styles.wide} />
+        <Text style={styles.big}>{som(tp.amount)}</Text>
+        <Title>{t('money.topup.paid')}</Title>
+        <Button
+          title={t('common.actions.done')}
+          icon="checkmark"
+          big
+          onPress={props.onDone}
+          style={styles.wide}
+        />
       </Card>
     );
   }
@@ -276,28 +283,25 @@ function PaymentState(props: {
         <Banner
           tone="danger"
           icon="close-circle"
-          title={TOPUP_STATUS_TEXT[t.status] ?? 'To‘lov o‘tmadi'}
-          text="Pul yechilmagan bo‘lsa, qayta urinib ko‘ring. Yechilgan bo‘lsa, ofisga murojaat qiling."
+          title={TOPUP_STATUS_TEXT[tp.status] ?? t('money.topup.failed')}
+          text={t('money.topup.failedText')}
         />
-        <Button title="Qayta to‘lash" icon="refresh" onPress={props.onAgain} />
+        <Button title={t('money.topup.payAgain')} icon="refresh" onPress={props.onAgain} />
       </Card>
     );
   }
-  const links = Object.entries(t.checkout ?? {}) as [CardProvider, string][];
+  const links = Object.entries(tp.checkout ?? {}) as [CardProvider, string][];
   return (
     <Card>
       <View style={styles.waiting}>
         <Ionicons name="time" size={40} color={colors.brand} />
         <View style={{ flex: 1 }}>
-          <Title>{som(t.amount)} — to‘lov kutilmoqda</Title>
-          <Muted>
-            To‘lov sahifasida to‘lang. Tasdiq kelishi bilan balans to‘ldiriladi (odatda bir necha
-            soniya). Muddati: {dateTime(t.expiresAt)} gacha.
-          </Muted>
+          <Title>{t('money.topup.waitingTitle', { amount: som(tp.amount) })}</Title>
+          <Muted>{t('money.topup.waitingText', { until: until(dateTime(tp.expiresAt)) })}</Muted>
         </View>
       </View>
       <Button
-        title="To‘landimi? Tekshirish"
+        title={t('money.topup.check')}
         icon="refresh"
         loading={props.checking}
         onPress={props.onCheck}
@@ -305,13 +309,13 @@ function PaymentState(props: {
       {links.map(([p, url]) => (
         <Button
           key={p}
-          title={`${PROVIDER_LABELS[p] ?? p} sahifasini ochish`}
+          title={t('money.topup.openPage', { provider: PROVIDER_LABELS[p] ?? p })}
           icon="open"
           variant="secondary"
           onPress={() => props.onOpen(url)}
         />
       ))}
-      <Button title="Boshqa summa" variant="ghost" onPress={props.onAgain} />
+      <Button title={t('money.topup.otherAmount')} variant="ghost" onPress={props.onAgain} />
     </Card>
   );
 }

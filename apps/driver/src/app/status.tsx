@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSession } from '../auth/session';
 import { useAppeals, useDriverMe } from '../data/queries';
+import { useT } from '../i18n';
 import { DOCUMENTS } from '../lib/application';
 import { date, dateTime, som } from '../lib/format';
 import { Banner, Button, Card, Loading, Muted, Row, Title } from '../ui/components';
@@ -10,29 +11,16 @@ import { Screen } from '../ui/screen';
 import { colors, space } from '../ui/theme';
 import { LicenceCardStatus, SupportCard } from '../ui/widgets';
 
+/** The icon of each status; its title and text are `apply.status.<key>.title/text`. */
 const LOOK = {
-  pending: {
-    icon: 'hourglass' as const,
-    color: colors.brand,
-    title: 'Arizangiz ko‘rib chiqilmoqda',
-    text: 'Operator hujjatlaringizni tekshiradi, odatda 1 ish kuni ichida. Natija haqida bildirishnoma keladi.',
-  },
-  rejected: {
-    icon: 'close-circle' as const,
-    color: colors.danger,
-    title: 'Ariza rad etildi',
-    text: 'Sababini o‘qing, ma’lumotlarni to‘g‘rilang va arizani qayta yuboring.',
-  },
-  blocked: {
-    icon: 'lock-closed' as const,
-    color: colors.danger,
-    title: 'Hisobingiz bloklangan',
-    text: 'Blok sababi quyida yozilgan. Rozi bo‘lmasangiz, murojaat yuboring — har bir murojaatni inson ko‘rib chiqadi.',
-  },
+  pending: { key: 'pending' as const, icon: 'hourglass' as const, color: colors.brand },
+  rejected: { key: 'rejected' as const, icon: 'close-circle' as const, color: colors.danger },
+  blocked: { key: 'blocked' as const, icon: 'lock-closed' as const, color: colors.danger },
 };
 
 /** Where a driver who cannot work yet stands: pending, rejected (why) or blocked (why, appeal). */
 export default function Status() {
+  const { t } = useT();
   const router = useRouter();
   const session = useSession();
   const me = useDriverMe();
@@ -51,38 +39,41 @@ export default function Status() {
     <Screen refreshing={me.isRefetching} onRefresh={() => void me.refetch()}>
       <View style={styles.hero}>
         <Ionicons name={look.icon} size={72} color={look.color} />
-        <Text style={styles.title}>{look.title}</Text>
-        <Muted center>{look.text}</Muted>
+        <Text style={styles.title}>{t(`apply.status.${look.key}.title`)}</Text>
+        <Muted center>{t(`apply.status.${look.key}.text`)}</Muted>
       </View>
 
       {d.statusReason ? (
-        <Banner tone="danger" icon="information-circle" title="Sabab" text={d.statusReason} />
+        <Banner
+          tone="danger"
+          icon="information-circle"
+          title={t('apply.status.reason')}
+          text={d.statusReason}
+        />
       ) : null}
 
       {canAppeal ? (
         <Card>
-          <Title>Qarorga e’tiroz</Title>
+          <Title>{t('apply.status.appealTitle')}</Title>
           {openAppeal ? (
             <Banner
               tone="info"
               icon="hourglass"
-              title="Murojaatingiz ko‘rib chiqilmoqda"
-              text={`${dateTime(openAppeal.createdAt)} yuborilgan. Operator javobi shu yerda ko‘rinadi.`}
+              title={t('apply.appeals.pendingTitle')}
+              text={t('apply.status.appealSentAt', { time: dateTime(openAppeal.createdAt) })}
             />
           ) : lastAnswer?.resolution ? (
             <Banner
               tone="neutral"
               icon="chatbox"
-              title="Operator javobi"
+              title={t('apply.appeals.operatorAnswer')}
               text={lastAnswer.resolution}
             />
           ) : (
-            <Muted>
-              Qaror noto‘g‘ri deb hisoblasangiz, yozing: har bir murojaatni inson ko‘rib chiqadi.
-            </Muted>
+            <Muted>{t('apply.status.appealHint')}</Muted>
           )}
           <Button
-            title={openAppeal ? 'Murojaatlarim' : 'Murojaat yuborish'}
+            title={openAppeal ? t('apply.status.myAppeals') : t('apply.status.sendAppeal')}
             icon="create"
             variant={openAppeal ? 'secondary' : 'primary'}
             onPress={() => router.push('/appeals')}
@@ -92,7 +83,7 @@ export default function Status() {
 
       {blockers.length ? (
         <Card>
-          <Title>Ishlash uchun</Title>
+          <Title>{t('apply.status.toWork')}</Title>
           {blockers.map((b) => (
             <Banner key={b} tone="warning" icon="alert-circle" text={b} />
           ))}
@@ -101,45 +92,46 @@ export default function Status() {
 
       {missing.length ? (
         <Card>
-          <Title>Hujjatlar yetishmaydi</Title>
+          <Title>{t('apply.status.missingTitle')}</Title>
           <Muted>
-            Tasdiqlash uchun barcha hujjatlar kerak. Yetishmayotganlari:{' '}
-            {missing.map((m) => m.label).join(', ')}.
+            {t('apply.status.missingText', { list: missing.map((m) => m.label).join(', ') })}
           </Muted>
           <Button
-            title="Hujjatlarni yuklash"
+            title={t('apply.status.uploadDocuments')}
             icon="document-attach"
             onPress={() => router.push('/documents')}
           />
         </Card>
       ) : d.status === 'pending' ? (
-        <Banner tone="success" icon="checkmark-circle" text="Barcha hujjatlar yuklangan." />
+        <Banner tone="success" icon="checkmark-circle" text={t('apply.status.allUploaded')} />
       ) : null}
 
       <Card>
-        <Title>Arizangiz</Title>
-        <Row label="F.I.Sh." value={d.fullName} />
+        <Title>{t('apply.status.yourApplication')}</Title>
+        <Row label={t('apply.status.fullName')} value={d.fullName} />
         {d.vehicle ? (
           <>
             <Row
-              label="Avtomobil"
+              label={t('apply.status.vehicle')}
               value={`${d.vehicle.colour} ${d.vehicle.make} ${d.vehicle.model}`}
             />
-            <Row label="Davlat raqami" value={d.vehicle.plateFormatted} strong />
+            <Row label={t('apply.status.plate')} value={d.vehicle.plateFormatted} strong />
           </>
         ) : null}
-        <Row label="Yuborilgan" value={dateTime(d.createdAt)} />
+        <Row label={t('apply.status.sentAt')} value={dateTime(d.createdAt)} />
         <Row
-          label="Litsenziya kartochkasi"
-          value={`${d.licenceCard.number} · ${date(d.licenceCard.expiresOn)} gacha`}
+          label={t('apply.status.licenceCard')}
+          value={`${d.licenceCard.number} · ${t('common.units.until', { time: date(d.licenceCard.expiresOn) })}`}
         />
         <LicenceCardStatus verification={d.licenceCard.verification} showOk />
         {d.status === 'blocked' && d.balance < 0 ? (
-          <Row label="Balans" value={som(d.balance)} tone="danger" />
+          <Row label={t('apply.status.balance')} value={som(d.balance)} tone="danger" />
         ) : null}
         {d.status === 'pending' || d.status === 'rejected' ? (
           <Button
-            title={d.status === 'rejected' ? 'Tuzatib, qayta yuborish' : 'Arizani tahrirlash'}
+            title={
+              d.status === 'rejected' ? t('apply.status.fixAndResend') : t('apply.form.editTitle')
+            }
             icon="create"
             variant={d.status === 'rejected' ? 'primary' : 'secondary'}
             onPress={() => router.push('/apply')}
@@ -147,7 +139,7 @@ export default function Status() {
         ) : null}
         {missing.length === 0 ? (
           <Button
-            title="Hujjatlar"
+            title={t('common.screens.documents')}
             icon="documents"
             variant="secondary"
             onPress={() => router.push('/documents')}
@@ -157,15 +149,15 @@ export default function Status() {
 
       {d.status === 'blocked' ? (
         <SupportCard
-          title="Ofis"
-          text="Ofisga kelishingiz yoki qo‘ng‘iroq qilishingiz ham mumkin: telefon raqamingizni ayting, operator sababni tushuntiradi."
+          title={t('apply.status.officeTitle')}
+          text={t('apply.status.officeBlockedText')}
         />
       ) : (
-        <SupportCard text="Savollaringiz bo‘lsa, ofisga keling yoki qo‘ng‘iroq qiling." />
+        <SupportCard text={t('apply.status.officeText')} />
       )}
 
       <Button
-        title="Chiqish"
+        title={t('common.actions.signOut')}
         icon="log-out"
         variant="ghost"
         onPress={() => void session.signOut()}

@@ -16,7 +16,7 @@ import { SessionProvider, useSession } from '../auth/session';
 import { persistSnapshots, restoreSnapshot } from '../data/persist';
 import { createQueryClient, useDriverMe, usePublicConfig } from '../data/queries';
 import { installReactQueryNativeBindings } from '../data/react-native';
-import { initLanguage, onLanguageChange } from '../i18n';
+import { initLanguage, onLanguageChange, useT } from '../i18n';
 import { errorMessage } from '../lib/api-client';
 import { storeUrlFor } from '../lib/driver-config';
 import { mustUpdate } from '../lib/version';
@@ -80,6 +80,7 @@ export default function RootLayout() {
  * screens, with the realtime/GPS/offer runtime mounted once for all of them.
  */
 function RootNavigator() {
+  const { t } = useT();
   const session = useSession();
   const config = usePublicConfig();
   const signedIn = session.status === 'signedIn';
@@ -111,7 +112,11 @@ function RootNavigator() {
     return (
       <View style={{ flex: 1, backgroundColor: colors.background, padding: space.lg }}>
         <ErrorState message={errorMessage(me.error)} onRetry={() => void me.refetch()} />
-        <Button title="Chiqish" variant="ghost" onPress={() => void session.signOut()} />
+        <Button
+          title={t('common.actions.signOut')}
+          variant="ghost"
+          onPress={() => void session.signOut()}
+        />
       </View>
     );
   }

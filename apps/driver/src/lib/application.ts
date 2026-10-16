@@ -1,3 +1,4 @@
+import { liveTable, t } from '../i18n/dictionary';
 import { normalizePlate, plateProblem } from './plate';
 
 /**
@@ -32,12 +33,20 @@ export const RULES = {
 /** Taxi classes and what each needs, as the application screen explains them. */
 export const VEHICLE_CLASSES = ['economy', 'comfort', 'minivan', 'business'] as const;
 export type VehicleClass = (typeof VEHICLE_CLASSES)[number];
-export const VEHICLE_CLASS_LABELS: Record<VehicleClass, string> = {
-  economy: 'Ekonom',
-  comfort: 'Komfort (≤5 yil, konditsioner)',
-  minivan: 'Miniven (6–7 o‘rindiq, ≤8 yil, konditsioner)',
-  business: 'Biznes (premium, ≤3 yil, konditsioner)',
-};
+export const VEHICLE_CLASS_LABELS: Record<VehicleClass, string> = liveTable({
+  economy: 'apply.vehicle.classes.economy',
+  comfort: 'apply.vehicle.classes.comfort',
+  minivan: 'apply.vehicle.classes.minivan',
+  business: 'apply.vehicle.classes.business',
+});
+
+/** The short class names (in the current language) for the rule texts. */
+const CLASS_NAMES: Record<VehicleClass, string> = liveTable({
+  economy: 'common.classes.economy',
+  comfort: 'common.classes.comfort',
+  minivan: 'common.classes.minivan',
+  business: 'common.classes.business',
+});
 
 /** The API's premium models for Biznes (apps/api src/lib/driver-rules.ts isBusinessModel). */
 export function isBusinessModel(make: string, model: string): boolean {
@@ -62,23 +71,29 @@ export function classProblem(
   const age = thisYear - car.year;
   if (c === 'minivan') {
     if (car.seats < RULES.minMinivanSeats || car.seats > RULES.maxMinivanSeats) {
-      return `Miniven uchun haydovchidan tashqari ${RULES.minMinivanSeats}–${RULES.maxMinivanSeats} o‘rindiq kerak`;
+      return t('apply.vehicle.classProblem.minivanSeats', {
+        min: RULES.minMinivanSeats,
+        max: RULES.maxMinivanSeats,
+      });
     }
   } else if (car.seats > RULES.maxSeats) {
-    return `${RULES.maxSeats} tadan ortiq o‘rindiqli avtomobil faqat Miniven bo‘ladi`;
+    return t('apply.vehicle.classProblem.tooManySeats', { max: RULES.maxSeats });
   }
   if (c === 'economy') return null;
-  const rule = {
-    comfort: { label: 'Komfort', maxAge: RULES.maxComfortAgeYears },
-    minivan: { label: 'Miniven', maxAge: RULES.maxMinivanAgeYears },
-    business: { label: 'Biznes', maxAge: RULES.maxBusinessAgeYears },
+  const maxAge = {
+    comfort: RULES.maxComfortAgeYears,
+    minivan: RULES.maxMinivanAgeYears,
+    business: RULES.maxBusinessAgeYears,
   }[c];
-  if (Number.isFinite(age) && age > rule.maxAge) {
-    return `${rule.label} uchun avtomobil ${rule.maxAge} yildan eski bo‘lmasligi kerak`;
+  const name = CLASS_NAMES[c];
+  if (Number.isFinite(age) && age > maxAge) {
+    return t('apply.vehicle.classProblem.tooOld', { class: name, maxAge });
   }
-  if (!car.features.includes('ac')) return `${rule.label} uchun konditsioner kerak`;
+  if (!car.features.includes('ac')) {
+    return t('apply.vehicle.classProblem.needsAc', { class: name });
+  }
   if (c === 'business' && !isBusinessModel(car.make, car.model)) {
-    return 'Biznes uchun premium avtomobil kerak (Malibu, Tracker Premier, K5, Sonata va h.k.)';
+    return t('apply.vehicle.classProblem.needsPremium');
   }
   return null;
 }
@@ -93,10 +108,10 @@ export function classFitText(f: ApplicationForm, today = tashkentToday()): strin
   if (!/^\d{4}$/.test(f.year.trim()) || !Number.isInteger(seats) || seats < 1) return '';
   const car = { make: f.make, model: f.model, year, seats, features: f.features };
   const fits = VEHICLE_CLASSES.filter((c) => classProblem(c, car, today) === null);
-  if (!fits.length)
-    return 'Avtomobil hech bir sinf talabiga mos emas: yil va o‘rindiqlarni tekshiring';
-  const names = { economy: 'Ekonom', comfort: 'Komfort', minivan: 'Miniven', business: 'Biznes' };
-  return `Avtomobilingiz mos sinflar: ${fits.map((c) => names[c]).join(', ')}. Biznes uchun reyting 4.8 dan past bo‘lmasligi kerak.`;
+  if (!fits.length) return t('apply.vehicle.classFit.none');
+  return t('apply.vehicle.classFit.fits', {
+    classes: fits.map((c) => CLASS_NAMES[c]).join(', '),
+  });
 }
 
 /** What the car works for: passenger rides and parcels, or cargo rides only. */
@@ -104,11 +119,11 @@ export type CarService = 'taxi' | 'cargo';
 
 export const CARGO_BODIES = ['van', 'pickup', 'truck'] as const;
 export type CargoBody = (typeof CARGO_BODIES)[number];
-export const CARGO_BODY_LABELS: Record<CargoBody, string> = {
-  van: 'Furgon (yopiq)',
-  pickup: 'Pikap (ochiq bort)',
-  truck: 'Yuk kuzovi',
-};
+export const CARGO_BODY_LABELS: Record<CargoBody, string> = liveTable({
+  van: 'apply.vehicle.bodies.van',
+  pickup: 'apply.vehicle.bodies.pickup',
+  truck: 'apply.vehicle.bodies.truck',
+});
 
 /** Common cargo cars with typical figures (the driver corrects them from the tech passport). */
 export const CARGO_CARS = [
@@ -123,20 +138,20 @@ export const CARGO_CARS = [
 /** Which cargo orders the car gets, by its payload. */
 export function cargoClassText(payloadKg: number): string {
   return payloadKg <= RULES.smallMaxPayloadKg
-    ? 'Kichik yuk buyurtmalari (Damas, Labo sinfi)'
-    : 'Kichik va o‘rta yuk buyurtmalari (Gazel, Porter sinfi)';
+    ? t('apply.vehicle.cargoOrders.small')
+    : t('apply.vehicle.cargoOrders.medium');
 }
 
 export const LICENCE_CATEGORIES = ['A', 'B', 'C', 'D', 'E', 'BE', 'CE', 'DE'] as const;
 export const VEHICLE_FEATURES = ['ac', 'child_seat', 'pets', 'big_trunk'] as const;
 export type VehicleFeature = (typeof VEHICLE_FEATURES)[number];
 
-export const FEATURE_LABELS: Record<VehicleFeature, string> = {
-  ac: 'Konditsioner',
-  child_seat: 'Bolalar o‘rindig‘i',
-  pets: 'Uy hayvonlarini olaman',
-  big_trunk: 'Katta yukxona',
-};
+export const FEATURE_LABELS: Record<VehicleFeature, string> = liveTable({
+  ac: 'common.options.ac',
+  child_seat: 'common.options.child_seat',
+  pets: 'apply.vehicle.featureLabels.pets',
+  big_trunk: 'apply.vehicle.featureLabels.big_trunk',
+});
 
 /** Popular cars in Sirdaryo (market analysis: Cobalt 27%, Nexia 19%, Lacetti 16%). */
 export const POPULAR_CARS = [
@@ -278,55 +293,54 @@ export const STEP_FIELDS: (keyof ApplicationForm)[][] = [
 
 export function validateApplication(f: ApplicationForm, today: string): FormErrors {
   const e: FormErrors = {};
-  if (f.fullName.trim().length < 3) e.fullName = 'Familiya, ism va otangizning ismini yozing';
+  if (f.fullName.trim().length < 3) e.fullName = t('apply.validation.fullName');
 
   const birth = parseDate(f.birthDate);
-  if (!birth) e.birthDate = 'Sanani KK.OO.YYYY ko‘rinishida yozing, masalan 05.03.1990';
+  if (!birth) e.birthDate = t('apply.validation.birthDateFormat');
   else if (birth > today || fullYears(birth, today) < RULES.minAge) {
-    e.birthDate = `Haydovchi kamida ${RULES.minAge} yoshda bo‘lishi kerak`;
+    e.birthDate = t('apply.validation.minAge', { years: RULES.minAge });
   }
 
   if (!/^\d{14}$/.test(f.pinfl.replace(/\s/g, ''))) {
-    e.pinfl = 'JShShIR 14 ta raqamdan iborat (pasportingizda)';
+    e.pinfl = t('apply.validation.pinfl');
   }
 
   if (!/^[A-Z]{2}\d{7}$/.test(normalizeLicenceNumber(f.licenceNumber))) {
-    e.licenceNumber = 'Guvohnoma raqami: 2 harf va 7 raqam, masalan AF1234567';
+    e.licenceNumber = t('apply.validation.licenceNumber');
   }
-  if (!f.licenceCategories.includes('B')) e.licenceCategories = 'B toifali guvohnoma kerak';
+  if (!f.licenceCategories.includes('B')) e.licenceCategories = t('apply.validation.categoryB');
 
   const issued = parseDate(f.licenceIssuedOn);
-  if (!issued) e.licenceIssuedOn = 'Guvohnoma berilgan sanani KK.OO.YYYY ko‘rinishida yozing';
+  if (!issued) e.licenceIssuedOn = t('apply.validation.licenceIssuedFormat');
   else if (issued > today || fullYears(issued, today) < RULES.minExperienceYears) {
-    e.licenceIssuedOn = `Haydovchilik staji kamida ${RULES.minExperienceYears} yil bo‘lishi kerak`;
+    e.licenceIssuedOn = t('apply.validation.experience', { years: RULES.minExperienceYears });
   }
 
   if (!/^[A-Z0-9-]{5,30}$/.test(normalizeCardNumber(f.licenceCardNumber))) {
-    e.licenceCardNumber = 'Litsenziya kartochkasi raqamini kiriting (harflar va raqamlar)';
+    e.licenceCardNumber = t('apply.validation.licenceCardNumber');
   }
   const cardExpires = parseDate(f.licenceCardExpiresOn);
-  if (!cardExpires) e.licenceCardExpiresOn = 'Amal qilish muddatini KK.OO.YYYY ko‘rinishida yozing';
-  else if (cardExpires < today) e.licenceCardExpiresOn = 'Litsenziya kartochkasi muddati o‘tgan';
+  if (!cardExpires) e.licenceCardExpiresOn = t('apply.validation.licenceCardExpiresFormat');
+  else if (cardExpires < today) e.licenceCardExpiresOn = t('apply.validation.licenceCardExpired');
 
-  if (f.make.trim().length < 2) e.make = 'Markani yozing, masalan Chevrolet';
+  if (f.make.trim().length < 2) e.make = t('apply.validation.make');
   const cargo = f.service === 'cargo';
-  if (f.model.trim().length < 1) e.model = 'Modelni yozing, masalan Cobalt';
+  if (f.model.trim().length < 1) e.model = t('apply.validation.model');
   else if (!cargo && /\b(damas|labo)\b/i.test(`${f.make} ${f.model}`)) {
-    e.model =
-      'Furgon turidagi avtomobillar (Damas, Labo) taksi bo‘la olmaydi: “Yuk tashish” ni tanlang';
+    e.model = t('apply.validation.vanAsTaxi');
   }
-  if (f.colour.trim().length < 2) e.colour = 'Rangini yozing, masalan Oq';
+  if (f.colour.trim().length < 2) e.colour = t('apply.validation.colour');
   const plate = plateProblem(f.plate);
   if (plate) e.plate = plate;
 
   const thisYear = Number(today.slice(0, 4));
   const year = Number(f.year);
   const maxAge = cargo ? RULES.maxCargoVehicleAgeYears : RULES.maxVehicleAgeYears;
-  if (!/^\d{4}$/.test(f.year.trim())) e.year = 'Ishlab chiqarilgan yilni yozing, masalan 2019';
+  if (!/^\d{4}$/.test(f.year.trim())) e.year = t('apply.validation.year');
   else if (year > thisYear + 1 || thisYear - year > maxAge) {
     e.year = cargo
-      ? `Yuk mashinasi ${maxAge} yildan eski bo‘lmasligi kerak`
-      : `Avtomobil ${maxAge} yildan eski bo‘lmasligi kerak`;
+      ? t('apply.validation.cargoTooOld', { years: maxAge })
+      : t('apply.validation.carTooOld', { years: maxAge });
   }
   const seats = Number(f.seats);
   const maxSeats = cargo
@@ -336,8 +350,8 @@ export function validateApplication(f: ApplicationForm, today: string): FormErro
       : RULES.maxSeats;
   if (!Number.isInteger(seats) || seats < 1 || seats > maxSeats) {
     e.seats = cargo
-      ? `Kabinada haydovchidan tashqari 1 yoki ${maxSeats} o‘rin`
-      : `Yo‘lovchi o‘rindiqlari 1 dan ${maxSeats} tagacha`;
+      ? t('apply.validation.cabSeats', { max: maxSeats })
+      : t('apply.validation.seats', { max: maxSeats });
   }
   if (cargo) {
     Object.assign(e, cargoProblems(f));
@@ -367,20 +381,20 @@ function kg(text: string): number | null {
 export function cargoProblems(f: ApplicationForm): FormErrors {
   const e: FormErrors = {};
   if (!f.body || !(CARGO_BODIES as readonly string[]).includes(f.body)) {
-    e.body = 'Kuzov turini tanlang: furgon, pikap yoki yuk kuzovi';
+    e.body = t('apply.validation.body');
   }
   const payload = kg(f.payloadKg);
   if (payload === null || payload < 1 || payload > 20_000) {
-    e.payloadKg = 'Yuk ko‘tarish quvvatini kg da yozing, masalan 550 (texpasportda)';
+    e.payloadKg = t('apply.validation.payload');
   }
   if (f.grossKg.trim()) {
     const gross = kg(f.grossKg);
     if (gross === null || gross < 500 || gross > 40_000) {
-      e.grossKg = 'To‘liq massani kg da yozing, masalan 1400 (texpasportda)';
+      e.grossKg = t('apply.validation.gross');
     } else if (payload !== null && payload >= gross) {
-      e.grossKg = 'To‘liq massa yuk ko‘tarish quvvatidan katta bo‘lishi kerak';
+      e.grossKg = t('apply.validation.grossBelowPayload');
     } else if (gross > RULES.maxCategoryBGrossKg && !f.licenceCategories.includes('C')) {
-      e.licenceCategories = '3,5 tonnadan og‘ir mashina uchun C toifali guvohnoma kerak';
+      e.licenceCategories = t('apply.validation.categoryC');
     }
   }
   return e;
@@ -512,32 +526,35 @@ export function formFromProfile(p: {
 }
 
 /** Document kinds the API requires before approval (DOCUMENT_KINDS), with what to photograph. */
+export type DocumentKind =
+  | 'licence_card'
+  | 'driver_licence'
+  | 'passport'
+  | 'vehicle_registration'
+  | 'insurance'
+  | 'vehicle_photo'
+  | 'selfie';
+
+/** A document kind whose label and hint read in the current language on access. */
+function document(kind: DocumentKind, expires: boolean) {
+  return {
+    kind,
+    get label() {
+      return t(`apply.documents.kinds.${kind}.label`);
+    },
+    get hint() {
+      return t(`apply.documents.kinds.${kind}.hint`);
+    },
+    expires,
+  };
+}
+
 export const DOCUMENTS: { kind: string; label: string; hint: string; expires: boolean }[] = [
-  {
-    kind: 'licence_card',
-    label: 'Litsenziya kartochkasi',
-    hint: 'Yo‘lovchi tashish litsenziya kartochkasi',
-    expires: true,
-  },
-  {
-    kind: 'driver_licence',
-    label: 'Haydovchilik guvohnomasi',
-    hint: 'Ikkala tomoni bitta rasmda',
-    expires: true,
-  },
-  { kind: 'passport', label: 'Pasport (ID karta)', hint: 'Rasmli sahifa', expires: false },
-  {
-    kind: 'vehicle_registration',
-    label: 'Texpasport',
-    hint: 'Avtomobilni ro‘yxatdan o‘tkazish guvohnomasi',
-    expires: false,
-  },
-  { kind: 'insurance', label: 'Sug‘urta polisi', hint: 'Amaldagi polis', expires: true },
-  {
-    kind: 'vehicle_photo',
-    label: 'Avtomobil rasmi',
-    hint: 'Old tomondan, davlat raqami ko‘rinsin',
-    expires: false,
-  },
-  { kind: 'selfie', label: 'Selfi', hint: 'Yuzingiz aniq ko‘rinsin', expires: false },
+  document('licence_card', true),
+  document('driver_licence', true),
+  document('passport', false),
+  document('vehicle_registration', false),
+  document('insurance', true),
+  document('vehicle_photo', false),
+  document('selfie', false),
 ];

@@ -3,6 +3,7 @@ import * as Linking from 'expo-linking';
 import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSupport } from '../data/queries';
+import { useT } from '../i18n';
 import { call } from './actions';
 import { Button, Muted } from './components';
 import { colors, space } from './theme';
@@ -37,31 +38,29 @@ async function openStore(storeUrl: string | null): Promise<void> {
  * serves (`GET /v1/config` → `minAppVersion.driver`): old builds may misread offers or money.
  */
 export function ForcedUpdate(props: { current: string; minimum: string; storeUrl: string | null }) {
+  const { t } = useT();
   const support = useSupport();
   return (
     <SafeAreaView style={styles.safe}>
       {/* scrolls on a short phone or with a large font instead of pushing the buttons off */}
       <ScrollView style={styles.scroll} contentContainerStyle={styles.body}>
         <Ionicons name="cloud-download" size={88} color={colors.brand} />
-        <Text style={styles.title}>Ilovani yangilang</Text>
+        <Text style={styles.title}>{t('profile.update.title')}</Text>
+        <Muted center>{t('profile.update.text')}</Muted>
         <Muted center>
-          SFF Taxi Haydovchining yangi versiyasi chiqdi. Buyurtmalarni olishda davom etish uchun
-          ilovani yangilang — bu bir daqiqa oladi.
-        </Muted>
-        <Muted center>
-          Sizda: {props.current} · kerak: {props.minimum} yoki yangiroq
+          {t('profile.update.versions', { current: props.current, minimum: props.minimum })}
         </Muted>
       </ScrollView>
       <View style={styles.actions}>
         <Button
-          title="Yangilash"
+          title={t('profile.update.update')}
           icon="logo-google-playstore"
           big
           onPress={() => void openStore(props.storeUrl)}
         />
         {support.phone ? (
           <Button
-            title="Ofisga qo‘ng‘iroq qilish"
+            title={t('profile.support.callOffice')}
             icon="call"
             variant="secondary"
             onPress={() => call(support.phone)}

@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import {
+  BOOKING_STATUS_TEXT,
   departureIso,
   departureProblem,
   alongStopLines,
@@ -11,13 +13,22 @@ import {
   priceProblem,
   seatsSold,
   stepPrice,
+  TRIP_STATUS_TEXT,
   tripActions,
 } from './intercity';
-import { parseTopupAmount, suggestedTopup, topupPhase, topupPollMs } from './topup';
+import {
+  parseTopupAmount,
+  suggestedTopup,
+  topupPhase,
+  topupPollMs,
+  TOPUP_STATUS_TEXT,
+} from './topup';
 import { dayLabel, minutesUntil, scheduledLabel, tashkentDate, whenLabel } from './when';
 
 // 2026-09-27 10:00 in Tashkent
 const NOW = Date.parse('2026-09-27T05:00:00Z');
+
+afterEach(() => setLanguage('uz'));
 
 describe('Tashkent time', () => {
   it('reads dates and labels in Tashkent whatever the phone says', () => {
@@ -181,5 +192,34 @@ describe('where to pick up a rider along the way', () => {
   it('says nothing for a whole-trip seat or an older API', () => {
     expect(alongStopLines({ alongTheWay: false })).toEqual([]);
     expect(alongStopLines({ alongTheWay: true })).toEqual([]);
+  });
+});
+
+describe('in Russian', () => {
+  it('words the publishing checks, the statuses and the stops along the way', () => {
+    setLanguage('ru');
+    expect(departureProblem(departureIso('2026-09-27', '10:10'), NOW)).toBe(
+      'Отправление должно быть не раньше чем через 15 мин',
+    );
+    expect(priceProblem(90_000, { min: 59_500, max: 80_500 })).toBe(
+      'Цена должна быть от 59 500 до 80 500 сум',
+    );
+    expect(TRIP_STATUS_TEXT.boarding).toBe('Идёт посадка');
+    expect(BOOKING_STATUS_TEXT.no_show).toBe('Не пришёл');
+    expect(TOPUP_STATUS_TEXT.pending).toBe('Ожидает оплаты');
+    expect(parseTopupAmount('1000', { min: 5_000, max: 5_000_000 })).toEqual({
+      error: 'Не меньше 5 000 сум',
+    });
+    const lines = alongStopLines({
+      alongTheWay: true,
+      boardingPoint: {
+        name: 'Sirdaryo',
+        meetingPoint: 'bozor',
+        estimatedAt: '2026-10-01T03:50:00Z',
+      },
+      partDistanceM: 85_700,
+    });
+    expect(lines[0]).toBe('Посадка: Sirdaryo, bozor · примерно в 08:50');
+    expect(lines[1]).toMatch(/^Его участок: 85[,.]7 км$/);
   });
 });

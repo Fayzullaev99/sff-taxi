@@ -4,6 +4,7 @@
  * ride as it changes (the event stream, a push or the poll may be first to notice), so the
  * driver is told whichever of them brought the news.
  */
+import { t } from '../i18n/dictionary';
 import { ridePool } from './pool';
 
 /** One ride in the car: the current ride and every ride on the shared car's stop list. */
@@ -48,18 +49,15 @@ export function rideEndedAlert(
   ride: CarRide,
   ending: 'cancelled' | 'taken',
 ): { title: string; text: string } {
-  const name = ride.number ? `Buyurtma #${ride.number}` : 'Buyurtma';
+  const name = ride.number ? t('ride.flow.orderN', { number: ride.number }) : t('ride.flow.order');
   if (ending === 'taken') {
-    return {
-      title: `${name} sizdan olindi`,
-      text: 'Operator buyurtmani boshqa haydovchiga berdi. Unga bormang.',
-    };
+    return { title: t('ride.flow.takenAwayTitle', { name }), text: t('ride.flow.takenAwayText') };
   }
   return {
-    title: `${name} bekor qilindi`,
+    title: t('ride.flow.cancelledTitle', { name }),
     text:
       ride.status === 'driver_arrived'
-        ? 'Yo‘lovchi bekor qildi. Bepul kutish tugagan bo‘lsa, bekor qilish haqi sizga yoziladi (naqd safarda — yo‘lovchi keyingi safarida to‘laganda).'
-        : 'Yo‘lovchi yoki operator buyurtmani bekor qildi. Liniyada qolasiz.',
+        ? t('ride.flow.cancelledArrivedText')
+        : t('ride.flow.cancelledText'),
   };
 }

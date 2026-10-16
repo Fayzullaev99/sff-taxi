@@ -1,3 +1,4 @@
+import { t } from '../i18n/dictionary';
 import { isApiError } from './api-client';
 import type { RideAction } from './ride-flow';
 
@@ -31,8 +32,14 @@ export function seatLayout(occupied: number, registeredSeats = 4): Seats {
 /** "Oldinda 1/1 · orqada 1/2 · 1 ta bo‘sh". */
 export function seatsText(s: Seats): string {
   const rearCap = Math.max(0, Math.min(REAR_SEATS_MAX, s.capacity - FRONT_SEATS));
-  const free = s.free > 0 ? `${s.free} ta bo‘sh` : 'bo‘sh joy yo‘q';
-  return `Oldinda ${s.front}/${FRONT_SEATS} · orqada ${s.rear}/${rearCap} · ${free}`;
+  const free = s.free > 0 ? t('home.pool.seatsFree', { count: s.free }) : t('home.pool.seatsNone');
+  return t('home.pool.seats', {
+    front: s.front,
+    frontCap: FRONT_SEATS,
+    rear: s.rear,
+    rearCap,
+    free,
+  });
 }
 
 function num(v: unknown, fallback: number): number {
@@ -96,12 +103,12 @@ export function extraPassengersStep(
 /** A short name for a place: the first part of its address ("Yangiyer, Sirdaryo" → "Yangiyer"). */
 export function shortPlace(address: string | null | undefined): string {
   const first = address?.split(',')[0]?.trim();
-  return first || 'belgilangan nuqta';
+  return first || t('home.pool.somePlace');
 }
 
 /** The destination filter chip. */
 export function destinationChip(dest: Destination | null): string | null {
-  return dest ? `Faqat yo‘lingizdagi buyurtmalar: → ${shortPlace(dest.address)}` : null;
+  return dest ? t('home.pool.chip', { place: shortPlace(dest.address) }) : null;
 }
 
 export type BadgeTone = 'brand' | 'success' | 'warning' | 'info' | 'neutral';
@@ -122,13 +129,19 @@ export function offerBadges(ride: {
 }): Badge[] {
   const out: Badge[] = [];
   const n = Math.max(1, Math.floor(num(ride.passengers, 1)));
-  if (ride.fareMode === 'seat') out.push({ label: `O‘rindiq, ${n} kishi`, tone: 'info' });
-  else if (n > 1) out.push({ label: `${n} kishi`, tone: 'info' });
-  if (ride.shareable) out.push({ label: 'Hamroh', tone: 'brand' });
-  if (ride.womenOnly) out.push({ label: 'Ayol haydovchi so‘ralgan', tone: 'warning' });
+  if (ride.fareMode === 'seat') {
+    out.push({ label: t('ride.offer.badgeSeat', { count: n }), tone: 'info' });
+  } else if (n > 1) out.push({ label: t('ride.flow.people', { count: n }), tone: 'info' });
+  if (ride.shareable) out.push({ label: t('ride.offer.badgeShared'), tone: 'brand' });
+  if (ride.womenOnly) out.push({ label: t('ride.offer.badgeWomenOnly'), tone: 'warning' });
   const other = ride.passengerName ?? (ride.passenger ? (ride.passenger.name ?? '') : null);
   if (other !== null && other !== undefined) {
-    out.push({ label: other ? `Boshqa odam uchun: ${other}` : 'Boshqa odam uchun', tone: 'info' });
+    out.push({
+      label: other
+        ? t('ride.offer.badgeForOtherNamed', { name: other })
+        : t('ride.offer.badgeForOther'),
+      tone: 'info',
+    });
   }
   return out;
 }
@@ -136,7 +149,7 @@ export function offerBadges(ride: {
 /** "Yo‘lingizda: +4 daq aylanish" for an offer on the car's way. */
 export function alongLine(detourS: number | null | undefined): string {
   const min = Math.ceil(Math.max(0, num(detourS, 0)) / 60);
-  return min > 0 ? `Yo‘lingizda: +${min} daq aylanish` : 'Yo‘lingizda: aylanishsiz';
+  return min > 0 ? t('ride.offer.along', { minutes: min }) : t('ride.offer.alongNoDetour');
 }
 
 export interface PlanStopLike {
@@ -156,16 +169,15 @@ export function alongStopLines(
 ): { key: string; text: string; isNew: boolean }[] {
   return stops.map((s, i) => {
     const isNew = s.rideId !== null && s.rideId.toLowerCase() === newRideId.toLowerCase();
-    let who: string;
-    if (s.type === 'destination') who = 'Sizning manzilingiz';
-    else if (isNew) who = 'Yangi yo‘lovchi';
-    else who = (s.rideId && names.get(s.rideId)) || 'Yo‘lovchi';
-    const what = s.type === 'pickup' ? 'olish' : s.type === 'dropoff' ? 'tushirish' : '';
-    return {
-      key: `${i}:${s.rideId ?? 'dest'}:${s.type}`,
-      text: what ? `${who} — ${what}` : who,
-      isNew,
-    };
+    let text: string;
+    if (s.type === 'destination') text = t('ride.offer.stopYours');
+    else {
+      const who = isNew
+        ? t('ride.offer.stopNewRider')
+        : (s.rideId && names.get(s.rideId)) || t('ride.flow.rider');
+      text = t(s.type === 'pickup' ? 'ride.offer.stopPickup' : 'ride.offer.stopDropoff', { who });
+    }
+    return { key: `${i}:${s.rideId ?? 'dest'}:${s.type}`, text, isNew };
   });
 }
 
@@ -217,9 +229,12 @@ export function isPin(text: string): boolean {
   return /^\d{4}$/.test(text);
 }
 
+/** The API's message is about the code ("Kod noto‘g‘ri…" / "Код неверный…", by Accept-Language). */
+const ABOUT_CODE = /kod|код/i;
+
 /** The start refused because of the code (400 "Kod noto‘g‘ri" / "4 xonali kodni so‘rang"). */
 export function isPinError(error: unknown): boolean {
-  return isApiError(error, 400) && /kod/i.test(error.message);
+  return isApiError(error, 400) && ABOUT_CODE.test(error.message);
 }
 
 /**
@@ -227,20 +242,18 @@ export function isPinError(error: unknown): boolean {
  * code, or too many wrong codes (the API pauses the start for a while, 429 with its text).
  */
 export function pinErrorText(error: unknown): string | null {
-  if (isPinError(error)) return 'Kod noto‘g‘ri. Yo‘lovchidan qayta so‘rang.';
+  if (isPinError(error)) return t('ride.pin.wrong');
   if (isApiError(error, 429)) {
-    return /kod/i.test(error.message)
-      ? error.message
-      : 'Kod ko‘p marta noto‘g‘ri kiritildi. Birozdan so‘ng qayta urinib ko‘ring.';
+    return ABOUT_CODE.test(error.message) ? error.message : t('ride.pin.tooMany');
   }
   return null;
 }
 
-/** The message for a refused preferences change (400/403/409 come with Uzbek text). */
+/** The message for a refused preferences change (400/403/409 come with the API's text). */
 export function preferencesError(error: unknown): string {
-  if (isApiError(error, 0)) return 'Internet yo‘q: sozlama saqlanmadi. Qayta urinib ko‘ring.';
+  if (isApiError(error, 0)) return t('home.pool.offlineNotSaved');
   if (isApiError(error) && [400, 403, 409, 422].includes(error.status)) return error.message;
-  return 'Sozlama saqlanmadi. Birozdan so‘ng qayta urinib ko‘ring.';
+  return t('home.pool.notSaved');
 }
 
 /** The recent destinations list after picking `item`: newest first, no near-duplicates. */
@@ -302,5 +315,6 @@ export function headcountText(
   const mine = Math.max(1, passengers ?? 1);
   const total = pool.occupancy?.occupied;
   const car = typeof total === 'number' && total >= mine ? total : null;
-  return 'Bu buyurtmada ' + mine + ' kishi' + (car ? ' · Mashinada jami ' + car + ' kishi' : '');
+  const here = t('ride.flow.headcount', { count: mine });
+  return car ? `${here} · ${t('ride.flow.headcountCar', { count: car })}` : here;
 }

@@ -1,13 +1,24 @@
+import { t } from '../i18n/dictionary';
 import type { Point } from './geo';
 
 export type NavApp = 'yandex-navi' | 'yandex-maps' | 'google-maps';
 export type Vehicle = 'foot' | 'bicycle' | 'scooter' | 'car';
 export type Platform = 'android' | 'ios';
 
+/** A navigator whose label reads in the current language on access. */
+function navApp(app: NavApp): { app: NavApp; label: string } {
+  return {
+    app,
+    get label() {
+      return t(`profile.navigator.apps.${app}`);
+    },
+  };
+}
+
 export const NAV_APPS: { app: NavApp; label: string }[] = [
-  { app: 'yandex-navi', label: 'Yandex Navigator' },
-  { app: 'yandex-maps', label: 'Yandex Xaritalar' },
-  { app: 'google-maps', label: 'Google Maps' },
+  navApp('yandex-navi'),
+  navApp('yandex-maps'),
+  navApp('google-maps'),
 ];
 
 export interface NavLinks {

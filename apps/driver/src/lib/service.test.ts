@@ -1,9 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import {
+  CARGO_CLASS_LABELS,
   cargoLines,
+  customerWord,
   depositLine,
   isCargoCar,
   parcelLines,
+  SERVICE_LABELS,
   serviceOf,
   serviceStep,
   showRecipient,
@@ -91,5 +95,28 @@ describe('isCargoCar', () => {
     expect(isCargoCar({ vehicle: { service: 'taxi' } })).toBe(false);
     expect(isCargoCar({ vehicle: null })).toBe(false);
     expect(isCargoCar(null)).toBe(false);
+  });
+});
+
+describe('in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('words the cargo lines, steps and deposit; the label tables switch too', () => {
+    setLanguage('ru');
+    expect(cargoLines({ loaders: 2, weightKg: 300 }, 'cargo_s')).toEqual([
+      'Малый груз (Damas, Labo)',
+      'Грузчики: 2 человека',
+      'Примерно 300 кг',
+    ]);
+    expect(parcelLines(null)).toEqual(['Посылка: отправитель в машину не садится']);
+    expect(serviceStep('driver_arrived', 'cargo')?.button).toBe('Загрузили — Начать поездку');
+    expect(serviceStep('driver_assigned', 'delivery')?.button).toBe('Я на месте');
+    expect(depositLine(10_000, 40_000)).toBe(
+      'Оплачено заранее 10 000 сум, получите наличными 40 000 сум',
+    );
+    expect(customerWord('taxi')).toBe('Пассажир');
+    expect(customerWord('cargo', 'from')).toBe('клиента');
+    expect(SERVICE_LABELS.cargo).toBe('Грузоперевозка');
+    expect(CARGO_CLASS_LABELS.cargo_m).toBe('Средний груз (Газель, Porter)');
   });
 });

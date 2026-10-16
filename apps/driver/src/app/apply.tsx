@@ -5,6 +5,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { driver } from '../api/driver';
 import { useSession } from '../auth/session';
 import { keys, useDriverMe } from '../data/queries';
+import { useT } from '../i18n';
 import { ApiError, errorMessage } from '../lib/api-client';
 import {
   type ApplicationForm,
@@ -30,14 +31,14 @@ import {
   VEHICLE_FEATURES,
   type VehicleFeature,
 } from '../lib/application';
-import { PLATE_HINT } from '../lib/plate';
+import { plateHint } from '../lib/plate';
 import { Banner, Button, Choice, Field, Muted, SectionTitle, ToggleRow } from '../ui/components';
 import { haptics } from '../ui/haptics';
 import { Screen } from '../ui/screen';
 import { colors, radius, space } from '../ui/theme';
 import { dateInput } from '../lib/format';
 
-const STEPS = ['Shaxsiy ma’lumotlar', 'Guvohnoma va litsenziya', 'Avtomobil'];
+const STEPS = ['personal', 'licence', 'vehicle'] as const;
 
 /** API issue paths ("vehicle.year") → form fields. */
 function fieldOfPath(path: string): keyof ApplicationForm | null {
@@ -78,6 +79,7 @@ function apiErrors(error: unknown): FormErrors {
  * Also corrects a pending or rejected application (it goes back to the queue).
  */
 export default function Apply() {
+  const { t } = useT();
   const router = useRouter();
   const qc = useQueryClient();
   const session = useSession();
@@ -140,7 +142,7 @@ export default function Apply() {
   return (
     <Screen
       keyboard
-      title={me.data ? 'Arizani tahrirlash' : 'Haydovchi bo‘lish'}
+      title={me.data ? t('apply.form.editTitle') : t('apply.form.newTitle')}
       onBack={step > 0 ? () => setStep(step - 1) : me.data ? () => router.back() : undefined}
       footer={
         <>
@@ -148,7 +150,7 @@ export default function Apply() {
             <Banner tone="danger" icon="alert-circle" text={errorMessage(submit.error)} />
           ) : null}
           <Button
-            title={step < STEPS.length - 1 ? 'Davom etish' : 'Arizani yuborish'}
+            title={step < STEPS.length - 1 ? t('common.actions.next') : t('apply.form.submit')}
             icon={step < STEPS.length - 1 ? 'arrow-forward' : 'send'}
             big
             loading={submit.isPending}
@@ -163,56 +165,54 @@ export default function Apply() {
         ))}
       </View>
       <Text style={styles.stepTitle}>
-        {step + 1}/{STEPS.length}. {STEPS[step]}
+        {t('apply.form.stepOf', {
+          step: step + 1,
+          total: STEPS.length,
+          title: t(`apply.form.steps.${STEPS[step]!}`),
+        })}
       </Text>
 
       {step === 0 ? (
         <>
-          <Muted>
-            Vazirlar Mahkamasining 200-son qaroriga ko‘ra: kamida 21 yosh, B toifa, 3 yillik staj va
-            yo‘lovchi tashish litsenziya kartochkasi talab qilinadi.
-          </Muted>
+          <Muted>{t('apply.form.resolution200')}</Muted>
           <Field
-            label="Familiya, ism, otasining ismi"
+            label={t('apply.form.fullName')}
             value={form.fullName}
             onChangeText={(v) => set('fullName', v)}
             autoCapitalize="words"
-            placeholder="Aliyev Vali Karimovich"
+            placeholder={t('apply.form.fullNamePlaceholder')}
             error={shown.fullName}
           />
           <Field
-            label="Tug‘ilgan sana"
+            label={t('apply.form.birthDate')}
             value={form.birthDate}
             onChangeText={(v) => set('birthDate', dateInput(v))}
             keyboardType="number-pad"
-            placeholder="KK.OO.YYYY"
+            placeholder={t('apply.form.datePlaceholder')}
             maxLength={10}
             error={shown.birthDate}
           />
           <Field
-            label="JShShIR (PINFL)"
+            label={t('apply.form.pinfl')}
             value={form.pinfl}
             onChangeText={(v) => set('pinfl', v.replace(/[^\d]/g, ''))}
             keyboardType="number-pad"
-            placeholder="14 ta raqam"
+            placeholder={t('apply.form.pinflPlaceholder')}
             maxLength={14}
-            hint="Pasport yoki ID kartada. 1% soliq shu raqam bo‘yicha to‘lanadi."
+            hint={t('apply.form.pinflHint')}
             error={shown.pinfl}
           />
           <View style={{ gap: space.xs }}>
-            <Text style={styles.label}>Jinsi (ixtiyoriy)</Text>
+            <Text style={styles.label}>{t('apply.form.gender')}</Text>
             <Choice
               options={[
-                { value: 'female', label: 'Ayol' },
-                { value: 'male', label: 'Erkak' },
+                { value: 'female', label: t('apply.form.female') },
+                { value: 'male', label: t('apply.form.male') },
               ]}
               selected={form.gender ? [form.gender] : []}
               onToggle={(v) => set('gender', form.gender === v ? null : v)}
             />
-            <Muted>
-              Pasport bo‘yicha, operator tasdiqlaydi. Ayol haydovchilarga “ayol haydovchi” so‘ragan
-              yo‘lovchilar beriladi.
-            </Muted>
+            <Muted>{t('apply.form.genderHint')}</Muted>
           </View>
         </>
       ) : null}
@@ -220,7 +220,7 @@ export default function Apply() {
       {step === 1 ? (
         <>
           <Field
-            label="Haydovchilik guvohnomasi raqami"
+            label={t('apply.form.licenceNumber')}
             value={form.licenceNumber}
             onChangeText={(v) => set('licenceNumber', v)}
             autoCapitalize="characters"
@@ -229,7 +229,7 @@ export default function Apply() {
             error={shown.licenceNumber}
           />
           <View style={{ gap: space.xs }}>
-            <Text style={styles.label}>Toifalar</Text>
+            <Text style={styles.label}>{t('apply.form.categories')}</Text>
             <Choice
               options={LICENCE_CATEGORIES.map((c) => ({ value: c, label: c }))}
               selected={form.licenceCategories}
@@ -240,28 +240,28 @@ export default function Apply() {
             ) : null}
           </View>
           <Field
-            label="Guvohnoma berilgan sana (staj)"
+            label={t('apply.form.licenceIssuedOn')}
             value={form.licenceIssuedOn}
             onChangeText={(v) => set('licenceIssuedOn', dateInput(v))}
             keyboardType="number-pad"
-            placeholder="KK.OO.YYYY"
+            placeholder={t('apply.form.datePlaceholder')}
             maxLength={10}
             error={shown.licenceIssuedOn}
           />
           <Field
-            label="Litsenziya kartochkasi raqami"
+            label={t('apply.form.licenceCardNumber')}
             value={form.licenceCardNumber}
             onChangeText={(v) => set('licenceCardNumber', v)}
             autoCapitalize="characters"
-            hint="Yo‘lovchi tashish uchun litsenziya kartochkasi (my.gov.uz orqali olinadi)"
+            hint={t('apply.form.licenceCardHint')}
             error={shown.licenceCardNumber}
           />
           <Field
-            label="Kartochka amal qilish muddati"
+            label={t('apply.form.licenceCardExpiresOn')}
             value={form.licenceCardExpiresOn}
             onChangeText={(v) => set('licenceCardExpiresOn', dateInput(v))}
             keyboardType="number-pad"
-            placeholder="KK.OO.YYYY"
+            placeholder={t('apply.form.datePlaceholder')}
             maxLength={10}
             error={shown.licenceCardExpiresOn}
           />
@@ -270,11 +270,11 @@ export default function Apply() {
 
       {step === 2 ? (
         <>
-          <SectionTitle>Nima tashiysiz?</SectionTitle>
+          <SectionTitle>{t('apply.vehicle.whatDoYouCarry')}</SectionTitle>
           <Choice
             options={[
-              { value: 'taxi' as const, label: 'Yo‘lovchi (taksi)' },
-              { value: 'cargo' as const, label: 'Yuk tashish' },
+              { value: 'taxi' as const, label: t('apply.vehicle.taxi') },
+              { value: 'cargo' as const, label: t('apply.vehicle.cargo') },
             ]}
             selected={[form.service]}
             onToggle={(v) => {
@@ -284,14 +284,8 @@ export default function Apply() {
               if (v === 'taxi' && form.service === 'cargo') set('seats', '4');
             }}
           />
-          {cargo ? (
-            <Banner
-              tone="info"
-              icon="cube"
-              text="Yuk mashinasiga (Damas, Labo, Gazel, Porter…) faqat yuk buyurtmalari keladi: yo‘lovchi va posilka kelmaydi. To‘liq massasi 3,5 tonnadan og‘ir mashina uchun C toifali guvohnoma kerak."
-            />
-          ) : null}
-          <SectionTitle>Tez tanlash</SectionTitle>
+          {cargo ? <Banner tone="info" icon="cube" text={t('apply.vehicle.cargoInfo')} /> : null}
+          <SectionTitle>{t('apply.vehicle.quickPick')}</SectionTitle>
           {cargo ? (
             <Choice
               options={CARGO_CARS.map((c) => ({ value: c.model, label: c.model }))}
@@ -318,41 +312,41 @@ export default function Apply() {
             />
           )}
           <Field
-            label="Marka"
+            label={t('apply.vehicle.make')}
             value={form.make}
             onChangeText={(v) => set('make', v)}
             placeholder="Chevrolet"
             error={shown.make}
           />
           <Field
-            label="Model"
+            label={t('apply.vehicle.model')}
             value={form.model}
             onChangeText={(v) => set('model', v)}
             placeholder="Cobalt"
             error={shown.model}
           />
           <Field
-            label="Rangi"
+            label={t('apply.vehicle.colour')}
             value={form.colour}
             onChangeText={(v) => set('colour', v)}
-            placeholder="Oq"
+            placeholder={t('apply.vehicle.colourPlaceholder')}
             error={shown.colour}
           />
           <Field
-            label="Davlat raqami"
+            label={t('apply.vehicle.plate')}
             value={form.plate}
             onChangeText={(v) => set('plate', v.toUpperCase())}
             autoCapitalize="characters"
             placeholder="20 A 123 BC"
             maxLength={14}
-            hint={PLATE_HINT}
+            hint={plateHint()}
             error={shown.plate}
             style={styles.plate}
           />
           <View style={styles.pair}>
             <View style={{ flex: 1 }}>
               <Field
-                label="Yili"
+                label={t('apply.vehicle.year')}
                 value={form.year}
                 onChangeText={(v) => set('year', v.replace(/\D/g, ''))}
                 keyboardType="number-pad"
@@ -363,7 +357,7 @@ export default function Apply() {
             </View>
             <View style={{ flex: 1 }}>
               <Field
-                label={cargo ? 'Kabinada o‘rin' : 'Yo‘lovchi o‘rni'}
+                label={cargo ? t('apply.vehicle.cabSeats') : t('apply.vehicle.seats')}
                 value={form.seats}
                 onChangeText={(v) => set('seats', v.replace(/\D/g, ''))}
                 keyboardType="number-pad"
@@ -375,7 +369,7 @@ export default function Apply() {
           {cargo ? (
             <>
               <View style={{ gap: space.xs }}>
-                <Text style={styles.label}>Kuzov turi</Text>
+                <Text style={styles.label}>{t('apply.vehicle.bodyType')}</Text>
                 <Choice
                   options={CARGO_BODIES.map((b) => ({ value: b, label: CARGO_BODY_LABELS[b] }))}
                   selected={form.body ? [form.body] : []}
@@ -386,7 +380,7 @@ export default function Apply() {
               <View style={styles.pair}>
                 <View style={{ flex: 1 }}>
                   <Field
-                    label="Yuk ko‘tarish, kg"
+                    label={t('apply.vehicle.payloadKg')}
                     value={form.payloadKg}
                     onChangeText={(v) => set('payloadKg', v.replace(/\D/g, ''))}
                     keyboardType="number-pad"
@@ -397,26 +391,30 @@ export default function Apply() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Field
-                    label="To‘liq massa, kg"
+                    label={t('apply.vehicle.grossKg')}
                     value={form.grossKg}
                     onChangeText={(v) => set('grossKg', v.replace(/\D/g, ''))}
                     keyboardType="number-pad"
                     placeholder="1400"
                     maxLength={5}
-                    hint="Texpasportda; 3 500 kg dan oshsa C toifa kerak"
+                    hint={t('apply.vehicle.grossHint')}
                     error={shown.grossKg}
                   />
                 </View>
               </View>
               {/^\d+$/.test(form.payloadKg) && Number(form.payloadKg) > 0 ? (
-                <Muted>Sizga keladi: {cargoClassText(Number(form.payloadKg))}</Muted>
+                <Muted>
+                  {t('apply.vehicle.youWillGet', {
+                    orders: cargoClassText(Number(form.payloadKg)),
+                  })}
+                </Muted>
               ) : null}
             </>
           ) : null}
           {cargo ? null : (
             <>
               <View style={{ gap: space.xs }}>
-                <Text style={styles.label}>Sinf</Text>
+                <Text style={styles.label}>{t('apply.vehicle.classLabel')}</Text>
                 <Choice
                   options={VEHICLE_CLASSES.map((c) => ({
                     value: c,
@@ -437,13 +435,13 @@ export default function Apply() {
                 {shown.vehicleClass ? <Text style={styles.error}>{shown.vehicleClass}</Text> : null}
               </View>
               <ToggleRow
-                label="Metan (gaz) ballon yukxonada"
-                description="Ko‘p Cobalt va Nexialarda shunday: yukxona katta bo‘lsa ham katta yukli buyurtmalar sizga berilmaydi"
+                label={t('apply.vehicle.cng')}
+                description={t('apply.vehicle.cngDescription')}
                 value={form.cng}
                 onChange={(v) => set('cng', v)}
               />
               <View style={{ gap: space.xs }}>
-                <Text style={styles.label}>Qulayliklar</Text>
+                <Text style={styles.label}>{t('apply.vehicle.features')}</Text>
                 <Choice
                   options={VEHICLE_FEATURES.map((f) => ({ value: f, label: FEATURE_LABELS[f] }))}
                   selected={form.features}
@@ -453,16 +451,13 @@ export default function Apply() {
               </View>
             </>
           )}
-          <Muted>
-            Keyingi qadamda hujjatlar rasmlarini yuklaysiz: litsenziya kartochkasi, guvohnoma,
-            pasport, texpasport, sug‘urta, avtomobil rasmi va selfi.
-          </Muted>
+          <Muted>{t('apply.vehicle.documentsNext')}</Muted>
         </>
       ) : null}
 
       {!me.data ? (
         <Button
-          title="Boshqa raqam bilan kirish"
+          title={t('apply.form.signInWithOtherNumber')}
           variant="ghost"
           onPress={() => void session.signOut()}
         />

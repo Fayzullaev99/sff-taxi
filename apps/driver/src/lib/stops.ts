@@ -1,3 +1,4 @@
+import { t } from '../i18n/dictionary';
 import type { Point } from './geo';
 
 /**
@@ -157,8 +158,12 @@ export function viaAction(
     return null;
   }
   return stop.arrived
-    ? { index: stop.index, action: 'leave', button: 'Davom etish' }
-    : { index: stop.index, action: 'arrive', button: `${stop.index + 1}-oraliq manzilga yetdim` };
+    ? { index: stop.index, action: 'leave', button: t('common.actions.next') }
+    : {
+        index: stop.index,
+        action: 'arrive',
+        button: t('ride.stops.viaArrived', { n: stop.index + 1 }),
+      };
 }
 
 /** Where the navigation button leads: the current stop, or null when all are done. */

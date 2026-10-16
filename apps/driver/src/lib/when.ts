@@ -2,6 +2,7 @@
  * Dates and times as drivers read them: Tashkent (UTC+5, no DST), whatever the phone's
  * time zone is set to.
  */
+import { t } from '../i18n/dictionary';
 
 const TASHKENT_OFFSET_MS = 5 * 3_600_000;
 
@@ -17,9 +18,9 @@ export function tashkentClock(at: number): string {
 
 /** "Bugun", "Ertaga", "Kecha" or "28.09" for a Tashkent date relative to `now`. */
 export function dayLabel(date: string, now: number): string {
-  if (date === tashkentDate(now)) return 'Bugun';
-  if (date === tashkentDate(now, 1)) return 'Ertaga';
-  if (date === tashkentDate(now, -1)) return 'Kecha';
+  if (date === tashkentDate(now)) return t('common.time.today');
+  if (date === tashkentDate(now, 1)) return t('common.time.tomorrow');
+  if (date === tashkentDate(now, -1)) return t('common.time.yesterday');
   const [, m, d] = date.split('-');
   return `${d}.${m}`;
 }
@@ -37,7 +38,7 @@ export function whenLabel(iso: string | null | undefined, now: number): string {
  */
 export function scheduledLabel(iso: string | null | undefined, now: number): string | null {
   const when = whenLabel(iso, now);
-  return when ? `Oldindan buyurtma · ${when}` : null;
+  return when ? t('ride.flow.scheduled', { when }) : null;
 }
 
 /** Minutes until `iso` (negative once past), rounded down; null for a bad time. */

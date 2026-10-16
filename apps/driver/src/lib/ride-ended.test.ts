@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import { carRides, endingOf, goneRides, rideEndedAlert } from './ride-ended';
 
 const stop = (rideId: string, number: number, status: string) => ({
@@ -54,5 +55,20 @@ describe('rides leaving the car', () => {
       title: 'Buyurtma #10020 sizdan olindi',
       text: 'Operator buyurtmani boshqa haydovchiga berdi. Unga bormang.',
     });
+  });
+});
+
+describe('in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('words the alert', () => {
+    setLanguage('ru');
+    const r = { id: 'a', number: 10020, status: 'driver_assigned' };
+    expect(rideEndedAlert(r, 'taken').title).toBe('Заказ #10020 передан другому водителю');
+    expect(rideEndedAlert(r, 'cancelled')).toEqual({
+      title: 'Заказ #10020 отменён',
+      text: 'Пассажир или оператор отменил заказ. Вы остаётесь на линии.',
+    });
+    expect(rideEndedAlert({ ...r, number: null }, 'cancelled').title).toBe('Заказ отменён');
   });
 });

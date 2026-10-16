@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { navigationLinks, phoneLink } from './links';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
+import { NAV_APPS, navigationLinks, phoneLink } from './links';
 
 const TO = { lat: 41.3111, lng: 69.2797 };
 
@@ -43,5 +44,19 @@ describe('phoneLink', () => {
     expect(phoneLink(null)).toBeNull();
     expect(phoneLink('')).toBeNull();
     expect(phoneLink('call me')).toBeNull();
+  });
+});
+
+describe('NAV_APPS', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('names the navigators in the app language', () => {
+    expect(NAV_APPS.map((a) => a.label)).toEqual([
+      'Yandex Navigator',
+      'Yandex Xaritalar',
+      'Google Maps',
+    ]);
+    setLanguage('ru');
+    expect(NAV_APPS[1]!.label).toBe('Яндекс Карты');
   });
 });

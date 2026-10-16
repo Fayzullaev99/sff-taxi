@@ -4,6 +4,7 @@ import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { LedgerEntry } from '../api/types';
 import { useLedger } from '../data/queries';
+import { useT } from '../i18n';
 import { errorMessage } from '../lib/api-client';
 import { dateTime, LEDGER_HINTS, LEDGER_KINDS, som } from '../lib/format';
 import { Button, EmptyState, ErrorState, Loading } from '../ui/components';
@@ -34,6 +35,7 @@ const Entry = memo(function Entry({ item }: { item: LedgerEntry }) {
 
 /** Every balance movement (append-only on the server), 50 per page. A FlatList: cheap to scroll. */
 export default function Ledger() {
+  const { t } = useT();
   const router = useRouter();
   const q = useLedger();
   const items = q.data?.pages.flatMap((p) => p.items) ?? [];
@@ -41,8 +43,13 @@ export default function Ledger() {
     <SafeAreaView style={styles.safe}>
       <OfflineBanner />
       <View style={styles.header}>
-        <Button title="Orqaga" icon="arrow-back" variant="ghost" onPress={() => router.back()} />
-        <Text style={styles.title}>Balans tarixi</Text>
+        <Button
+          title={t('common.actions.back')}
+          icon="arrow-back"
+          variant="ghost"
+          onPress={() => router.back()}
+        />
+        <Text style={styles.title}>{t('money.ledger.title')}</Text>
       </View>
       {q.isPending ? (
         <Loading />
@@ -54,7 +61,7 @@ export default function Ledger() {
           keyExtractor={(x) => x.id}
           renderItem={({ item }) => <Entry item={item} />}
           ItemSeparatorComponent={() => <View style={styles.sep} />}
-          ListEmptyComponent={<EmptyState icon="wallet-outline" title="Hali amallar yo‘q" />}
+          ListEmptyComponent={<EmptyState icon="wallet-outline" title={t('money.ledger.empty')} />}
           onEndReached={() => q.hasNextPage && !q.isFetchingNextPage && void q.fetchNextPage()}
           onEndReachedThreshold={0.5}
           refreshing={q.isRefetching}

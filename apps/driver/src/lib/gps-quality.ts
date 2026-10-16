@@ -1,3 +1,4 @@
+import { t } from '../i18n/dictionary';
 import { isApiError } from './api-client';
 
 /** Why the API refused a fix (`422 {reason}` from `POST /v1/driver/location`). */
@@ -67,17 +68,14 @@ export function sameQuality(a: GpsQuality, b: GpsQuality): boolean {
 }
 
 export function gpsQuality(state: GpsState, now: number): GpsQuality {
-  if (!state.tracking) return { level: 'off', label: 'GPS yuborilmayapti', hint: null };
+  if (!state.tracking) return { level: 'off', label: t('home.gps.off'), hint: null };
   const fix = state.lastFix;
   if (!fix || now - fix.at > GPS_STALE_MS) {
-    return {
-      level: 'none',
-      label: 'GPS signali yo‘q',
-      hint: 'Telefon joylashuvni aniqlay olmayapti. Ochiq joyga chiqing.',
-    };
+    return { level: 'none', label: t('home.gps.none'), hint: t('home.gps.noneHint') };
   }
   const accuracy = fix.accuracy === null ? null : Math.round(fix.accuracy);
-  const radius = accuracy === null ? '' : ` · ±${accuracy} m`;
+  // "GPS yaxshi · ±8 m": the label with the accuracy radius when the phone gives one
+  const radius = accuracy === null ? '' : ` · ${t('home.gps.radius', { accuracy })}`;
 
   const rejection = state.lastRejection;
   if (
@@ -86,23 +84,19 @@ export function gpsQuality(state: GpsState, now: number): GpsQuality {
     newerThan(rejection.at, state.lastSentAt)
   ) {
     if (rejection.reason === 'outside') {
-      return {
-        level: 'poor',
-        label: 'Joylashuv hududdan tashqarida',
-        hint: 'GPS xizmat hududidan uzoq nuqtani ko‘rsatmoqda. Joylashuv qayta aniqlanmoqda.',
-      };
+      return { level: 'poor', label: t('home.gps.outside'), hint: t('home.gps.outsideHint') };
     }
     if (rejection.reason === 'too_fast') {
       return {
         level: 'fair',
-        label: `GPS qayta aniqlanmoqda${radius}`,
-        hint: 'Joylashuv keskin o‘zgardi, bir necha soniyada to‘g‘rilanadi.',
+        label: `${t('home.gps.recalc')}${radius}`,
+        hint: t('home.gps.recalcHint'),
       };
     }
     return {
       level: 'poor',
-      label: `GPS zaif${radius}`,
-      hint: 'Joylashuv aniqligi past. Ochiq joyga chiqing yoki telefonni binodan tashqariga olib chiqing.',
+      label: `${t('home.gps.weak')}${radius}`,
+      hint: t('home.gps.weakHintIndoors'),
     };
   }
 
@@ -113,20 +107,16 @@ export function gpsQuality(state: GpsState, now: number): GpsQuality {
   ) {
     return {
       level: 'fair',
-      label: `Joylashuv yuborilmayapti${radius}`,
-      hint: 'Internet aloqasi tiklangach joylashuv yana yuboriladi.',
+      label: `${t('home.gps.notSent')}${radius}`,
+      hint: t('home.gps.notSentHint'),
     };
   }
 
   if (accuracy === null || accuracy <= GOOD_ACCURACY_M) {
-    return { level: 'good', label: `GPS yaxshi${radius}`, hint: null };
+    return { level: 'good', label: `${t('home.gps.good')}${radius}`, hint: null };
   }
   if (accuracy <= FAIR_ACCURACY_M) {
-    return { level: 'fair', label: `GPS o‘rtacha${radius}`, hint: null };
+    return { level: 'fair', label: `${t('home.gps.fair')}${radius}`, hint: null };
   }
-  return {
-    level: 'poor',
-    label: `GPS zaif${radius}`,
-    hint: 'Joylashuv aniqligi past. Ochiq joyga chiqing.',
-  };
+  return { level: 'poor', label: `${t('home.gps.weak')}${radius}`, hint: t('home.gps.weakHint') };
 }

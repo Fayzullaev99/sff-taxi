@@ -1,2 +1,137 @@
 /** Texts of the profile screens (Uzbek Latin, the source language). */
-export const profile = {};
+export const profile = {
+  signOut: {
+    finishRideTitle: 'Avval safarni yakunlang',
+    finishRideText:
+      'Faol buyurtma bor: tugatmaguncha chiqib bo‘lmaydi. Muammo bo‘lsa, operatorga qo‘ng‘iroq qiling.',
+    confirmTitle: 'Chiqasizmi?',
+    confirmText: 'Liniyadan chiqasiz va bu telefonga buyurtmalar kelmaydi.',
+  },
+  account: {
+    phone: 'Telefon',
+    vehicle: 'Avtomobil',
+    plate: 'Davlat raqami',
+    service: 'Xizmat',
+    cargoService: 'Yuk tashish · {class}',
+    payload: 'Yuk ko‘tarish',
+    cargoOnly: 'Yuk mashinasiga faqat yuk buyurtmalari keladi.',
+    classLabel: 'Sinf',
+    luggage: 'Katta yukli buyurtmalar',
+    luggageYes: 'Keladi',
+    luggageNoCng: 'Kelmaydi: yukxonada gaz ballon',
+    luggageNoTrunk: 'Kelmaydi: katta yukxona belgilanmagan',
+    licence: 'Guvohnoma',
+    licenceCard: 'Litsenziya kartochkasi',
+    cardExpired:
+      'Litsenziya kartochkasi muddati o‘tgan: yangisini yuklang va ofisga murojaat qiling.',
+    changeViaOperator: 'Ma’lumotlarni o‘zgartirish uchun operatorga murojaat qiling.',
+  },
+  notifications: {
+    title: 'Bildirishnomalar',
+    on: 'Yoqilgan: buyurtmalar ilova yopiq bo‘lsa ham keladi',
+    off: 'O‘chiq: ilova fonda bo‘lsa buyurtmalarni eshitmaysiz',
+    testSound: 'Buyurtma ovozini sinash',
+    testTitle: 'Sinov: yangi buyurtma',
+    testBody: 'Buyurtma ovozi shunday eshitiladi',
+    testFailedTitle: 'Ovoz chalinmadi',
+    testFailedText: 'Bildirishnomalarga ruxsat bering.',
+    androidVolume:
+      'Ovoz balandligi “Buyurtmalar” kanali sozlamasida: Sozlamalar → Ilovalar → SFF Taxi Haydovchi → Bildirishnomalar.',
+    channels: {
+      offersName: 'Yangi buyurtmalar',
+      offersDescription: 'Sizga taklif qilingan buyurtmalar (15 soniyada javob bering)',
+      ridesName: 'Safarlar va hisob',
+      ridesDescription: 'Yo‘lovchi bekor qildi, ariza holati, hisob o‘zgarishlari',
+    },
+  },
+  location: {
+    title: 'Joylashuv',
+    always: '“Har doim” ruxsat berilgan: navigator ochiq bo‘lsa ham ishlaydi',
+    foregroundOnly: 'Faqat ilova ochiqligida: navigatorga o‘tsangiz buyurtmalar kechikishi mumkin',
+    allowAlways: '“Har doim” ruxsat berish',
+    battery:
+      'Batareyani tejash rejimi ilovani to‘xtatib qo‘yishi mumkin: telefon sozlamalarida SFF Taxi Haydovchi uchun “Cheklovsiz” ni tanlang.',
+  },
+  navigator: {
+    title: 'Navigator',
+    askEveryTime: 'Har safar so‘rash',
+    apps: {
+      'yandex-navi': 'Yandex Navigator',
+      'yandex-maps': 'Yandex Xaritalar',
+      'google-maps': 'Google Maps',
+    },
+    chooseApp: 'Qaysi ilovada yo‘l ko‘rsatilsin? Tanlovingiz eslab qolinadi.',
+    mapFailedTitle: 'Xaritani ochib bo‘lmadi',
+    mapFailedText: 'Telefoningizda xarita ilovasi topilmadi.',
+    noPhone: 'Telefon raqami yo‘q',
+    callFailed: 'Qo‘ng‘iroq qilib bo‘lmadi',
+    telegramFailed: 'Telegram ochilmadi',
+  },
+  support: {
+    contactTitle: 'Operator bilan bog‘lanish',
+    officeText: 'Savol, shikoyat yoki hujjat o‘zgarishi bo‘yicha ofisga murojaat qiling.',
+    askPhone: 'Telefon: ofisdan so‘rang',
+    telegram: 'Telegram: {handle}',
+    callOffice: 'Ofisga qo‘ng‘iroq qilish',
+  },
+  tabs: {
+    home: 'Liniya',
+    money: 'Daromad',
+    intercity: 'Qatnov',
+    priority: 'Reyting',
+  },
+  widgets: {
+    secondsLeft: { other: '{count} soniya qoldi' },
+    seconds: 'soniya',
+    lowBattery: 'Batareya kam: joylashuv kamroq yuboriladi',
+    topupShort: 'Liniyaga chiqish uchun kamida {amount} to‘ldiring',
+    topupByCard: 'Karta bilan to‘ldirish',
+    orCashAtOffice: 'Yoki ofisda naqd:',
+    cashAtOffice: 'Ofisda naqd:',
+    licence: {
+      chip: 'Litsenziya kartochkasi: {status}',
+      unverified: 'Tekshirilmoqda',
+      unverifiedText:
+        'Operator kartochkangizni Transport vazirligi reyestrida tekshiradi. Tasdiqlanmaguncha ariza tasdiqlanmaydi va liniyaga chiqib bo‘lmaydi.',
+      valid: 'Reyestrda tasdiqlangan',
+      invalid: 'Tasdiqlanmadi',
+      invalidText:
+        'Kartochka reyestrda topilmadi yoki amal qilmaydi. Raqamini tekshiring: arizani tuzatib qayta yuboring yoki ofisga murojaat qiling.',
+    },
+    offline: 'Internet yo‘q. Buyurtmalar kelmaydi — aloqa tiklanishi bilan hammasi yangilanadi.',
+  },
+  update: {
+    title: 'Ilovani yangilang',
+    text: 'SFF Taxi Haydovchining yangi versiyasi chiqdi. Buyurtmalarni olishda davom etish uchun ilovani yangilang — bu bir daqiqa oladi.',
+    versions: 'Sizda: {current} · kerak: {minimum} yoki yangiroq',
+    update: 'Yangilash',
+  },
+  pushIntro: {
+    title: 'Buyurtmalarni o‘tkazib yubormang',
+    text: 'Bildirishnomalarga ruxsat bering — ilova yopiq yoki telefon qulflangan bo‘lsa ham buyurtmalar keladi.',
+    reasons: {
+      fast: 'Yangi buyurtma kelishi bilan xabar beramiz — 15 soniyada javob bering',
+      loud: 'Baland, alohida ovoz va tebranish: navigator ochiq bo‘lsa ham eshitasiz',
+      changes: 'Yo‘lovchi bekor qilsa yoki arizangiz ko‘rib chiqilsa, darhol bilasiz',
+    },
+    allow: 'Ruxsat berish',
+    later: 'Keyinroq',
+  },
+  reasons: {
+    decline: {
+      too_far: 'Juda uzoq',
+      destination: 'Bu tomonga bormayman',
+      rider_rating: 'Yo‘lovchi reytingi past',
+      car_not_suitable: 'Avtomobil mos emas',
+      break: 'Dam olyapman',
+      otherReason: 'Boshqa sabab',
+    },
+    cancel: {
+      rider_no_show: 'Yo‘lovchi chiqmadi',
+      car_problem: 'Avtomobil nosoz',
+      cannot_reach: 'Manzilga yetib borolmayman',
+      rider_asked: 'Yo‘lovchi bekor qilishni so‘radi',
+      otherReason: 'Boshqa sabab',
+    },
+  },
+};

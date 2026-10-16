@@ -5,6 +5,7 @@
  * only breaks ties between drivers whose road ETAs are within a minute of the best; the
  * nearest driver otherwise always gets the offer.
  */
+import { t } from '../i18n/dictionary';
 
 export const WEIGHTS = { acceptance: 0.4, reliability: 0.3, rating: 0.3 } as const;
 export type PartKey = keyof typeof WEIGHTS;
@@ -32,26 +33,14 @@ export interface PartView {
   improve: string;
 }
 
-const TEXT: Record<PartKey, { title: string; explain: string; improve: string }> = {
-  acceptance: {
-    title: 'Qabul qilish',
-    explain:
-      'Sizga kelgan takliflarning qanchasini qabul qildingiz. Rad etish va 15 soniyada javob bermaslik uni pasaytiradi.',
-    improve:
-      'Liniyada bo‘lganingizda takliflarni qabul qiling; dam olmoqchi bo‘lsangiz liniyadan chiqing.',
-  },
-  reliability: {
-    title: 'Ishonchlilik',
-    explain:
-      'Qabul qilgan buyurtmani oxirigacha bajarish. Qabul qilib bekor qilish uni pasaytiradi (yo‘lovchi chiqmagan holat bundan mustasno).',
-    improve: 'Bajara olmaydigan buyurtmani qabul qilmang — rad etish bekor qilishdan yaxshiroq.',
-  },
-  rating: {
-    title: 'Yo‘lovchilar bahosi',
-    explain: 'Yo‘lovchilar qo‘ygan yulduzlar o‘rtachasi.',
-    improve: 'Toza salon, xushmuomalalik, xavfsiz haydash va tez yetib kelish bahoni oshiradi.',
-  },
-};
+/** A part's words in the app's language (src/i18n home.priority). */
+function partText(key: PartKey): { title: string; explain: string; improve: string } {
+  return {
+    title: t(`home.priority.${key}.title`),
+    explain: t(`home.priority.${key}.explain`),
+    improve: t(`home.priority.${key}.improve`),
+  };
+}
 
 const percent = (v: number) => `${Math.round(v * 100)}%`;
 
@@ -74,7 +63,7 @@ export function priorityParts(p: PriorityParts): PartView[] {
   }
   return keys.map((key, i) => ({
     key,
-    ...TEXT[key],
+    ...partText(key),
     value: key === 'rating' ? `${p.stars.toFixed(1)} ★` : percent(p[key]),
     points: Math.min(points[i]!, Math.round(WEIGHTS[key] * 100)),
     maxPoints: Math.round(WEIGHTS[key] * 100),
@@ -93,7 +82,7 @@ export function biggestGain(p: PriorityParts): PartView | null {
 export type ScoreLevel = 'high' | 'good' | 'low';
 
 export function scoreLevel(score: number): { level: ScoreLevel; label: string } {
-  if (score >= 85) return { level: 'high', label: 'A’lo' };
-  if (score >= 65) return { level: 'good', label: 'Yaxshi' };
-  return { level: 'low', label: 'Past' };
+  if (score >= 85) return { level: 'high', label: t('home.priority.level.high') };
+  if (score >= 65) return { level: 'good', label: t('home.priority.level.good') };
+  return { level: 'low', label: t('home.priority.level.low') };
 }

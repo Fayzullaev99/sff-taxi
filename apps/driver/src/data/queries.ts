@@ -8,7 +8,7 @@ import {
 import { useSyncExternalStore } from 'react';
 import { appConfig, auth, driver, intercity, uploads } from '../api/driver';
 import type { DriverMe, RideClass } from '../api/types';
-import { OFFICE_ADDRESS, SUPPORT_PHONE } from '../config';
+import { officeAddress, SUPPORT_PHONE } from '../config';
 import { isApiError } from '../lib/api-client';
 import {
   DEFAULT_DRIVER_CONFIG,
@@ -211,7 +211,7 @@ export function useSupport(): Support & { officeAddress: string } {
   return {
     phone: s.phone ?? pub?.phone ?? SUPPORT_PHONE,
     telegram: s.telegram ?? pub?.telegram ?? null,
-    officeAddress: s.officeAddress ?? pub?.officeAddress ?? OFFICE_ADDRESS,
+    officeAddress: s.officeAddress ?? pub?.officeAddress ?? officeAddress(),
   };
 }
 

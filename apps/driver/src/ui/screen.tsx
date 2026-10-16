@@ -13,19 +13,19 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useT } from '../i18n';
 import { useAndroidKeyboardHeight } from './keyboard';
 import { colors, space, TOUCH } from './theme';
 
 /** A strip pinned above the page while the phone has no connection. */
 export function OfflineBanner() {
+  const { t } = useT();
   const net = useNetInfo();
   if (net.isConnected !== false) return null;
   return (
     <View style={styles.offline} accessibilityRole="alert" accessibilityLiveRegion="polite">
       <Ionicons name="cloud-offline" size={22} color={colors.onDanger} />
-      <Text style={styles.offlineText}>
-        Internet yo‘q. Buyurtmalar kelmaydi — aloqa tiklanishi bilan hammasi yangilanadi.
-      </Text>
+      <Text style={styles.offlineText}>{t('profile.widgets.offline')}</Text>
     </View>
   );
 }
@@ -45,6 +45,7 @@ export function Screen(props: {
   scrollToEndOnKeyboard?: boolean;
   onBack?: () => void;
 }) {
+  const { t } = useT();
   // Android: the window is not resized for the keyboard (edge to edge), so make room here
   const keyboardHeight = useAndroidKeyboardHeight();
   const scroll = useRef<ScrollView>(null);
@@ -79,7 +80,7 @@ export function Screen(props: {
           {props.onBack ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Orqaga"
+              accessibilityLabel={t('common.actions.back')}
               onPress={props.onBack}
               hitSlop={8}
               style={({ pressed }) => [styles.back, pressed && { opacity: 0.6 }]}

@@ -12,6 +12,7 @@ import {
   View,
   type ViewStyle,
 } from 'react-native';
+import { useT } from '../i18n';
 import { colors, radius, space, TOUCH } from './theme';
 
 export type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -131,12 +132,18 @@ export function Banner(props: {
 }
 
 export function ErrorState(props: { message: string; onRetry?: () => void }) {
+  const { t } = useT();
   return (
     <View style={styles.center}>
       <Ionicons name="cloud-offline-outline" size={48} color={colors.muted} />
       <Text style={styles.errorText}>{props.message}</Text>
       {props.onRetry ? (
-        <Button title="Qayta urinish" icon="refresh" variant="secondary" onPress={props.onRetry} />
+        <Button
+          title={t('common.actions.retry')}
+          icon="refresh"
+          variant="secondary"
+          onPress={props.onRetry}
+        />
       ) : null}
     </View>
   );

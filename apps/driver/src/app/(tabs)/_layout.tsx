@@ -2,10 +2,12 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Tabs } from 'expo-router/js-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFeatures } from '../../data/queries';
+import { useT } from '../../i18n';
 import { colors } from '../../ui/theme';
 
 /** The approved driver's tabs. The runtime (stream, GPS, offers) lives in the root layout. */
 export default function DriverTabs() {
+  const { t } = useT();
   const features = useFeatures();
   // a fixed height drops the bottom inset: the tabs sat under a three-button navigation bar
   const insets = useSafeAreaInsets();
@@ -33,21 +35,21 @@ export default function DriverTabs() {
       <Tabs.Screen
         name="home"
         options={{
-          title: 'Liniya',
+          title: t('profile.tabs.home'),
           tabBarIcon: ({ color, size }) => <Ionicons name="car-sport" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="money"
         options={{
-          title: 'Daromad',
+          title: t('profile.tabs.money'),
           tabBarIcon: ({ color, size }) => <Ionicons name="wallet" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="intercity"
         options={{
-          title: 'Qatnov',
+          title: t('profile.tabs.intercity'),
           // hidden while the operators have the intercity board switched off
           href: features.features.intercity ? undefined : null,
           tabBarIcon: ({ color, size }) => <Ionicons name="bus" color={color} size={size} />,
@@ -56,7 +58,7 @@ export default function DriverTabs() {
       <Tabs.Screen
         name="priority"
         options={{
-          title: 'Reyting',
+          title: t('profile.tabs.priority'),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="speedometer" color={color} size={size} />
           ),
@@ -65,7 +67,7 @@ export default function DriverTabs() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profil',
+          title: t('common.screens.profile'),
           tabBarIcon: ({ color, size }) => <Ionicons name="person" color={color} size={size} />,
         }}
       />

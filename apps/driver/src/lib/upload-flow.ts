@@ -1,3 +1,4 @@
+import { t } from '../i18n/dictionary';
 import { isApiError } from './api-client';
 
 /**
@@ -112,19 +113,22 @@ export function resizeFor(
   return width >= height ? { width: maxSide } : { height: maxSide };
 }
 
-/** Why a prepared file cannot be sent (Uzbek), or null. */
+/** Why a prepared file cannot be sent (in the current language), or null. */
 export function fileProblem(
   file: { contentType: UploadContentType; sizeBytes: number },
   limits: PurposeLimits,
 ): string | null {
   if (!limits.contentTypes.includes(file.contentType)) {
     return limits.contentTypes.includes('application/pdf')
-      ? 'Faqat rasm (JPEG, PNG, WebP) yoki PDF yuklash mumkin'
-      : 'Faqat rasm (JPEG, PNG, WebP) yuklash mumkin';
+      ? t('apply.upload.onlyImageOrPdf')
+      : t('apply.upload.onlyImage');
   }
-  if (!(file.sizeBytes > 0)) return 'Fayl bo‘sh yoki o‘qib bo‘lmadi';
+  if (!(file.sizeBytes > 0)) return t('apply.upload.emptyFile');
   if (file.sizeBytes > limits.maxBytes) {
-    return `Fayl juda katta: ${megabytes(file.sizeBytes)} MB, ko‘pi bilan ${megabytes(limits.maxBytes)} MB`;
+    return t('apply.upload.tooBig', {
+      size: megabytes(file.sizeBytes),
+      max: megabytes(limits.maxBytes),
+    });
   }
   return null;
 }
@@ -207,19 +211,17 @@ export type UploadOutcome<T> =
 /** Reuse a presigned URL only with this much time left on it. */
 const URL_MARGIN_MS = 30_000;
 
-const WHAT_FAILED: Record<UploadStep, string> = {
-  prepare: 'Faylni tayyorlab bo‘lmadi',
-  request: 'Yuklashni boshlab bo‘lmadi',
-  put: 'Fayl yuborilmadi',
-  complete: 'Fayl tekshirilmadi',
-  attach: 'Fayl saqlanmadi',
-};
+/** What a failed step is called (in the current language). */
+const whatFailed = (step: UploadStep) => t(`apply.upload.failed.${step}`);
 
 function describe(step: UploadStep, error: unknown): { message: string; retryable: boolean } {
   if (error instanceof UploadRefused) return { message: error.message, retryable: false };
   if (isApiError(error)) {
     if (error.status === 0) {
-      return { message: `${WHAT_FAILED[step]}: internet aloqasini tekshiring`, retryable: true };
+      return {
+        message: t('apply.upload.checkConnection', { what: whatFailed(step) }),
+        retryable: true,
+      };
     }
     // the API explains 4xx (size, type, not configured); 5xx and 409 may pass
     const retryable = error.status >= 500 || error.status === 409 || error.status === 429;
@@ -229,12 +231,12 @@ function describe(step: UploadStep, error: unknown): { message: string; retryabl
     return {
       message:
         error.status === 0
-          ? 'Fayl yuborilmadi: internet aloqasini tekshiring'
-          : `${WHAT_FAILED.put} (${error.status})`,
+          ? t('apply.upload.checkConnection', { what: whatFailed('put') })
+          : `${whatFailed('put')} (${error.status})`,
       retryable: true,
     };
   }
-  return { message: WHAT_FAILED[step], retryable: true };
+  return { message: whatFailed(step), retryable: true };
 }
 
 /**
@@ -339,21 +341,21 @@ export async function runUpload<T>(
   }
 }
 
-/** Short Uzbek text for a state (the progress line under a document). */
+/** Short text for a state (the progress line under a document), in the current language. */
 export function uploadStateText(state: UploadState): string {
   switch (state.status) {
     case 'preparing':
-      return 'Rasm tayyorlanmoqda…';
+      return t('apply.upload.state.preparing');
     case 'requesting':
-      return 'Yuklash boshlanmoqda…';
+      return t('apply.upload.state.requesting');
     case 'uploading':
-      return `Yuklanmoqda… ${Math.round(state.progress * 100)}%`;
+      return t('apply.upload.state.uploading', { percent: Math.round(state.progress * 100) });
     case 'completing':
-      return 'Tekshirilmoqda…';
+      return t('apply.upload.state.completing');
     case 'attaching':
-      return 'Saqlanmoqda…';
+      return t('common.actions.saving');
     case 'done':
-      return 'Yuklandi';
+      return t('apply.upload.state.done');
     case 'failed':
       return state.message;
     default:

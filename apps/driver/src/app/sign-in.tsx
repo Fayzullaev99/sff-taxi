@@ -4,6 +4,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { auth } from '../api/driver';
 import { useSession } from '../auth/session';
+import { useT } from '../i18n';
 import { errorMessage } from '../lib/api-client';
 import { formatPhone, uzPhoneDigits } from '../lib/format';
 import { compactHero } from '../lib/layout';
@@ -25,6 +26,7 @@ function useCountdown() {
 }
 
 export default function SignIn() {
+  const { t } = useT();
   const session = useSession();
   const [phoneInput, setPhoneInput] = useState('');
   const [phone, setPhone] = useState<string | null>(null);
@@ -66,15 +68,13 @@ export default function SignIn() {
             <Ionicons name="car-sport" size={52} color={colors.onBrand} />
           </View>
         )}
-        <Text style={[styles.brand, compact && styles.brandCompact]}>SFF Taxi Haydovchi</Text>
-        {compact ? null : (
-          <Muted center>Adolatli buyurtmalar, past komissiya, shaffof qoidalar</Muted>
-        )}
+        <Text style={[styles.brand, compact && styles.brandCompact]}>{t('common.app.name')}</Text>
+        {compact ? null : <Muted center>{t('auth.tagline')}</Muted>}
       </View>
 
       {!phone ? (
         <View style={styles.form}>
-          <Text style={styles.label}>Telefon raqamingiz</Text>
+          <Text style={styles.label}>{t('auth.phoneLabel')}</Text>
           <View style={styles.phoneRow}>
             <Text style={styles.prefix}>+998</Text>
             <TextInput
@@ -96,18 +96,18 @@ export default function SignIn() {
             <Banner tone="danger" icon="alert-circle" text={errorMessage(requestCode.error)} />
           ) : null}
           <Button
-            title="Kod olish"
+            title={t('auth.getCode')}
             big
             onPress={submitPhone}
             disabled={!digits}
             loading={requestCode.isPending}
           />
-          <Muted center>Raqamingizga 6 xonali tasdiqlash kodi yuboriladi</Muted>
+          <Muted center>{t('auth.codeWillBeSent')}</Muted>
         </View>
       ) : (
         <View style={styles.form}>
-          <Text style={styles.label}>SMS kod</Text>
-          <Muted>{formatPhone(phone)} raqamiga yuborilgan kodni kiriting</Muted>
+          <Text style={styles.label}>{t('auth.codeLabel')}</Text>
+          <Muted>{t('auth.enterCodeSentTo', { phone: formatPhone(phone) })}</Muted>
           <TextInput
             ref={codeRef}
             style={styles.codeInput}
@@ -132,14 +132,14 @@ export default function SignIn() {
             <Banner tone="danger" icon="alert-circle" text={errorMessage(requestCode.error)} />
           ) : null}
           <Button
-            title="Kirish"
+            title={t('auth.signIn')}
             big
             onPress={() => submitCode()}
             disabled={code.length !== 6}
             loading={verify.isPending}
           />
           <Button
-            title={resendIn > 0 ? `Kodni qayta yuborish (${resendIn} s)` : 'Kodni qayta yuborish'}
+            title={resendIn > 0 ? t('auth.resendIn', { seconds: resendIn }) : t('auth.resend')}
             variant="secondary"
             icon="refresh"
             disabled={resendIn > 0}
@@ -147,7 +147,7 @@ export default function SignIn() {
             onPress={() => requestCode.mutate(phone)}
           />
           <Button
-            title="Raqamni o‘zgartirish"
+            title={t('auth.changePhone')}
             variant="ghost"
             onPress={() => {
               setPhone(null);

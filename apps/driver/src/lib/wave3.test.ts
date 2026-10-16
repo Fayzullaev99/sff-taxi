@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import {
   DEFAULT_INTERCITY_RULES,
   mapDriverConfig,
@@ -319,5 +320,24 @@ describe('document type', () => {
     expect(isPdfDocument({ contentType: 'image/jpeg' })).toBe(false);
     expect(isPdfDocument({ contentType: null })).toBe(false);
     expect(isPdfDocument(null)).toBe(false);
+  });
+});
+
+describe('cash texts in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('words the parts of the cash to take', () => {
+    setLanguage('ru');
+    const cash = cashBreakdown({
+      paymentMethod: 'cash',
+      fare: { quoted: 20_000, waiting: 1_000, total: null, owedFee: 3_000 },
+      collectCash: 24_000,
+    });
+    expect(cashPartsText(cash)).toBe(
+      'Цена 20 000 сум + ожидание 1 000 сум + прошлая поездка 3 000 сум',
+    );
+    expect(owedFeeNote(3_000)).toBe('из них 3 000 сум — за прошлую отменённую поездку пассажира');
+    expect(bonusNote(1_400)).toBe('Бонус пассажира 1 400 сум — SFF начислит его на ваш баланс');
+    expect(offerOwedFeeLine(3_000)).toBe('+ 3 000 сум за прошлую отменённую поездку (наличными)');
   });
 });

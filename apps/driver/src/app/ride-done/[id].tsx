@@ -6,10 +6,11 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { driver } from '../../api/driver';
 import type { DriverRide } from '../../api/types';
 import { keys, useDriverConfig, useRide } from '../../data/queries';
+import { type TKey, useT } from '../../i18n';
 import { errorMessage, isApiError } from '../../lib/api-client';
 import { COMMISSION_NOTES, digits, som } from '../../lib/format';
 import { withRetry } from '../../lib/ride-actions';
-import { customerWord, depositLine, SERVICE_LABELS, serviceOf } from '../../lib/service';
+import { depositLine, SERVICE_LABELS, serviceOf } from '../../lib/service';
 import { amountToCollect, cashBreakdown, cashPartsText, owedFeeNote } from '../../lib/ride-flow';
 import {
   Banner,
@@ -27,13 +28,28 @@ import { haptics } from '../../ui/haptics';
 import { Screen } from '../../ui/screen';
 import { colors, space } from '../../ui/theme';
 
-const GOOD_TAGS = ['O‘z vaqtida chiqdi', 'Xushmuomala', 'Toza', 'Manzilni aniq aytdi'];
-const BAD_TAGS = ['Kechikdi', 'Qo‘pol', 'Salonni ifloslatdi', 'Manzil noto‘g‘ri'];
+/**
+ * The rating tags. The API stores the tag's text: the Uzbek one is sent whatever the app's
+ * language (the office and other drivers read one set), the label is shown translated.
+ */
+const GOOD_TAGS: TKey[] = [
+  'ride.done.tagOnTime',
+  'ride.done.tagPolite',
+  'ride.done.tagClean',
+  'ride.done.tagClearAddress',
+];
+const BAD_TAGS: TKey[] = [
+  'ride.done.tagLate',
+  'ride.done.tagRude',
+  'ride.done.tagDirty',
+  'ride.done.tagWrongAddress',
+];
 
 /** After "Yakunlash": the cash to take, shown huge; what the ride earned; rate the rider. */
 export default function RideDone() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { t } = useT();
   const taxPercent = useDriverConfig().billing.taxPercent;
   const ride = useRide(String(id));
   const [stars, setStars] = useState(0);
@@ -64,9 +80,13 @@ export default function RideDone() {
   if (!ride.data) {
     if (!ride.isError) return <Loading />;
     return (
-      <Screen title="Safar yakunlandi">
+      <Screen title={t('ride.done.title')}>
         <ErrorState message={errorMessage(ride.error)} onRetry={() => void ride.refetch()} />
-        <Button title="Bosh sahifa" variant="secondary" onPress={() => router.replace('/home')} />
+        <Button
+          title={t('common.screens.home')}
+          variant="secondary"
+          onPress={() => router.replace('/home')}
+        />
       </Screen>
     );
   }
@@ -84,7 +104,8 @@ export default function RideDone() {
   const service = serviceOf(r);
   const deposit = depositLine(r.fare.deposit, cashNow);
   const e = r.earnings;
-  const options = stars >= 4 ? GOOD_TAGS : stars > 0 ? BAD_TAGS : [];
+  const tagKeys = stars >= 4 ? GOOD_TAGS : stars > 0 ? BAD_TAGS : [];
+  const options = tagKeys.map((key) => ({ value: t(key, undefined, 'uz'), label: t(key) }));
 
   return (
     <Screen
@@ -94,14 +115,18 @@ export default function RideDone() {
             <Banner tone="danger" icon="alert-circle" text={errorMessage(rate.error)} />
           ) : null}
           <Button
-            title={stars ? 'Baholash va davom etish' : 'Davom etish'}
+            title={stars ? t('ride.done.rateAndNext') : t('common.actions.next')}
             big
             icon="arrow-forward"
             loading={rate.isPending}
             onPress={() => (stars ? rate.mutate() : next())}
           />
           {rate.error ? (
-            <Button title="Baholamasdan davom etish" variant="secondary" onPress={() => next()} />
+            <Button
+              title={t('ride.done.nextWithoutRating')}
+              variant="secondary"
+              onPress={() => next()}
+            />
           ) : null}
         </>
       }
@@ -113,21 +138,23 @@ export default function RideDone() {
         ) : null}
         <Text style={styles.collectLabel}>
           {cash
-            ? `${customerWord(service).toUpperCase()}DAN NAQD OLING`
+            ? service === 'taxi'
+              ? t('ride.done.collectFromRider')
+              : t('ride.done.collectFromCustomer')
             : cashNow > 0
-              ? 'KUTISH UCHUN NAQD OLING'
-              : 'NAQD OLMANG'}
+              ? t('ride.done.collectForWaiting')
+              : t('ride.done.collectNone')}
         </Text>
         <Text style={styles.collect} adjustsFontSizeToFit numberOfLines={1}>
           {digits(cashNow)}
         </Text>
-        <Text style={styles.collectUnit}>so‘m</Text>
+        <Text style={styles.collectUnit}>{t('common.units.som')}</Text>
         {cash && deposit ? <Text style={styles.collectNote}>{deposit}</Text> : null}
         {cash && parts && !deposit ? <Text style={styles.collectNote}>{parts}</Text> : null}
         {owedNote ? <Text style={styles.collectNote}>({owedNote})</Text> : null}
         {!cash ? (
           <Text style={styles.collectNote}>
-            Safar narxi {som(r.fare.quoted)} kartada oldindan to‘langan — balansingizga yoziladi
+            {t('ride.flow.cashPrepaid', { amount: som(r.fare.quoted) })}
           </Text>
         ) : null}
       </View>
@@ -136,39 +163,31 @@ export default function RideDone() {
 
       {e ? (
         <Card>
-          <Title>Bu safardan</Title>
-          <Row label="Safar narxi" value={som(e.fare ?? total)} />
+          <Title>{t('ride.done.fromThisRide')}</Title>
+          <Row label={t('ride.done.fare')} value={som(e.fare ?? total)} />
           {bonus > 0 ? (
-            <Row label="Bonus kompensatsiya (balansga)" value={som(bonus)} tone="success" />
+            <Row label={t('ride.done.bonusCompensation')} value={som(bonus)} tone="success" />
           ) : null}
           <Row
-            label={`Komissiya${e.commissionNote ? ` (${COMMISSION_NOTES[e.commissionNote] ?? e.commissionNote})` : ''}`}
+            label={`${t('common.ledgerKind.commission')}${e.commissionNote ? ` (${COMMISSION_NOTES[e.commissionNote] ?? e.commissionNote})` : ''}`}
             value={som(-e.commission)}
           />
-          <Row label={`Soliq ${taxPercent}% (davlatga, siz uchun to‘lanadi)`} value={som(-e.tax)} />
-          <Row label="Sizga qoladi" value={som(e.net)} strong tone="success" />
-          <Muted>Komissiya va soliq balansingizdan yechildi; naqd pul to‘liq sizda qoladi.</Muted>
+          <Row label={t('ride.done.tax', { percent: taxPercent })} value={som(-e.tax)} />
+          <Row label={t('ride.done.net')} value={som(e.net)} strong tone="success" />
+          <Muted>{t('ride.done.deductedNote')}</Muted>
           {bonus > 0 ? (
-            <Muted>
-              Yo‘lovchi promokod yoki bonus bilan {som(bonus)} kam to‘ladi: SFF bu summani
-              balansingizga yozdi — siz to‘liq narxni olasiz.
-            </Muted>
+            <Muted>{t('ride.done.bonusText', { amount: som(bonus) })}</Muted>
           ) : r.discount && r.discount.amount > 0 && !cash ? (
-            <Muted>
-              Yo‘lovchi chegirma bilan to‘ladi, lekin balansingizga to‘liq narx yoziladi.
-            </Muted>
+            <Muted>{t('ride.done.discountCard')}</Muted>
           ) : null}
           {money.owedFee > 0 ? (
-            <Muted>
-              Oldingi safar uchun olingan {som(money.owedFee)} sizniki emas: u balansingizdan
-              yechilib, o‘sha safar haydovchisiga yozildi.
-            </Muted>
+            <Muted>{t('ride.done.owedText', { amount: som(money.owedFee) })}</Muted>
           ) : null}
         </Card>
       ) : null}
 
       <Card>
-        <Title>Yo‘lovchini baholang</Title>
+        <Title>{t('ride.done.rateRider')}</Title>
         <View style={styles.stars}>
           {[1, 2, 3, 4, 5].map((n) => (
             <Pressable
@@ -179,7 +198,7 @@ export default function RideDone() {
                 setTags([]);
               }}
               accessibilityRole="button"
-              accessibilityLabel={`${n} yulduz`}
+              accessibilityLabel={t('ride.done.stars', { count: n })}
               hitSlop={6}
             >
               <Ionicons
@@ -192,12 +211,14 @@ export default function RideDone() {
         </View>
         {options.length ? (
           <Choice
-            options={options.map((t) => ({ value: t, label: t }))}
+            options={options}
             selected={tags}
-            onToggle={(t) => setTags((x) => (x.includes(t) ? x.filter((y) => y !== t) : [...x, t]))}
+            onToggle={(tag) =>
+              setTags((x) => (x.includes(tag) ? x.filter((y) => y !== tag) : [...x, tag]))
+            }
           />
         ) : (
-          <Muted>Bahoingiz boshqa haydovchilarga yo‘lovchi haqida ma’lumot beradi.</Muted>
+          <Muted>{t('ride.done.ratingHint')}</Muted>
         )}
       </Card>
     </Screen>

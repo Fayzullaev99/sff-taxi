@@ -5,6 +5,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { Alert, AppState } from 'react-native';
 import type { DriverRide, Topup } from '../api/types';
 import { keys, setStreamOpen } from '../data/queries';
+import { t } from '../i18n/dictionary';
 import type { RealtimeEvent } from '../lib/sse';
 import { chatKeys } from '../api/chat';
 import { driver } from '../api/driver';
@@ -114,7 +115,7 @@ async function announceGone(qc: QueryClient, router: Router, ride: CarRide) {
   const left = carRides(qc.getQueryData<DriverRide | null>(keys.current));
   Alert.alert(title, text, [
     {
-      text: 'Tushunarli',
+      text: t('common.actions.ok'),
       onPress: () => (left.length ? undefined : router.navigate('/')),
     },
   ]);
@@ -177,7 +178,11 @@ export function useRealtime(enabled: boolean): void {
           // in the background (navigator in front) the stream is kept only while on shift:
           // the offer alert sounds at once, without waiting for a push
           if (AppState.currentState !== 'active') {
-            void announceOffer(event.offerId, 'Yangi buyurtma!', 'Javob berish uchun bosing');
+            void announceOffer(
+              event.offerId,
+              t('home.realtime.newOfferTitle'),
+              t('home.realtime.newOfferBody'),
+            );
           }
           break;
         case 'offer.closed':
@@ -192,10 +197,7 @@ export function useRealtime(enabled: boolean): void {
           // the heading filter clears itself when the driver gets there
           if (event.status === 'destination_reached') {
             haptics.success();
-            Alert.alert(
-              'Manzilga yetdingiz',
-              'Yo‘nalish filtri o‘chirildi: endi hamma buyurtmalar keladi.',
-            );
+            Alert.alert(t('home.pool.reachedTitle'), t('home.pool.reachedText'));
           }
           void qc.invalidateQueries({ queryKey: keys.appeals });
           break;

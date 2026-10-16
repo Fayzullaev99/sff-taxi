@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import { classFitText, classProblem, EMPTY_FORM, validateApplication } from './application';
-import { classesText } from './classes';
+import { CLASS_NAMES, classesText } from './classes';
 
 const TODAY = '2026-09-26';
 const form = {
@@ -69,5 +70,28 @@ describe('taxi classes in the application', () => {
       toggleHint: 'Faqat Biznes buyurtmalari keladi.',
     });
     expect(text.qualifies).toContain('Ekonom, Komfort talablariga ham mos');
+  });
+});
+
+describe('in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('explains the lower classes switch', () => {
+    setLanguage('ru');
+    expect(CLASS_NAMES.economy).toBe('Эконом');
+    expect(
+      classesText({
+        own: 'business',
+        lower: ['comfort', 'economy'],
+        takesLower: false,
+        rides: ['business'],
+        qualifiesFor: ['business'],
+      }),
+    ).toMatchObject({
+      own: 'Бизнес',
+      toggle: 'Брать и заказы Комфорт, Эконом',
+      toggleHint: 'Приходят только заказы Бизнес.',
+      qualifies: 'Чтобы сменить класс, обратитесь к оператору (техосмотр).',
+    });
   });
 });

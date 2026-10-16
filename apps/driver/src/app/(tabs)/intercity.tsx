@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { DriverTrip } from '../../api/types';
 import { useDriverMe, useTripHistory, useUpcomingTrips } from '../../data/queries';
+import { useT } from '../../i18n';
 import { errorMessage } from '../../lib/api-client';
 import { som } from '../../lib/format';
 import { seatsSold, TRIP_STATUS_TEXT } from '../../lib/intercity';
@@ -28,6 +29,7 @@ const LIVE = new Set(['scheduled', 'boarding', 'departed']);
  * departure is published from here; each opens its passenger list.
  */
 export default function Intercity() {
+  const { t } = useT();
   const router = useRouter();
   const me = useDriverMe();
   const upcoming = useUpcomingTrips();
@@ -35,7 +37,7 @@ export default function Intercity() {
   // the API orders both lists by departure: nothing to sort here
   const live = upcoming.data ?? [];
   const past = (history.data?.pages.flatMap((p) => p.items) ?? []).filter(
-    (t) => !LIVE.has(t.status),
+    (x) => !LIVE.has(x.status),
   );
   const empty = !live.length && !past.length;
   const pending = upcoming.isPending || history.isPending;
@@ -48,24 +50,16 @@ export default function Intercity() {
 
   return (
     <Screen
-      title="Shaharlararo"
+      title={t('common.screens.intercity')}
       refreshing={upcoming.isRefetching || history.isRefetching}
       onRefresh={refresh}
     >
-      <Muted>
-        Qatnov e’lon qiling: yo‘lovchilar ilova yoki operator orqali joy band qiladi. Ilovadagi bron
-        uchun narxning bir qismi kartadan oldindan to‘lanadi, qolganini naqd olasiz; yetib kelganda
-        har bir yo‘lovchidan komissiya va soliq yechiladi.
-      </Muted>
+      <Muted>{t('intercity.list.intro')}</Muted>
       {!canWork ? (
-        <Banner
-          tone="warning"
-          icon="alert-circle"
-          text="Qatnov e’lon qilish uchun hisobingiz faol va litsenziya kartochkasi tasdiqlangan bo‘lishi kerak."
-        />
+        <Banner tone="warning" icon="alert-circle" text={t('intercity.list.blocked')} />
       ) : null}
       <Button
-        title="Yangi qatnov e’lon qilish"
+        title={t('intercity.list.publish')}
         icon="add-circle"
         big
         onPress={() => router.push('/intercity/new')}
@@ -78,8 +72,8 @@ export default function Intercity() {
       ) : empty ? (
         <EmptyState
           icon="bus-outline"
-          title="Hali qatnovlar yo‘q"
-          text="Masalan: Guliston → Toshkent, ertaga 07:00, 3 o‘rin (oldinda 1, orqada 2)."
+          title={t('intercity.list.empty')}
+          text={t('intercity.list.emptyHint')}
         />
       ) : null}
 
@@ -87,27 +81,27 @@ export default function Intercity() {
           departures are the ones that matter) */}
       {!empty && upcoming.isError && !upcoming.data ? (
         <ErrorState
-          message={`Kelayotgan qatnovlar yuklanmadi. ${errorMessage(upcoming.error)}`}
+          message={t('intercity.list.upcomingFailed', { error: errorMessage(upcoming.error) })}
           onRetry={() => void upcoming.refetch()}
         />
       ) : null}
-      {live.length ? <SectionTitle>Kelayotgan</SectionTitle> : null}
-      {live.map((t) => (
-        <TripRow key={t.id} trip={t} onPress={() => router.push(`/intercity/${t.id}`)} />
+      {live.length ? <SectionTitle>{t('intercity.list.upcoming')}</SectionTitle> : null}
+      {live.map((x) => (
+        <TripRow key={x.id} trip={x} onPress={() => router.push(`/intercity/${x.id}`)} />
       ))}
       {!empty && history.isError && !history.data ? (
         <ErrorState
-          message={`O‘tgan qatnovlar yuklanmadi. ${errorMessage(history.error)}`}
+          message={t('intercity.list.pastFailed', { error: errorMessage(history.error) })}
           onRetry={() => void history.refetch()}
         />
       ) : null}
-      {past.length ? <SectionTitle>O‘tganlar</SectionTitle> : null}
-      {past.map((t) => (
-        <TripRow key={t.id} trip={t} onPress={() => router.push(`/intercity/${t.id}`)} />
+      {past.length ? <SectionTitle>{t('intercity.list.past')}</SectionTitle> : null}
+      {past.map((x) => (
+        <TripRow key={x.id} trip={x} onPress={() => router.push(`/intercity/${x.id}`)} />
       ))}
       {history.hasNextPage ? (
         <Button
-          title="Yana ko‘rsatish"
+          title={t('intercity.list.showMore')}
           variant="secondary"
           loading={history.isFetchingNextPage}
           onPress={() => void history.fetchNextPage()}
@@ -118,14 +112,15 @@ export default function Intercity() {
 }
 
 function TripRow(props: { trip: DriverTrip; onPress: () => void }) {
-  const t = props.trip;
-  const sold = seatsSold(t.bookings);
+  const { t } = useT();
+  const trip = props.trip;
+  const sold = seatsSold(trip.bookings);
   const tone =
-    t.status === 'cancelled'
+    trip.status === 'cancelled'
       ? 'neutral'
-      : t.status === 'arrived'
+      : trip.status === 'arrived'
         ? 'success'
-        : t.status === 'departed' || t.status === 'boarding'
+        : trip.status === 'departed' || trip.status === 'boarding'
           ? 'warning'
           : 'brand';
   return (
@@ -136,16 +131,19 @@ function TripRow(props: { trip: DriverTrip; onPress: () => void }) {
     >
       <View style={{ flex: 1, gap: 4 }}>
         <Text style={styles.route} numberOfLines={1}>
-          {t.from.nameUz} → {t.to.nameUz}
+          {trip.from.nameUz} → {trip.to.nameUz}
         </Text>
-        <Text style={styles.when}>{whenLabel(t.departureAt, Date.now())}</Text>
+        <Text style={styles.when}>{whenLabel(trip.departureAt, Date.now())}</Text>
         <View style={styles.chips}>
-          <Chip label={TRIP_STATUS_TEXT[t.status] ?? t.status} tone={tone} />
-          <Chip label={`${sold}/${t.seats.total} o‘rin`} tone={sold ? 'success' : 'neutral'} />
+          <Chip label={TRIP_STATUS_TEXT[trip.status] ?? trip.status} tone={tone} />
+          <Chip
+            label={t('intercity.seats.sold', { sold, total: trip.seats.total })}
+            tone={sold ? 'success' : 'neutral'}
+          />
         </View>
       </View>
       <View style={{ alignItems: 'flex-end', gap: 4 }}>
-        <Text style={styles.price}>{som(t.price.rear)}</Text>
+        <Text style={styles.price}>{som(trip.price.rear)}</Text>
         <Ionicons name="chevron-forward" size={24} color={colors.muted} />
       </View>
     </Pressable>

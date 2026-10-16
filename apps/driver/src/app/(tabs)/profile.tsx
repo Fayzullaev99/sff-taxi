@@ -70,6 +70,7 @@ function LanguageCard() {
 
 /** Profile and settings: car and licence, documents, notifications, GPS, navigator, sign-out. */
 export default function Profile() {
+  const { t } = useT();
   const router = useRouter();
   const session = useSession();
   const me = useDriverMe();
@@ -85,16 +86,13 @@ export default function Profile() {
     if (signingOut) return;
     const ride = qc.getQueryData<DriverRide | null>(keys.current);
     if (ride) {
-      Alert.alert(
-        'Avval safarni yakunlang',
-        'Faol buyurtma bor: tugatmaguncha chiqib bo‘lmaydi. Muammo bo‘lsa, operatorga qo‘ng‘iroq qiling.',
-      );
+      Alert.alert(t('profile.signOut.finishRideTitle'), t('profile.signOut.finishRideText'));
       return;
     }
-    Alert.alert('Chiqasizmi?', 'Liniyadan chiqasiz va bu telefonga buyurtmalar kelmaydi.', [
-      { text: 'Bekor qilish', style: 'cancel' },
+    Alert.alert(t('profile.signOut.confirmTitle'), t('profile.signOut.confirmText'), [
+      { text: t('common.actions.cancel'), style: 'cancel' },
       {
-        text: 'Chiqish',
+        text: t('common.actions.signOut'),
         style: 'destructive',
         onPress: () => {
           setSigningOut(true);
@@ -112,10 +110,10 @@ export default function Profile() {
   if (!me.data) {
     // a failed load is said, with a retry (and the way out), not an endless spinner
     return me.isError ? (
-      <Screen title="Profil">
+      <Screen title={t('common.screens.profile')}>
         <ErrorState message={errorMessage(me.error)} onRetry={() => void me.refetch()} />
         <Button
-          title="Chiqish"
+          title={t('common.actions.signOut')}
           icon="log-out-outline"
           variant="secondary"
           onPress={() => signOut()}
@@ -133,71 +131,86 @@ export default function Profile() {
     Vibration.vibrate(OFFER_VIBRATION);
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: 'Sinov: yangi buyurtma',
-        body: 'Buyurtma ovozi shunday eshitiladi',
+        title: t('profile.notifications.testTitle'),
+        body: t('profile.notifications.testBody'),
         sound: OFFER_SOUND,
       },
       trigger: Platform.OS === 'android' ? { channelId: OFFERS_CHANNEL } : null,
-    }).catch(() => Alert.alert('Ovoz chalinmadi', 'Bildirishnomalarga ruxsat bering.'));
+    }).catch(() =>
+      Alert.alert(
+        t('profile.notifications.testFailedTitle'),
+        t('profile.notifications.testFailedText'),
+      ),
+    );
   };
 
   return (
-    <Screen title="Profil" refreshing={me.isRefetching} onRefresh={() => void me.refetch()}>
+    <Screen
+      title={t('common.screens.profile')}
+      refreshing={me.isRefetching}
+      onRefresh={() => void me.refetch()}
+    >
       <Card>
         <Title>{d.fullName}</Title>
-        {d.phone ? <Row label="Telefon" value={formatPhone(d.phone)} /> : null}
+        {d.phone ? <Row label={t('profile.account.phone')} value={formatPhone(d.phone)} /> : null}
         {d.vehicle ? (
           <>
             <Row
-              label="Avtomobil"
+              label={t('profile.account.vehicle')}
               value={`${d.vehicle.colour} ${d.vehicle.make} ${d.vehicle.model}, ${d.vehicle.year}`}
             />
-            <Row label="Davlat raqami" value={d.vehicle.plateFormatted} strong />
+            <Row label={t('profile.account.plate')} value={d.vehicle.plateFormatted} strong />
             {d.vehicle.service === 'cargo' ? (
               <>
                 <Row
-                  label="Xizmat"
-                  value={`Yuk tashish · ${CARGO_CLASS_LABELS[d.vehicle.cargoClass ?? ''] ?? 'yuk mashinasi'}`}
+                  label={t('profile.account.service')}
+                  value={t('profile.account.cargoService', {
+                    class:
+                      CARGO_CLASS_LABELS[d.vehicle.cargoClass ?? ''] ??
+                      t('common.classes.cargoCar'),
+                  })}
                 />
                 {d.vehicle.payloadKg ? (
-                  <Row label="Yuk ko‘tarish" value={`${d.vehicle.payloadKg} kg`} />
+                  <Row
+                    label={t('profile.account.payload')}
+                    value={`${d.vehicle.payloadKg} ${t('common.units.kg')}`}
+                  />
                 ) : null}
-                <Muted>Yuk mashinasiga faqat yuk buyurtmalari keladi.</Muted>
+                <Muted>{t('profile.account.cargoOnly')}</Muted>
               </>
             ) : (
-              <Row label="Sinf" value={RIDE_CLASSES[d.vehicle.class] ?? d.vehicle.class} />
+              <Row
+                label={t('profile.account.classLabel')}
+                value={RIDE_CLASSES[d.vehicle.class] ?? d.vehicle.class}
+              />
             )}
             {d.vehicle.cngInTrunk !== undefined && d.vehicle.service !== 'cargo' ? (
               <Row
-                label="Katta yukli buyurtmalar"
+                label={t('profile.account.luggage')}
                 value={
                   d.vehicle.luggage
-                    ? 'Keladi'
+                    ? t('profile.account.luggageYes')
                     : d.vehicle.cngInTrunk
-                      ? 'Kelmaydi: yukxonada gaz ballon'
-                      : 'Kelmaydi: katta yukxona belgilanmagan'
+                      ? t('profile.account.luggageNoCng')
+                      : t('profile.account.luggageNoTrunk')
                 }
               />
             ) : null}
           </>
         ) : null}
-        <Row label="Guvohnoma" value={d.licence.number} />
+        <Row label={t('profile.account.licence')} value={d.licence.number} />
         <Row
-          label="Litsenziya kartochkasi"
-          value={`${d.licenceCard.number} · ${date(d.licenceCard.expiresOn)} gacha`}
+          label={t('profile.account.licenceCard')}
+          value={`${d.licenceCard.number} · ${t('common.units.until', { time: date(d.licenceCard.expiresOn) })}`}
           tone={cardExpired ? 'danger' : undefined}
         />
         <LicenceCardStatus verification={d.licenceCard.verification} showOk />
         {cardExpired ? (
-          <Banner
-            tone="danger"
-            icon="alert-circle"
-            text="Litsenziya kartochkasi muddati o‘tgan: yangisini yuklang va ofisga murojaat qiling."
-          />
+          <Banner tone="danger" icon="alert-circle" text={t('profile.account.cardExpired')} />
         ) : null}
-        <Muted>Ma’lumotlarni o‘zgartirish uchun operatorga murojaat qiling.</Muted>
+        <Muted>{t('profile.account.changeViaOperator')}</Muted>
         <Button
-          title="Hujjatlar"
+          title={t('common.screens.documents')}
           icon="documents"
           variant="secondary"
           onPress={() => router.push('/documents')}
@@ -210,23 +223,15 @@ export default function Profile() {
       <LanguageCard />
 
       <Card>
-        <Title>Bildirishnomalar</Title>
+        <Title>{t('profile.notifications.title')}</Title>
         {push.permission === 'granted' ? (
-          <Banner
-            tone="success"
-            icon="notifications"
-            text="Yoqilgan: buyurtmalar ilova yopiq bo‘lsa ham keladi"
-          />
+          <Banner tone="success" icon="notifications" text={t('profile.notifications.on')} />
         ) : (
-          <Banner
-            tone="danger"
-            icon="notifications-off"
-            text="O‘chiq: ilova fonda bo‘lsa buyurtmalarni eshitmaysiz"
-          />
+          <Banner tone="danger" icon="notifications-off" text={t('profile.notifications.off')} />
         )}
         {push.permission !== 'granted' ? (
           <Button
-            title="Yoqish"
+            title={t('common.actions.enable')}
             icon="notifications"
             onPress={() =>
               push.permission === 'blocked'
@@ -239,36 +244,25 @@ export default function Profile() {
           />
         ) : null}
         <Button
-          title="Buyurtma ovozini sinash"
+          title={t('profile.notifications.testSound')}
           icon="volume-high"
           variant="secondary"
           onPress={() => void testSound()}
         />
         {Platform.OS === 'android' ? (
-          <Muted>
-            Ovoz balandligi “Buyurtmalar” kanali sozlamasida: Sozlamalar → Ilovalar → SFF Taxi
-            Haydovchi → Bildirishnomalar.
-          </Muted>
+          <Muted>{t('profile.notifications.androidVolume')}</Muted>
         ) : null}
       </Card>
 
       <Card>
-        <Title>Joylashuv</Title>
+        <Title>{t('profile.location.title')}</Title>
         {background ? (
-          <Banner
-            tone="success"
-            icon="location"
-            text="“Har doim” ruxsat berilgan: navigator ochiq bo‘lsa ham ishlaydi"
-          />
+          <Banner tone="success" icon="location" text={t('profile.location.always')} />
         ) : (
           <>
-            <Banner
-              tone="warning"
-              icon="location"
-              text="Faqat ilova ochiqligida: navigatorga o‘tsangiz buyurtmalar kechikishi mumkin"
-            />
+            <Banner tone="warning" icon="location" text={t('profile.location.foregroundOnly')} />
             <Button
-              title="“Har doim” ruxsat berish"
+              title={t('profile.location.allowAlways')}
               icon="location"
               variant="secondary"
               onPress={() =>
@@ -281,18 +275,15 @@ export default function Profile() {
             />
           </>
         )}
-        <Muted>
-          Batareyani tejash rejimi ilovani to‘xtatib qo‘yishi mumkin: telefon sozlamalarida SFF Taxi
-          Haydovchi uchun “Cheklovsiz” ni tanlang.
-        </Muted>
+        <Muted>{t('profile.location.battery')}</Muted>
       </Card>
 
       <Card>
-        <Title>Navigator</Title>
+        <Title>{t('profile.navigator.title')}</Title>
         <Choice
           options={[
             ...NAV_APPS.map((a) => ({ value: a.app as NavApp | 'ask', label: a.label })),
-            { value: 'ask', label: 'Har safar so‘rash' },
+            { value: 'ask', label: t('profile.navigator.askEveryTime') },
           ]}
           selected={[navApp]}
           onToggle={(v) => {
@@ -303,17 +294,19 @@ export default function Profile() {
         />
       </Card>
 
-      <SupportCard text="Savol, shikoyat yoki hujjat o‘zgarishi bo‘yicha ofisga murojaat qiling." />
+      <SupportCard text={t('profile.support.officeText')} />
 
       <Button
-        title="Chiqish"
+        title={t('common.actions.signOut')}
         icon="log-out"
         variant="danger"
         loading={signingOut}
         disabled={signingOut}
         onPress={signOut}
       />
-      <Muted center>SFF Taxi Haydovchi {Constants.expoConfig?.version ?? ''}</Muted>
+      <Muted center>
+        {t('common.app.name')} {Constants.expoConfig?.version ?? ''}
+      </Muted>
     </Screen>
   );
 }

@@ -18,6 +18,7 @@ import { errorMessage } from '../../lib/api-client';
 import { driver } from '../../api/driver';
 import type { DriverRide, Offer } from '../../api/types';
 import { keys, useDriverConfig, useStreamOpen } from '../../data/queries';
+import { useT } from '../../i18n';
 import { offerCountdown } from '../../lib/countdown';
 import {
   digits,
@@ -38,9 +39,9 @@ import {
   serviceOf,
 } from '../../lib/service';
 import {
-  OFFER_FAILURE_TEXT,
   type OfferFailure,
   offerFailure,
+  offerFailureText,
   offerOwedFeeLine,
 } from '../../lib/ride-flow';
 import { scheduledLabel } from '../../lib/when';
@@ -110,6 +111,7 @@ export default function OfferScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const offerId = String(id).toLowerCase();
   const router = useRouter();
+  const { t } = useT();
   const qc = useQueryClient();
   const { width, height } = useWindowDimensions();
   // a landscape tablet (or a phone on its side in a holder): the buttons go to the right
@@ -190,7 +192,7 @@ export default function OfferScreen() {
     let cancelled = false;
     void announceOffer(
       offer.id,
-      `Yangi buyurtma: ${som(offer.ride.fare)}`,
+      t('ride.offer.newOffer', { fare: som(offer.ride.fare) }),
       offer.ride.pickup.address ?? offer.ride.pickup.landmark ?? '',
     ).then((n) => {
       notification = n;
@@ -204,7 +206,7 @@ export default function OfferScreen() {
       void dismissNotification(notification);
       deactivateKeepAwake('offer').catch(() => undefined);
     };
-  }, [alive, offer]);
+  }, [alive, offer, t]);
 
   useEffect(() => {
     if (closed) haptics.warning();
@@ -286,21 +288,26 @@ export default function OfferScreen() {
           <Loading />
         )}
         <View style={styles.loadingClose}>
-          <Button title="Yopish" variant="secondary" onPress={close} />
+          <Button title={t('common.actions.close')} variant="secondary" onPress={close} />
         </View>
       </SafeAreaView>
     );
   }
 
   if (closed || !offer || !countdown) {
-    const text = OFFER_FAILURE_TEXT[closed ?? 'gone'];
+    const text = offerFailureText(closed ?? 'gone');
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.closed}>
           <Ionicons name={closed === 'taken' ? 'people' : 'time'} size={80} color={colors.muted} />
           <Text style={styles.closedTitle}>{text.title}</Text>
           <Muted center>{text.text}</Muted>
-          <Button title="Yopish" big onPress={close} style={{ alignSelf: 'stretch' }} />
+          <Button
+            title={t('common.actions.close')}
+            big
+            onPress={close}
+            style={{ alignSelf: 'stretch' }}
+          />
         </View>
       </SafeAreaView>
     );
@@ -310,15 +317,11 @@ export default function OfferScreen() {
   const actions = (
     <View style={[styles.actions, wide && styles.actionsWide]}>
       {failure === 'network' ? (
-        <Banner
-          tone="danger"
-          icon="cloud-offline"
-          text="Javob yetib bormadi: internet yo‘q. Aloqa bo‘lsa, yana bosing."
-        />
+        <Banner tone="danger" icon="cloud-offline" text={t('ride.offer.noAnswer')} />
       ) : null}
       {declining ? (
         <>
-          <Text style={styles.reasonTitle}>Nega? (ixtiyoriy)</Text>
+          <Text style={styles.reasonTitle}>{t('ride.offer.whyOptional')}</Text>
           <View style={styles.reasons}>
             {config.declineReasons.map((d) => (
               <Pressable
@@ -333,13 +336,13 @@ export default function OfferScreen() {
           </View>
           <View style={styles.row}>
             <Button
-              title="Sababsiz rad etish"
+              title={t('ride.offer.declineNoReason')}
               variant="danger"
               onPress={() => decline(null)}
               style={{ flex: 1 }}
             />
             <Button
-              title="Orqaga"
+              title={t('common.actions.back')}
               variant="secondary"
               onPress={() => setDeclining(false)}
               style={{ flex: 1 }}
@@ -349,7 +352,7 @@ export default function OfferScreen() {
       ) : (
         <>
           <Button
-            title={retrying ? 'Aloqa sust — qayta yuborilmoqda…' : 'QABUL QILISH'}
+            title={retrying ? t('ride.offer.retrying') : t('ride.offer.accept')}
             icon="checkmark-circle"
             variant="success"
             big
@@ -357,10 +360,10 @@ export default function OfferScreen() {
             disabled={answering}
             onPress={onAccept}
             style={styles.accept}
-            accessibilityHint="Buyurtmani olish"
+            accessibilityHint={t('ride.offer.acceptHint')}
           />
           <Button
-            title="O‘tkazib yuborish"
+            title={t('ride.offer.skip')}
             variant="secondary"
             disabled={answering}
             onPress={() => {
@@ -398,6 +401,7 @@ export default function OfferScreen() {
 
 /** Fare, owed fee and chips: redrawn only when the offer changes. */
 const OfferHeadline = memo(function OfferHeadline({ offer }: { offer: Offer }) {
+  const { t } = useT();
   const r = offer.ride;
   // fees the rider owes from earlier cancelled cash rides: taken in cash with this fare
   const owedLine = offerOwedFeeLine(r.owedFee);
@@ -407,7 +411,7 @@ const OfferHeadline = memo(function OfferHeadline({ offer }: { offer: Offer }) {
         {digits(r.fare)}
       </Text>
       <Text style={styles.fareUnit} maxFontSizeMultiplier={1.4}>
-        so‘m · narx o‘zgarmaydi
+        {t('ride.offer.fareUnit')}
       </Text>
       {owedLine ? <Text style={styles.owed}>{owedLine}</Text> : null}
       <View style={styles.chips}>
@@ -417,7 +421,9 @@ const OfferHeadline = memo(function OfferHeadline({ offer }: { offer: Offer }) {
           icon={r.paymentMethod === 'cash' ? 'cash' : 'card'}
         />
         <Chip label={RIDE_CLASSES[r.class] ?? r.class} tone="neutral" />
-        {r.kind === 'intercity' ? <Chip label="Shaharlararo" tone="warning" /> : null}
+        {r.kind === 'intercity' ? (
+          <Chip label={t('common.screens.intercity')} tone="warning" />
+        ) : null}
         {offerBadges(r).map((b) => (
           <Chip key={b.label} label={b.label} tone={b.tone} />
         ))}
@@ -451,10 +457,12 @@ const AlongPlan = memo(function AlongPlan(props: {
 
 /** Where and when: redrawn when the offer or the minute changes (the "in 25 min" label). */
 const OfferDetails = memo(function OfferDetails(props: { offer: Offer; minute: number }) {
+  const { t } = useT();
   const { offer } = props;
   const r = offer.ride;
   const scheduled = scheduledLabel(r.scheduledFor, props.minute * 60_000);
-  const pickupText = r.pickup.address ?? r.pickup.landmark ?? 'Xaritadagi nuqta';
+  const mapPoint = t('ride.stops.mapPoint');
+  const pickupText = r.pickup.address ?? r.pickup.landmark ?? mapPoint;
   const service = serviceOf(r);
   // cargo: class, loaders, weight, the load, the customer riding along; delivery: the parcel
   // (the recipient is shown only after accepting)
@@ -489,9 +497,7 @@ const OfferDetails = memo(function OfferDetails(props: { offer: Offer; minute: n
       {offer.kind === 'broadcast' ? (
         <View style={styles.broadcast}>
           <Ionicons name="megaphone" size={18} color={colors.warning} />
-          <Text style={styles.broadcastText}>
-            Efir: bir nechta haydovchiga yuborildi, birinchi qabul qilgan oladi
-          </Text>
+          <Text style={styles.broadcastText}>{t('ride.offer.broadcast')}</Text>
         </View>
       ) : null}
 
@@ -499,7 +505,9 @@ const OfferDetails = memo(function OfferDetails(props: { offer: Offer; minute: n
         <View style={[styles.dot, { backgroundColor: colors.brand }]} />
         <View style={{ flex: 1 }}>
           <Text style={styles.legLabel}>
-            Mijozgacha {offer.distanceM != null ? distance(offer.distanceM) : ''}
+            {t('ride.offer.toCustomer', {
+              distance: offer.distanceM != null ? distance(offer.distanceM) : '',
+            })}
             {offer.etaS != null ? ` · ${etaMinutes(offer.etaS)}` : ''}
           </Text>
           <Text style={styles.legPlace} numberOfLines={2}>
@@ -507,7 +515,7 @@ const OfferDetails = memo(function OfferDetails(props: { offer: Offer; minute: n
           </Text>
           {r.pickup.address && r.pickup.landmark ? (
             <Text style={styles.landmark} numberOfLines={1}>
-              Mo‘ljal: {r.pickup.landmark}
+              {t('ride.stops.landmark', { landmark: r.pickup.landmark })}
             </Text>
           ) : null}
         </View>
@@ -516,9 +524,9 @@ const OfferDetails = memo(function OfferDetails(props: { offer: Offer; minute: n
         <View key={i} style={styles.leg}>
           <View style={[styles.dot, { backgroundColor: colors.muted }]} />
           <View style={{ flex: 1 }}>
-            <Text style={styles.legLabel}>{i + 1}-oraliq manzil</Text>
+            <Text style={styles.legLabel}>{t('ride.stops.viaN', { n: i + 1 })}</Text>
             <Text style={styles.legPlace} numberOfLines={2}>
-              {s.address ?? s.landmark ?? 'Xaritadagi nuqta'}
+              {s.address ?? s.landmark ?? mapPoint}
             </Text>
           </View>
         </View>
@@ -526,9 +534,11 @@ const OfferDetails = memo(function OfferDetails(props: { offer: Offer; minute: n
       <View style={styles.leg}>
         <View style={[styles.dot, { backgroundColor: colors.text }]} />
         <View style={{ flex: 1 }}>
-          <Text style={styles.legLabel}>Manzil · {distance(r.distanceM)}</Text>
+          <Text style={styles.legLabel}>
+            {t('ride.offer.dropoff', { distance: distance(r.distanceM) })}
+          </Text>
           <Text style={styles.legPlace} numberOfLines={2}>
-            {r.dropoff.address ?? r.dropoff.landmark ?? 'Xaritadagi nuqta'}
+            {r.dropoff.address ?? r.dropoff.landmark ?? mapPoint}
           </Text>
         </View>
       </View>
@@ -542,7 +552,11 @@ const OfferDetails = memo(function OfferDetails(props: { offer: Offer; minute: n
         </View>
       ) : null}
       <Muted>
-        {customerWord(service)} reytingi: {r.riderRating.toFixed(1)} ★ · #{r.number}
+        {t('ride.offer.rating', {
+          who: customerWord(service),
+          rating: r.riderRating.toFixed(1),
+          number: r.number,
+        })}
       </Muted>
     </>
   );

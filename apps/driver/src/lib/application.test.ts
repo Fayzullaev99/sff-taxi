@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import {
   type ApplicationForm,
   CARGO_CARS,
+  DOCUMENTS,
   RULES,
   EMPTY_FORM,
   firstStepWithError,
@@ -9,6 +11,7 @@ import {
   parseDate,
   toApplicationBody,
   validateApplication,
+  VEHICLE_CLASS_LABELS,
 } from './application';
 import { formatPlate, isUzPlate, normalizePlate, plateProblem } from './plate';
 
@@ -251,5 +254,26 @@ describe('cargo car application', () => {
       },
     });
     expect(f).toMatchObject({ service: 'cargo', body: 'pickup', payloadKg: '550', grossKg: '' });
+  });
+});
+
+describe('in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('explains the rules and labels in Russian', () => {
+    setLanguage('ru');
+    const e = validateApplication(
+      { ...GOOD, birthDate: '27.09.2005', licenceCategories: ['A'], plate: '21 A 123 BC' },
+      TODAY,
+    );
+    expect(e.birthDate).toBe('Водителю должно быть не меньше 21 лет');
+    expect(e.licenceCategories).toBe('Нужны права категории B');
+    expect(e.plate).toBe('21 — такого кода региона нет');
+    expect(
+      validateApplication({ ...GOOD, vehicleClass: 'comfort', year: '2018' }, TODAY).vehicleClass,
+    ).toBe('Для класса «Комфорт» автомобиль должен быть не старше 5 лет');
+    expect(plateProblem('')).toBe('Введите госномер');
+    expect(VEHICLE_CLASS_LABELS.economy).toBe('Эконом');
+    expect(DOCUMENTS[0]!.label).toBe('Лицензионная карточка');
   });
 });

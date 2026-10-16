@@ -6,6 +6,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { driver } from '../api/driver';
 import type { Appeal } from '../api/types';
 import { keys, useAppeals, useDriverMe } from '../data/queries';
+import { useT } from '../i18n';
 import { errorMessage } from '../lib/api-client';
 import { dateTime } from '../lib/format';
 import {
@@ -34,6 +35,7 @@ const MAX = 1000;
  * rules, human appeal" promise (market analysis §1.5).
  */
 export default function Appeals() {
+  const { t } = useT();
   const router = useRouter();
   const qc = useQueryClient();
   const me = useDriverMe();
@@ -56,8 +58,7 @@ export default function Appeals() {
   });
 
   const submit = () => {
-    const t = text.trim();
-    if (t.length < MIN) return setProblem('Kamida bir-ikki gap bilan yozing');
+    if (text.trim().length < MIN) return setProblem(t('apply.appeals.tooShort'));
     setProblem(null);
     send.mutate();
   };
@@ -71,7 +72,7 @@ export default function Appeals() {
   return (
     <Screen
       keyboard
-      title="Murojaatlar"
+      title={t('common.screens.appeals')}
       refreshing={appeals.isRefetching}
       onRefresh={() => void appeals.refetch()}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/status'))}
@@ -80,33 +81,30 @@ export default function Appeals() {
         <Banner
           tone="danger"
           icon="information-circle"
-          title={d.status === 'blocked' ? 'Blok sababi' : 'Rad etish sababi'}
+          title={
+            d.status === 'blocked'
+              ? t('apply.appeals.blockReason')
+              : t('apply.appeals.rejectReason')
+          }
           text={d.statusReason}
         />
       ) : null}
 
       {!allowed ? (
-        <Banner
-          tone="success"
-          icon="checkmark-circle"
-          text="Hisobingiz rad etilmagan va bloklanmagan: murojaat kerak emas."
-        />
+        <Banner tone="success" icon="checkmark-circle" text={t('apply.appeals.notNeeded')} />
       ) : open ? (
         <Banner
           tone="info"
           icon="hourglass"
-          title="Murojaatingiz ko‘rib chiqilmoqda"
-          text="Operator javobi shu yerda ko‘rinadi. Javobdan so‘ng yangisini yuborishingiz mumkin."
+          title={t('apply.appeals.pendingTitle')}
+          text={t('apply.appeals.pendingText')}
         />
       ) : (
         <Card>
-          <Title>Nima noto‘g‘ri?</Title>
-          <Muted>
-            Qaror nega noto‘g‘ri ekanini yozing: nima bo‘lganini, qachon va qayerda. Kerak bo‘lsa,
-            hujjatlarni yangilang — operator ularni ham ko‘radi.
-          </Muted>
+          <Title>{t('apply.appeals.whatIsWrong')}</Title>
+          <Muted>{t('apply.appeals.explain')}</Muted>
           <Field
-            label="Murojaat matni"
+            label={t('apply.appeals.textLabel')}
             value={text}
             onChangeText={(v) => {
               setText(v.slice(0, MAX));
@@ -116,12 +114,12 @@ export default function Appeals() {
             numberOfLines={6}
             textAlignVertical="top"
             style={styles.textarea}
-            placeholder="Masalan: yo‘lovchi manzilni o‘zgartirdi, shuning uchun…"
+            placeholder={t('apply.appeals.placeholder')}
             error={problem}
             hint={`${text.trim().length}/${MAX}`}
           />
           <Button
-            title="Yuborish"
+            title={t('common.actions.send')}
             icon="send"
             big
             loading={send.isPending}
@@ -136,21 +134,22 @@ export default function Appeals() {
       ) : list.length ? (
         list.map((a) => <AppealCard key={a.id} appeal={a} />)
       ) : allowed ? null : (
-        <EmptyState icon="chatbubbles-outline" title="Murojaatlar yo‘q" />
+        <EmptyState icon="chatbubbles-outline" title={t('apply.appeals.empty')} />
       )}
 
       <Button
-        title="Hujjatlar"
+        title={t('common.screens.documents')}
         icon="documents"
         variant="secondary"
         onPress={() => router.push('/documents')}
       />
-      <SupportCard text="Yozishni istamasangiz, ofisga keling yoki qo‘ng‘iroq qiling." />
+      <SupportCard text={t('apply.appeals.officeText')} />
     </Screen>
   );
 }
 
 function AppealCard({ appeal }: { appeal: Appeal }) {
+  const { t } = useT();
   const resolved = appeal.status === 'resolved';
   return (
     <Card>
@@ -162,7 +161,7 @@ function AppealCard({ appeal }: { appeal: Appeal }) {
         />
         <Text style={styles.when}>{dateTime(appeal.createdAt)}</Text>
         <Chip
-          label={resolved ? 'Javob berildi' : 'Ko‘rib chiqilmoqda'}
+          label={resolved ? t('apply.appeals.answered') : t('apply.appeals.reviewing')}
           tone={resolved ? 'success' : 'brand'}
         />
       </View>
@@ -170,7 +169,9 @@ function AppealCard({ appeal }: { appeal: Appeal }) {
       {resolved && appeal.resolution ? (
         <View style={styles.answer}>
           <Text style={styles.answerTitle}>
-            Operator javobi{appeal.resolvedAt ? ` · ${dateTime(appeal.resolvedAt)}` : ''}
+            {appeal.resolvedAt
+              ? t('apply.appeals.operatorAnswerAt', { time: dateTime(appeal.resolvedAt) })
+              : t('apply.appeals.operatorAnswer')}
           </Text>
           <Text style={styles.text}>{appeal.resolution}</Text>
         </View>

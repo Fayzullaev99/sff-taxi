@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import { nextStop, stopList, type StopRide, stopsFromPool, viaAction } from './stops';
 
 const place = (name: string) => ({ lat: 40.49, lng: 68.78, address: name, landmark: null });
@@ -104,5 +105,25 @@ describe('intermediate stops', () => {
     const skipped = stopList([withStops('in_progress', [via(null, null), via(T, T)])]);
     expect(nextStop(skipped)?.kind).toBe('dropoff');
     expect(viaAction(nextStop(skipped), 'in_progress')).toBeNull();
+  });
+});
+
+describe('in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('words the intermediate stop buttons', () => {
+    setLanguage('ru');
+    const stop = {
+      key: 'v:via1',
+      kind: 'via' as const,
+      index: 1,
+      rideId: 'v',
+      rideNumber: 1,
+      place: { lat: 0, lng: 0, address: null, landmark: null },
+      done: false,
+      current: true,
+    };
+    expect(viaAction(stop, 'in_progress')?.button).toBe('Я на остановке 2');
+    expect(viaAction({ ...stop, arrived: true }, 'in_progress')?.button).toBe('Продолжить');
   });
 });

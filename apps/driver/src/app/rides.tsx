@@ -4,6 +4,7 @@ import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { DriverRide } from '../api/types';
 import { useRides } from '../data/queries';
+import { useT } from '../i18n';
 import { errorMessage } from '../lib/api-client';
 import { CANCEL_FEE_STATUS, dateTime, RIDE_STATUSES, som } from '../lib/format';
 import { SERVICE_LABELS, serviceOf } from '../lib/service';
@@ -12,6 +13,7 @@ import { OfflineBanner } from '../ui/screen';
 import { colors, space } from '../ui/theme';
 
 const RideRow = memo(function RideRow({ item }: { item: DriverRide }) {
+  const { t } = useT();
   const done = item.status === 'completed';
   return (
     <View style={styles.row}>
@@ -27,8 +29,12 @@ const RideRow = memo(function RideRow({ item }: { item: DriverRide }) {
         </Text>
         {!done && item.fare.cancellationFee > 0 && item.fare.cancellationFeeStatus ? (
           <Text style={styles.meta}>
-            Bekor qilish haqi {som(item.fare.cancellationFee)}:{' '}
-            {CANCEL_FEE_STATUS[item.fare.cancellationFeeStatus] ?? item.fare.cancellationFeeStatus}
+            {t('money.rides.cancelFee', {
+              amount: som(item.fare.cancellationFee),
+              status:
+                CANCEL_FEE_STATUS[item.fare.cancellationFeeStatus] ??
+                item.fare.cancellationFeeStatus,
+            })}
           </Text>
         ) : null}
       </View>
@@ -36,7 +42,9 @@ const RideRow = memo(function RideRow({ item }: { item: DriverRide }) {
         <Text style={[styles.amount, !done && { color: colors.muted }]}>
           {done ? som(item.fare.total ?? item.fare.quoted) : '—'}
         </Text>
-        {item.earnings ? <Text style={styles.net}>sof {som(item.earnings.net)}</Text> : null}
+        {item.earnings ? (
+          <Text style={styles.net}>{t('money.rides.net', { amount: som(item.earnings.net) })}</Text>
+        ) : null}
       </View>
     </View>
   );
@@ -44,6 +52,7 @@ const RideRow = memo(function RideRow({ item }: { item: DriverRide }) {
 
 /** Completed and cancelled rides with what each earned, 30 per page. */
 export default function Rides() {
+  const { t } = useT();
   const router = useRouter();
   const q = useRides();
   const items = q.data?.pages.flatMap((p) => p.items) ?? [];
@@ -51,8 +60,13 @@ export default function Rides() {
     <SafeAreaView style={styles.safe}>
       <OfflineBanner />
       <View style={styles.header}>
-        <Button title="Orqaga" icon="arrow-back" variant="ghost" onPress={() => router.back()} />
-        <Text style={styles.title}>Safarlar tarixi</Text>
+        <Button
+          title={t('common.actions.back')}
+          icon="arrow-back"
+          variant="ghost"
+          onPress={() => router.back()}
+        />
+        <Text style={styles.title}>{t('money.rides.history')}</Text>
       </View>
       {q.isPending ? (
         <Loading />
@@ -64,7 +78,7 @@ export default function Rides() {
           keyExtractor={(x) => x.id}
           renderItem={({ item }) => <RideRow item={item} />}
           ItemSeparatorComponent={() => <View style={styles.sep} />}
-          ListEmptyComponent={<EmptyState icon="car-outline" title="Hali safarlar yo‘q" />}
+          ListEmptyComponent={<EmptyState icon="car-outline" title={t('money.rides.empty')} />}
           onEndReached={() => q.hasNextPage && !q.isFetchingNextPage && void q.fetchNextPage()}
           onEndReachedThreshold={0.5}
           refreshing={q.isRefetching}

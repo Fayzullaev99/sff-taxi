@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { chatApi, chatKeys, useConversation } from '../../api/chat';
+import { useT } from '../../i18n';
 import { errorMessage } from '../../lib/api-client';
 import {
   type ChatMessage,
@@ -39,6 +40,7 @@ import { colors, radius, space, TOUCH } from '../../ui/theme';
 export default function DriverChat() {
   const { rideId } = useLocalSearchParams<{ rideId: string }>();
   const router = useRouter();
+  const { t } = useT();
   const insets = useSafeAreaInsets();
   const keyboard = useAndroidKeyboardHeight();
   const qc = useQueryClient();
@@ -133,7 +135,7 @@ export default function DriverChat() {
       <View style={[styles.header, { paddingTop: insets.top + space.sm }]}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Orqaga"
+          accessibilityLabel={t('common.actions.back')}
           onPress={() => router.back()}
           hitSlop={8}
           style={styles.back}
@@ -141,15 +143,13 @@ export default function DriverChat() {
           <Ionicons name="arrow-back" size={26} color={colors.text} />
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>
-          {c.counterpart.name ? `Yo‘lovchi: ${c.counterpart.name}` : 'Yo‘lovchi'}
+          {c.counterpart.name
+            ? t('ride.chat.riderNamed', { name: c.counterpart.name })
+            : t('ride.chat.rider')}
         </Text>
       </View>
       <ScrollView ref={scroll} style={styles.flex} contentContainerStyle={styles.list}>
-        {!messages.length ? (
-          <Text style={styles.hint}>
-            Yo‘lovchiga tezkor javob yuboring — haydash paytida bitta bosish kifoya.
-          </Text>
-        ) : null}
+        {!messages.length ? <Text style={styles.hint}>{t('ride.chat.hint')}</Text> : null}
         {messages.map((m) => (
           <Bubble
             key={m.id}
@@ -191,15 +191,15 @@ export default function DriverChat() {
                 style={styles.input}
                 value={text}
                 onChangeText={setText}
-                placeholder="Xabar yozing"
+                placeholder={t('ride.chat.placeholder')}
                 placeholderTextColor={colors.muted}
                 multiline
                 maxLength={c.maxLength + 50}
-                accessibilityLabel="Xabar"
+                accessibilityLabel={t('ride.chat.message')}
               />
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Yuborish"
+                accessibilityLabel={t('common.actions.send')}
                 accessibilityState={{ disabled: !composer.canSend }}
                 onPress={() => {
                   if (!composer.canSend) return;
@@ -228,12 +228,17 @@ function Bubble({
   receipt: string | null;
   onRetry?: () => void;
 }) {
+  const { t } = useT();
   const mine = message.mine;
   return (
     <Pressable
       disabled={!onRetry}
       onPress={onRetry}
-      accessibilityLabel={`${mine ? 'Siz' : 'Yo‘lovchi'}: ${message.text}. ${messageTime(message.createdAt)}`}
+      accessibilityLabel={t('ride.chat.bubbleA11y', {
+        who: t(mine ? 'ride.chat.you' : 'ride.chat.rider'),
+        text: message.text,
+        time: messageTime(message.createdAt),
+      })}
       style={[styles.bubbleRow, mine ? styles.rowMine : styles.rowTheirs]}
     >
       <View

@@ -12,6 +12,7 @@ import {
   useDriverMe,
   useEarnings,
 } from '../../data/queries';
+import { t, useT } from '../../i18n';
 import { ApiError, errorMessage, isApiError } from '../../lib/api-client';
 import { tashkentToday } from '../../lib/application';
 import { som } from '../../lib/format';
@@ -46,24 +47,21 @@ class LocationUnavailable extends Error {
 
 function explainLocation(reason: 'denied' | 'services_off'): void {
   if (reason === 'services_off') {
-    Alert.alert(
-      'Joylashuv o‘chiq',
-      'Telefoningizda joylashuvni (GPS) yoqing: buyurtmalar sizga eng yaqin haydovchi sifatida beriladi.',
-    );
+    Alert.alert(t('home.shift.locationOffTitle'), t('home.shift.locationOffText'));
     return;
   }
-  Alert.alert(
-    'Joylashuvga ruxsat kerak',
-    'Liniyaga chiqish uchun ilovaga joylashuvdan foydalanishga ruxsat bering.',
-    [
-      { text: 'Bekor qilish', style: 'cancel' },
-      { text: 'Sozlamalarni ochish', onPress: () => void Linking.openSettings() },
-    ],
-  );
+  Alert.alert(t('home.shift.permissionTitle'), t('home.shift.permissionText'), [
+    { text: t('common.actions.cancel'), style: 'cancel' },
+    { text: t('common.actions.openSettings'), onPress: () => void Linking.openSettings() },
+  ]);
 }
+
+/** The API's blocker about the balance (Uzbek or Russian): the top-up card explains it. */
+const ABOUT_BALANCE = /balans|баланс/i;
 
 /** Home: the big online/offline switch, what stops the driver from working, today's money. */
 export default function Home() {
+  const { t } = useT();
   const qc = useQueryClient();
   const router = useRouter();
   const me = useDriverMe();
@@ -98,7 +96,8 @@ export default function Home() {
       haptics.error();
       if (error instanceof LocationUnavailable) return explainLocation(error.reason);
       // a low balance is explained on the page itself (top-up card)
-      if (!isApiError(error, 403)) Alert.alert('Liniya holati o‘zgarmadi', errorMessage(error));
+      if (!isApiError(error, 403))
+        Alert.alert(t('home.shift.notChangedTitle'), errorMessage(error));
       void qc.invalidateQueries({ queryKey: keys.me });
     },
   });
@@ -120,28 +119,25 @@ export default function Home() {
   // the current ride could not be loaded: unknown is not "no ride" (ride.tsx does the same)
   const rideUnknown = ride.isError && ride.data === undefined;
   // the balance is explained by its own card; the others are listed as they come
-  const blockers = d.blockers.filter((b) => !/balans/i.test(b));
+  const blockers = d.blockers.filter((b) => !ABOUT_BALANCE.test(b));
   const canGoOnline = money.canWork && blockers.length === 0;
   const shiftRefused =
     shift.error && isApiError(shift.error, 403) ? errorMessage(shift.error) : null;
 
   const toggle = () => {
     if (online && rideUnknown) {
-      Alert.alert(
-        'Safar holati noma’lum',
-        'Faol buyurtmangiz bor-yo‘qligini tekshirib bo‘lmadi. Internetni tekshirib, qayta urinib ko‘ring.',
-      );
+      Alert.alert(t('home.shift.rideUnknownTitle'), t('home.shift.rideUnknownText'));
       void ride.refetch();
       return;
     }
     if (online && current) {
-      Alert.alert('Avval safarni yakunlang', 'Safar davomida liniyadan chiqib bo‘lmaydi.');
+      Alert.alert(t('home.shift.finishFirstTitle'), t('home.shift.finishFirstText'));
       return;
     }
     if (online) {
-      Alert.alert('Liniyadan chiqasizmi?', 'Yangi buyurtmalar kelmaydi.', [
-        { text: 'Qolish', style: 'cancel' },
-        { text: 'Chiqish', style: 'destructive', onPress: () => shift.mutate(false) },
+      Alert.alert(t('home.shift.goOfflineTitle'), t('home.shift.goOfflineText'), [
+        { text: t('home.shift.stay'), style: 'cancel' },
+        { text: t('home.shift.leave'), style: 'destructive', onPress: () => shift.mutate(false) },
       ]);
       return;
     }
@@ -171,14 +167,14 @@ export default function Home() {
         <Pressable
           onPress={() => router.navigate('/priority')}
           accessibilityRole="button"
-          accessibilityLabel={`Ustuvorlik ${d.priority.score}`}
+          accessibilityLabel={t('home.shift.priorityA11y', { score: d.priority.score })}
           style={styles.score}
         >
           <Text style={styles.scoreValue} maxFontSizeMultiplier={1.1}>
             {d.priority.score}
           </Text>
           <Text style={styles.scoreLabel} maxFontSizeMultiplier={1.1}>
-            reyting
+            {t('home.shift.rating')}
           </Text>
         </Pressable>
       </View>
@@ -188,11 +184,11 @@ export default function Home() {
         <Banner
           tone="warning"
           icon="cloud-offline"
-          title="Joriy safar yuklanmadi"
+          title={t('home.shift.currentNotLoaded')}
           text={errorMessage(ride.error)}
           action={
             <Button
-              title="Qayta urinish"
+              title={t('common.actions.retry')}
               icon="refresh"
               variant="secondary"
               onPress={() => void ride.refetch()}
@@ -207,7 +203,7 @@ export default function Home() {
         disabled={shift.isPending || (!online && !canGoOnline)}
         accessibilityRole="switch"
         accessibilityState={{ checked: online, busy: shift.isPending }}
-        accessibilityLabel={online ? 'Liniyadasiz. Chiqish uchun bosing' : 'Liniyaga chiqish'}
+        accessibilityLabel={t(online ? 'home.shift.onlineA11y' : 'home.shift.goOnlineA11y')}
         style={({ pressed }) => [
           styles.switch,
           online ? styles.switchOn : styles.switchOff,
@@ -226,14 +222,18 @@ export default function Home() {
           adjustsFontSizeToFit
           numberOfLines={1}
         >
-          {shift.isPending ? 'Kuting…' : online ? 'LINIYADASIZ' : 'LINIYAGA CHIQISH'}
+          {shift.isPending
+            ? t('home.shift.wait')
+            : online
+              ? t('home.shift.online')
+              : t('home.shift.goOnline')}
         </Text>
         <Text style={[styles.switchSub, { color: online ? colors.onSuccess : colors.onBrand }]}>
           {online
             ? current
-              ? 'Safar davom etmoqda'
-              : 'Buyurtma kutilmoqda · chiqish uchun bosing'
-            : 'Bosing va buyurtmalar kela boshlaydi'}
+              ? t('home.shift.rideGoingOn')
+              : t('home.shift.waitingForOrder')
+            : t('home.shift.tapToStart')}
         </Text>
       </Pressable>
 
@@ -247,11 +247,11 @@ export default function Home() {
         <Banner
           tone="warning"
           icon="location"
-          title="Ilova yopilganda ham ishlasin"
-          text="Joylashuvga “Har doim” ruxsat bering: navigator ochiq yoki ekran o‘chiq bo‘lsa ham buyurtmalar keladi."
+          title={t('home.shift.backgroundTitle')}
+          text={t('home.shift.backgroundText')}
           action={
             <Button
-              title="Ruxsat"
+              title={t('home.shift.allow')}
               variant="secondary"
               onPress={() =>
                 void requestBackgroundPermission().then(async (ok) => {
@@ -268,11 +268,11 @@ export default function Home() {
         <Banner
           tone="warning"
           icon="battery-half"
-          title="Batareya tejash yoqilgan"
-          text="Telefon ilovani fonda to‘xtatib qo‘yishi mumkin — buyurtmalar kelmay qoladi. Sozlamalarda “Batareya” → “Cheklovsiz” ni tanlang."
+          title={t('home.battery.title')}
+          text={t('home.battery.text')}
           action={
             <Button
-              title="Ochish"
+              title={t('common.actions.open')}
               variant="secondary"
               onPress={() => void Linking.openSettings()}
             />
@@ -284,11 +284,11 @@ export default function Home() {
         <Banner
           tone="danger"
           icon="notifications-off"
-          title="Bildirishnomalar o‘chiq"
-          text="Ilova fonda bo‘lganda buyurtmalarni eshitmaysiz."
+          title={t('home.shift.pushOffTitle')}
+          text={t('home.shift.pushOffText')}
           action={
             <Button
-              title="Yoqish"
+              title={t('common.actions.enable')}
               variant="secondary"
               onPress={() =>
                 push.permission === 'blocked'
@@ -316,10 +316,10 @@ export default function Home() {
         <Banner
           tone="warning"
           icon="wallet"
-          text={`Balans kam: ${som(d.balance)}. ${som(d.minBalance)}dan pastga tushsa, buyurtmalar kelmaydi.`}
+          text={t('home.shift.lowBalance', { balance: som(d.balance), min: som(d.minBalance) })}
           action={
             <Button
-              title="To‘ldirish"
+              title={t('home.shift.topUp')}
               variant="secondary"
               onPress={() => router.navigate('/money')}
             />
@@ -330,31 +330,37 @@ export default function Home() {
       <Banner tone={promo.active ? 'success' : 'info'} icon="pricetag" text={promo.text} />
 
       <Card>
-        <Title>Bugun</Title>
+        <Title>{t('common.time.today')}</Title>
         {/* not loaded yet (or failed): a dash, never a "0 so'm" that looks real */}
-        <Row label="Safarlar" value={today.data ? String(today.data.rides) : '—'} />
-        <Row label="Yo‘lovchilardan" value={today.data ? som(today.data.fares) : '—'} />
-        <Row label="Komissiya" value={today.data ? som(-today.data.commission) : '—'} />
         <Row
-          label={`Soliq (${config.billing.taxPercent}%)`}
+          label={t('common.screens.rides')}
+          value={today.data ? String(today.data.rides) : '—'}
+        />
+        <Row label={t('home.shift.fromRiders')} value={today.data ? som(today.data.fares) : '—'} />
+        <Row
+          label={t('common.ledgerKind.commission')}
+          value={today.data ? som(-today.data.commission) : '—'}
+        />
+        <Row
+          label={t('home.shift.tax', { percent: config.billing.taxPercent })}
           value={today.data ? som(-today.data.tax) : '—'}
         />
         <Row
-          label="Sof daromad"
+          label={t('home.shift.net')}
           value={today.data ? som(today.data.net) : '—'}
           strong
           tone="success"
         />
         {today.isError && !today.data ? (
           <Button
-            title="Daromadni qayta yuklash"
+            title={t('home.shift.reloadEarnings')}
             icon="refresh"
             variant="secondary"
             onPress={() => void today.refetch()}
           />
         ) : null}
         <Row
-          label="Balans"
+          label={t('home.shift.balance')}
           value={som(d.balance)}
           tone={money.level === 'ok' ? undefined : 'warning'}
         />

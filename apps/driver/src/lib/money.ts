@@ -1,5 +1,6 @@
+import { t } from '../i18n/dictionary';
 import { type BillingRules, DEFAULT_BILLING } from './driver-config';
-import { dateTime, som } from './format';
+import { dateTime, som, until } from './format';
 
 /**
  * The driver's money rules (market analysis §6.3 "Driver fee model"). The numbers come from
@@ -21,7 +22,11 @@ export function promoStatus(today: string, billing: BillingRules = DEFAULT_BILLI
     return {
       active: false,
       daysLeft: 0,
-      text: `Komissiya ${billing.commissionPercent}%, kuniga ko‘pi bilan ${som(billing.dailyCap)}, haftasiga ${som(billing.weeklyCap)}`,
+      text: t('money.rules.commissionText', {
+        percent: billing.commissionPercent,
+        daily: som(billing.dailyCap),
+        weekly: som(billing.weeklyCap),
+      }),
     };
   }
   const days =
@@ -31,7 +36,7 @@ export function promoStatus(today: string, billing: BillingRules = DEFAULT_BILLI
   return {
     active: true,
     daysLeft: days,
-    text: `${d}.${m} gacha 0% komissiya — faqat qonuniy ${billing.taxPercent}% soliq ushlanadi`,
+    text: t('money.rules.promoText', { date: `${d}.${m}`, tax: billing.taxPercent }),
   };
 }
 
@@ -73,20 +78,26 @@ export function passBreakEven(
 
 /** Whether buying a pass makes sense now; the reason when it does not. */
 export function passAdvice(promo: PromoStatus, hasActivePass: boolean): string | null {
-  if (promo.active) return 'Aksiya davomida komissiya 0% — abonement kerak emas.';
-  if (hasActivePass) return 'Abonementingiz amalda. Yangisi tugashi bilan boshlanadi.';
+  if (promo.active) return t('money.passes.advicePromo');
+  if (hasActivePass) return t('money.passes.adviceActive');
   return null;
 }
 
-/** "Kunlik abonement · 26.09 23:59 gacha" */
+/** "Kunlik abonement · 26.09 23:59 gacha" / "Дневной абонемент · до 26.09 23:59" */
 export function passLabel(pass: { kind: string; endsAt: string }): string {
   // Tashkent time, like every other time in the app
   const when = dateTime(pass.endsAt);
-  return `${pass.kind === 'week' ? 'Haftalik' : 'Kunlik'} abonement · ${when} gacha`;
+  return t('money.passes.label', {
+    kind: t(pass.kind === 'week' ? 'money.passes.week' : 'money.passes.day'),
+    until: until(when),
+  });
 }
 
-/** How to put cash on the balance at the office. */
-export const OFFICE_TOP_UP_STEPS = [
-  'SFF Taxi ofisiga keling va operatorga telefon raqamingizni ayting.',
-  'Naqd pul topshiring — balans darhol to‘ldiriladi, ilovada ko‘rinadi.',
-];
+/**
+ * How to put cash on the balance at the office: a fixed-length list whose steps are read
+ * in the app's language on access (`OFFICE_TOP_UP_STEPS.map(...)` keeps working).
+ */
+export const OFFICE_TOP_UP_STEPS: readonly string[] = Object.defineProperties([] as string[], {
+  0: { get: () => t('money.topup.officeStep1'), enumerable: true },
+  1: { get: () => t('money.topup.officeStep2'), enumerable: true },
+});

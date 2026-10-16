@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { memo } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { DriverMe } from '../api/types';
+import { useT } from '../i18n';
 import {
   destinationChip,
   extraPassengersStep,
@@ -25,6 +26,7 @@ import { usePreferences } from './preferences';
  */
 export const PoolPanel = memo(function PoolPanel(props: { me: DriverMe }) {
   const router = useRouter();
+  const { t } = useT();
   const prefs = usePreferences();
   const pool = poolSettings(props.me);
   if (!pool) return null;
@@ -44,14 +46,10 @@ export const PoolPanel = memo(function PoolPanel(props: { me: DriverMe }) {
     if (next.value === pool.extraPassengers) return;
     haptics.select();
     if (next.needsDestination) {
-      Alert.alert(
-        'Qayerga ketyapsiz?',
-        'Mashinada yo‘lovchi bo‘lsa, manzilingizni belgilang: faqat yo‘lingizdagi buyurtmalar keladi.',
-        [
-          { text: 'Bekor qilish', style: 'cancel' },
-          { text: 'Manzilni tanlash', onPress: () => chooseDestination(next.value) },
-        ],
-      );
+      Alert.alert(t('home.pool.whereTo'), t('home.pool.whereToText'), [
+        { text: t('common.actions.cancel'), style: 'cancel' },
+        { text: t('home.pool.chooseDestination'), onPress: () => chooseDestination(next.value) },
+      ]);
       return;
     }
     prefs.mutate({ extraPassengers: next.value });
@@ -59,18 +57,14 @@ export const PoolPanel = memo(function PoolPanel(props: { me: DriverMe }) {
 
   const clearDestination = () => {
     if (pool.extraPassengers > 0) {
-      Alert.alert(
-        'Yo‘nalishni o‘chirasizmi?',
-        'Mashinadagi ilovasiz yo‘lovchilar soni ham 0 ga tushadi.',
-        [
-          { text: 'Yo‘q', style: 'cancel' },
-          {
-            text: 'O‘chirish',
-            style: 'destructive',
-            onPress: () => prefs.mutate({ destination: null, extraPassengers: 0 }),
-          },
-        ],
-      );
+      Alert.alert(t('home.pool.clearTitle'), t('home.pool.clearText'), [
+        { text: t('common.actions.no'), style: 'cancel' },
+        {
+          text: t('common.actions.delete'),
+          style: 'destructive',
+          onPress: () => prefs.mutate({ destination: null, extraPassengers: 0 }),
+        },
+      ]);
       return;
     }
     prefs.mutate({ destination: null });
@@ -79,10 +73,10 @@ export const PoolPanel = memo(function PoolPanel(props: { me: DriverMe }) {
   const chip = destinationChip(pool.destination);
   return (
     <Card>
-      <Title>Hamroh yo‘lovchilar</Title>
+      <Title>{t('home.pool.title')}</Title>
       <ToggleRow
-        label="Boshqa yo‘lovchi olaman"
-        description="Yo‘lingizdagi boshqa buyurtmalar ham keladi: daromad ko‘proq, har kim arzonroq to‘laydi."
+        label={t('home.pool.enable')}
+        description={t('home.pool.enableHint')}
         value={pool.enabled}
         disabled={busy}
         onChange={(v) => prefs.mutate({ poolEnabled: v })}
@@ -90,12 +84,12 @@ export const PoolPanel = memo(function PoolPanel(props: { me: DriverMe }) {
 
       <View style={styles.stepperRow}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.label}>Mashinada nechta odam bor</Text>
-          <Muted>Ilovasiz o‘tirganlar (tanishlar, yo‘lda olinganlar)</Muted>
+          <Text style={styles.label}>{t('home.pool.peopleInCar')}</Text>
+          <Muted>{t('home.pool.peopleHint')}</Muted>
         </View>
         <StepButton
           icon="remove"
-          label="Kamaytirish"
+          label={t('home.pool.fewer')}
           disabled={busy || pool.extraPassengers <= 0}
           onPress={() => changeExtra(-1)}
         />
@@ -104,7 +98,7 @@ export const PoolPanel = memo(function PoolPanel(props: { me: DriverMe }) {
         </Text>
         <StepButton
           icon="add"
-          label="Ko‘paytirish"
+          label={t('home.pool.more')}
           disabled={busy || pool.extraPassengers >= capacity}
           onPress={() => changeExtra(1)}
         />
@@ -122,7 +116,7 @@ export const PoolPanel = memo(function PoolPanel(props: { me: DriverMe }) {
             onPress={clearDestination}
             disabled={busy}
             accessibilityRole="button"
-            accessibilityLabel="Yo‘nalishni o‘chirish"
+            accessibilityLabel={t('home.pool.clearA11y')}
             hitSlop={8}
             style={({ pressed }) => [styles.chipClear, pressed && { opacity: 0.6 }]}
           >
@@ -131,17 +125,17 @@ export const PoolPanel = memo(function PoolPanel(props: { me: DriverMe }) {
         </View>
       ) : (
         <Button
-          title="Qayerga ketyapsiz?"
+          title={t('home.pool.whereTo')}
           icon="flag"
           variant="secondary"
           disabled={busy}
           onPress={() => chooseDestination()}
-          accessibilityHint="Faqat yo‘lingizdagi buyurtmalar keladi"
+          accessibilityHint={t('home.pool.onlyOnWay')}
         />
       )}
       {chip ? (
         <Button
-          title="Manzilni o‘zgartirish"
+          title={t('home.pool.changeDestination')}
           variant="ghost"
           disabled={busy}
           onPress={() => chooseDestination()}
@@ -180,6 +174,7 @@ function StepButton(props: {
 
 /** The car from above: the driver and one seat in front, at most two in the back. */
 function SeatMap({ seats }: { seats: Seats }) {
+  const { t } = useT();
   const rearCap = Math.max(0, Math.min(REAR_SEATS_MAX, seats.capacity - FRONT_SEATS));
   const seat = (taken: boolean, key: string) => (
     <View key={key} style={[styles.seat, taken && styles.seatTaken]}>
@@ -188,7 +183,11 @@ function SeatMap({ seats }: { seats: Seats }) {
   );
   return (
     <View style={styles.seatRow}>
-      <View style={styles.car} accessible accessibilityLabel={`O‘rindiqlar: ${seatsText(seats)}`}>
+      <View
+        style={styles.car}
+        accessible
+        accessibilityLabel={t('home.pool.seatsA11y', { seats: seatsText(seats) })}
+      >
         <View style={styles.carRow}>
           <View style={[styles.seat, styles.driverSeat]}>
             <Ionicons name="car-sport" size={22} color={colors.muted} />

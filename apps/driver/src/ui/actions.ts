@@ -1,6 +1,7 @@
 import * as Linking from 'expo-linking';
 import * as SecureStore from 'expo-secure-store';
 import { Alert, Platform } from 'react-native';
+import { t } from '../i18n/dictionary';
 import type { Point } from '../lib/geo';
 import { NAV_APPS, type NavApp, navigationLinks, phoneLink } from '../lib/links';
 
@@ -33,7 +34,7 @@ async function openNavApp(app: NavApp, to: Point): Promise<void> {
     try {
       await Linking.openURL(links.web);
     } catch {
-      Alert.alert('Xaritani ochib bo‘lmadi', 'Telefoningizda xarita ilovasi topilmadi.');
+      Alert.alert(t('profile.navigator.mapFailedTitle'), t('profile.navigator.mapFailedText'));
     }
   }
 }
@@ -47,7 +48,7 @@ export async function navigateTo(to: Point, title: string): Promise<void> {
   if (preferred) return openNavApp(preferred, to);
   Alert.alert(
     title,
-    'Qaysi ilovada yo‘l ko‘rsatilsin? Tanlovingiz eslab qolinadi.',
+    t('profile.navigator.chooseApp'),
     [
       ...NAV_APPS.map(({ app, label }) => ({
         text: label,
@@ -57,7 +58,9 @@ export async function navigateTo(to: Point, title: string): Promise<void> {
         },
       })),
       // Android dialogs hold at most three buttons; there a tap outside cancels
-      ...(Platform.OS === 'ios' ? [{ text: 'Bekor qilish', style: 'cancel' as const }] : []),
+      ...(Platform.OS === 'ios'
+        ? [{ text: t('common.actions.cancel'), style: 'cancel' as const }]
+        : []),
     ],
     { cancelable: true },
   );
@@ -66,15 +69,15 @@ export async function navigateTo(to: Point, title: string): Promise<void> {
 export function call(phone: string | null | undefined): void {
   const url = phoneLink(phone);
   if (!url) {
-    Alert.alert('Telefon raqami yo‘q');
+    Alert.alert(t('profile.navigator.noPhone'));
     return;
   }
-  Linking.openURL(url).catch(() => Alert.alert('Qo‘ng‘iroq qilib bo‘lmadi', phone ?? ''));
+  Linking.openURL(url).catch(() => Alert.alert(t('profile.navigator.callFailed'), phone ?? ''));
 }
 
 /** Opens a Telegram @username or t.me link in Telegram (or the browser). */
 export function openTelegram(handle: string): void {
   const h = handle.trim();
   const url = /^https?:\/\//.test(h) ? h : `https://t.me/${h.replace(/^@/, '')}`;
-  Linking.openURL(url).catch(() => Alert.alert('Telegram ochilmadi', h));
+  Linking.openURL(url).catch(() => Alert.alert(t('profile.navigator.telegramFailed'), h));
 }

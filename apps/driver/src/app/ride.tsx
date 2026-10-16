@@ -5,6 +5,7 @@ import { Alert, StyleSheet, Text, View } from 'react-native';
 import { driver } from '../api/driver';
 import type { DriverRide } from '../api/types';
 import { keys, useCurrentRide, useWaitingRules } from '../data/queries';
+import { useT } from '../i18n';
 import { errorMessage } from '../lib/api-client';
 import { PAYMENT_METHODS, som } from '../lib/format';
 import { headcountText, offerBadges, pinErrorText, poolRideIds, ridePool } from '../lib/pool';
@@ -57,6 +58,7 @@ const STEP_TIMEOUT_MS = 12_000;
  */
 export default function RideScreen() {
   const router = useRouter();
+  const { t } = useT();
   const current = useCurrentRide();
   const ride = current.data ?? null;
   const rules = useWaitingRules(ride ? { lat: ride.pickup.lat, lng: ride.pickup.lng } : null);
@@ -65,20 +67,20 @@ export default function RideScreen() {
   // a failed fetch is not "no ride": the driver may have a rider waiting
   if (current.data === undefined && current.isError) {
     return (
-      <Screen title="Safar" onBack={() => router.replace('/home')}>
+      <Screen title={t('ride.flow.title')} onBack={() => router.replace('/home')}>
         <ErrorState message={errorMessage(current.error)} onRetry={() => void current.refetch()} />
       </Screen>
     );
   }
   if (!ride) {
     return (
-      <Screen title="Safar" onBack={() => router.replace('/home')}>
+      <Screen title={t('ride.flow.title')} onBack={() => router.replace('/home')}>
         <EmptyState
           icon="car-outline"
-          title="Faol safar yo‘q"
-          text="Yangi buyurtmalar liniyada keladi."
+          title={t('ride.flow.noRideTitle')}
+          text={t('ride.flow.noRideText')}
         />
-        <Button title="Bosh sahifa" onPress={() => router.replace('/home')} />
+        <Button title={t('common.screens.home')} onPress={() => router.replace('/home')} />
       </Screen>
     );
   }
@@ -108,6 +110,7 @@ function ActiveRide(props: {
 }) {
   const { rules } = props;
   const router = useRouter();
+  const { t } = useT();
   const qc = useQueryClient();
   const [cancelling, setCancelling] = useState(false);
   const [retries, setRetries] = useState(0);
@@ -189,7 +192,7 @@ function ActiveRide(props: {
         return;
       }
       setPinOpen(false);
-      Alert.alert('Amal bajarilmadi', errorMessage(error));
+      Alert.alert(t('ride.flow.failed'), errorMessage(error));
       void qc.invalidateQueries({ queryKey: keys.current });
     },
     onSettled: () => setRetries(0),
@@ -223,7 +226,7 @@ function ActiveRide(props: {
     },
     onError: (error) => {
       haptics.error();
-      Alert.alert('Amal bajarilmadi', errorMessage(error));
+      Alert.alert(t('ride.flow.failed'), errorMessage(error));
       void qc.invalidateQueries({ queryKey: keys.current });
     },
   });
@@ -244,21 +247,25 @@ function ActiveRide(props: {
       const cash = cashBreakdown(focus);
       const owedNote = owedFeeNote(cash.owedFee);
       const deposit = depositLine(focus.fare.deposit, cash.total);
+      const cashLine = t('ride.flow.completeTakeCash', {
+        who: focus.rider?.name ?? customerWord(service, 'from'),
+        amount: som(cash.total),
+      });
       Alert.alert(
         service === 'delivery'
-          ? 'Posilkani topshirdingizmi?'
+          ? t('ride.flow.completeTitleDelivery')
           : service === 'cargo'
-            ? 'Yukni topshirdingizmi?'
-            : 'Safarni yakunlaysizmi?',
+            ? t('ride.flow.completeTitleCargo')
+            : t('ride.flow.completeTitle'),
         focus.paymentMethod === 'card'
           ? cash.total > 0
-            ? `Kartada oldindan to‘langan. Kutish uchun ${som(cash.total)} naqd oling.`
-            : 'Kartada oldindan to‘langan: naqd pul olmang.'
-          : `${focus.rider?.name ?? customerWord(service)}dan ${som(cash.total)} oling.${deposit ? ` ${deposit}.` : ''}${owedNote ? ` (${owedNote}.)` : ''}`,
+            ? t('ride.flow.completeCardWaiting', { amount: som(cash.total) })
+            : t('ride.flow.completeCardNoCash')
+          : `${cashLine}${deposit ? ` ${deposit}.` : ''}${owedNote ? ` (${owedNote}.)` : ''}`,
         [
-          { text: 'Yo‘q', style: 'cancel' },
+          { text: t('common.actions.no'), style: 'cancel' },
           {
-            text: service === 'delivery' ? 'Topshirdim' : 'Yakunlash',
+            text: service === 'delivery' ? t('ride.flow.handedOver') : t('ride.flow.complete'),
             onPress: () => run('complete'),
           },
         ],
@@ -271,14 +278,14 @@ function ActiveRide(props: {
   const scheduled = scheduledLabel(focus.scheduledFor, Date.now());
   const navTitle =
     target?.kind === 'via'
-      ? 'Oraliq manzilga yo‘l'
+      ? t('ride.flow.navVia')
       : target?.kind === 'dropoff'
         ? service === 'delivery'
-          ? 'Qabul qiluvchiga yo‘l'
-          : 'Manzilga yo‘l'
+          ? t('ride.flow.navRecipient')
+          : t('ride.flow.navDropoff')
         : service === 'taxi'
-          ? 'Yo‘lovchiga yo‘l'
-          : 'Olish joyiga yo‘l';
+          ? t('ride.flow.navRider')
+          : t('ride.flow.navPickup');
   const badges = offerBadges(focus);
 
   return (
@@ -291,10 +298,10 @@ function ActiveRide(props: {
             {pending ? (
               <Text style={styles.pending} accessibilityLiveRegion="polite">
                 {retries > 0
-                  ? `Aloqa sust — qayta yuborilmoqda (${retries})…`
+                  ? t('ride.flow.retrying', { count: retries })
                   : pending.action === 'complete'
-                    ? 'Yakunlanmoqda…'
-                    : 'Yuborilmoqda…'}
+                    ? t('ride.flow.completing')
+                    : t('ride.flow.sending')}
               </Text>
             ) : null}
             <Button
@@ -314,7 +321,7 @@ function ActiveRide(props: {
             />
             {focusMissing && missingView?.isError ? (
               <Button
-                title="Keyingi yo‘lovchi ma’lumotini qayta yuklash"
+                title={t('ride.flow.reloadNext')}
                 icon="refresh"
                 variant="secondary"
                 onPress={() => void missingView.refetch()}
@@ -327,7 +334,7 @@ function ActiveRide(props: {
       <View style={styles.head}>
         <View style={{ flex: 1, gap: space.xs }}>
           <Text style={styles.status} maxFontSizeMultiplier={1.3}>
-            {step?.title ?? 'Safar'}
+            {step?.title ?? t('ride.flow.title')}
           </Text>
           <Muted>
             #{focus.number} · {PAYMENT_METHODS[focus.paymentMethod] ?? focus.paymentMethod}
@@ -346,11 +353,7 @@ function ActiveRide(props: {
       </View>
 
       {retries > 1 ? (
-        <Banner
-          tone="warning"
-          icon="cloud-offline"
-          text="Internet sust. Amal saqlandi va aloqa tiklanishi bilan yuboriladi — ilovani yopmang."
-        />
+        <Banner tone="warning" icon="cloud-offline" text={t('ride.flow.slowNet')} />
       ) : null}
 
       {target && step?.navigateTo ? (
@@ -365,11 +368,9 @@ function ActiveRide(props: {
 
       {via ? (
         <Card>
-          <Title>{`${via.index + 1}-oraliq manzil`}</Title>
+          <Title>{t('ride.stops.viaN', { n: via.index + 1 })}</Title>
           <Muted>
-            {via.action === 'arrive'
-              ? 'Yetib kelganda bosing: bepul kutish boshlanadi.'
-              : 'Yo‘lovchi qaytgach bosing. Bepul daqiqalardan keyingi kutish narxga qo‘shiladi.'}
+            {via.action === 'arrive' ? t('ride.stops.viaArriveHint') : t('ride.stops.viaLeaveHint')}
           </Muted>
           <Button
             title={via.button}
@@ -414,7 +415,11 @@ function ActiveRide(props: {
           />
         ) : (
           <Button
-            title={pool ? `#${focus.number} buyurtmani bekor qilish` : 'Buyurtmani bekor qilish'}
+            title={
+              pool
+                ? t('ride.flow.cancelOrderN', { number: focus.number })
+                : t('ride.flow.cancelOrder')
+            }
             icon="close-circle"
             variant="danger"
             disabled={act.isPending}
@@ -422,7 +427,7 @@ function ActiveRide(props: {
           />
         )
       ) : (
-        <Muted center>Safar boshlangan: muammo bo‘lsa operatorga qo‘ng‘iroq qiling.</Muted>
+        <Muted center>{t('ride.flow.startedNote')}</Muted>
       )}
 
       <PinPad

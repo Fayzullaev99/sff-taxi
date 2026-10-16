@@ -2,6 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useT } from '../i18n';
 import { isPin, pinInput } from '../lib/pool';
 import { Button, Muted } from '../ui/components';
 import { haptics } from '../ui/haptics';
@@ -22,6 +23,7 @@ export function PinPad(props: {
   onSubmit: (pin: string) => void;
   onClose: () => void;
 }) {
+  const { t } = useT();
   const [pin, setPin] = useState('');
   const [shownError, setShownError] = useState<string | null>(null);
   useEffect(() => {
@@ -49,15 +51,16 @@ export function PinPad(props: {
       <SafeAreaView style={styles.safe}>
         {/* scrolls where the keypad does not fit (landscape, a short phone, a large font) */}
         <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-          <Text style={styles.title}>Boshlash kodi</Text>
+          <Text style={styles.title}>{t('ride.pin.title')}</Text>
           <Muted center>
-            {props.riderName ? `${props.riderName}dan` : 'Yo‘lovchidan'} 4 xonali kodni so‘rang: u
-            ilovasida ko‘rinadi.
+            {props.riderName
+              ? t('ride.pin.askNamed', { name: props.riderName })
+              : t('ride.pin.ask')}
           </Muted>
           <View
             style={styles.dots}
             accessible
-            accessibilityLabel={`${pin.length} ta raqam kiritildi`}
+            accessibilityLabel={t('ride.pin.digitsA11y', { count: pin.length })}
           >
             {[0, 1, 2, 3].map((i) => (
               <View key={i} style={[styles.dot, i < pin.length && styles.dotOn]}>
@@ -68,7 +71,7 @@ export function PinPad(props: {
             ))}
           </View>
           <Text style={styles.error} accessibilityLiveRegion="assertive">
-            {props.busy ? 'Tekshirilmoqda…' : (shownError ?? ' ')}
+            {props.busy ? t('ride.pin.checking') : (shownError ?? ' ')}
           </Text>
           <View style={styles.keys}>
             {KEYS.map((k) => (
@@ -77,13 +80,15 @@ export function PinPad(props: {
                 onPress={() => press(k)}
                 disabled={props.busy}
                 accessibilityRole="button"
-                accessibilityLabel={k === 'back' ? 'O‘chirish' : k === 'clear' ? 'Tozalash' : k}
+                accessibilityLabel={
+                  k === 'back' ? t('ride.pin.backspace') : k === 'clear' ? t('ride.pin.clear') : k
+                }
                 style={({ pressed }) => [styles.key, pressed && { backgroundColor: colors.border }]}
               >
                 {k === 'back' ? (
                   <Ionicons name="backspace" size={30} color={colors.text} />
                 ) : k === 'clear' ? (
-                  <Text style={styles.keySmall}>Tozalash</Text>
+                  <Text style={styles.keySmall}>{t('ride.pin.clear')}</Text>
                 ) : (
                   <Text style={styles.keyText} maxFontSizeMultiplier={1.2}>
                     {k}
@@ -92,7 +97,7 @@ export function PinPad(props: {
               </Pressable>
             ))}
           </View>
-          <Button title="Bekor qilish" variant="secondary" onPress={props.onClose} />
+          <Button title={t('common.actions.cancel')} variant="secondary" onPress={props.onClose} />
         </ScrollView>
       </SafeAreaView>
     </Modal>

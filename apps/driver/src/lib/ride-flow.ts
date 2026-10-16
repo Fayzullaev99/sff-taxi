@@ -1,3 +1,4 @@
+import { t } from '../i18n/dictionary';
 import { isApiError } from './api-client';
 import { som } from './format';
 
@@ -14,29 +15,33 @@ export interface RideStep {
   navigateTo: 'pickup' | 'dropoff' | null;
 }
 
-export const STEPS: Record<string, RideStep> = {
-  driver_assigned: {
-    title: 'Yo‘lovchiga boring',
-    button: 'Yetib keldim',
-    action: 'arrive',
-    navigateTo: 'pickup',
-  },
-  driver_arrived: {
-    title: 'Yo‘lovchini kuting',
-    button: 'Yo‘lovchi chiqdi — Boshlash',
-    action: 'start',
-    navigateTo: null,
-  },
-  in_progress: {
-    title: 'Manzilga boring',
-    button: 'Yakunlash',
-    action: 'complete',
-    navigateTo: 'dropoff',
-  },
-};
-
+/** The step of each status, worded in the app's language when asked. */
 export function stepOf(status: string): RideStep | null {
-  return STEPS[status] ?? null;
+  switch (status) {
+    case 'driver_assigned':
+      return {
+        title: t('ride.flow.toPickupTitle'),
+        button: t('ride.flow.arrived'),
+        action: 'arrive',
+        navigateTo: 'pickup',
+      };
+    case 'driver_arrived':
+      return {
+        title: t('ride.flow.waitTitle'),
+        button: t('ride.flow.start'),
+        action: 'start',
+        navigateTo: null,
+      };
+    case 'in_progress':
+      return {
+        title: t('ride.flow.toDropoffTitle'),
+        button: t('ride.flow.complete'),
+        action: 'complete',
+        navigateTo: 'dropoff',
+      };
+    default:
+      return null;
+  }
 }
 
 /** Whether the driver may give the ride up (the API refuses once it started). */
@@ -57,9 +62,6 @@ export interface CancelChoice {
   effect: string;
 }
 
-const BACK_TO_DISPATCH =
-  'Buyurtma boshqa haydovchiga beriladi. Bu ishonchlilik ko‘rsatkichingizni pasaytiradi.';
-
 /**
  * The reasons with what each does. A no-show ends the ride (with the cancellation fee
  * for the driver) and is allowed only after waiting `noShowInS` more seconds at the
@@ -69,39 +71,44 @@ const BACK_TO_DISPATCH =
 export function cancelChoices(status: string, noShowInS: number | null): CancelChoice[] {
   const arrived = status === 'driver_arrived';
   let noShowBlock: string | null = null;
-  if (!arrived) noShowBlock = 'Avval “Yetib keldim” ni bosing va yo‘lovchini kuting';
+  if (!arrived) noShowBlock = t('ride.cancel.arriveFirst');
   else if (noShowInS !== null && noShowInS > 0) {
     const m = Math.floor(noShowInS / 60);
     const s = noShowInS % 60;
-    noShowBlock = `Yana ${m}:${s.toString().padStart(2, '0')} kuting`;
+    noShowBlock = t('ride.cancel.waitMore', { time: `${m}:${s.toString().padStart(2, '0')}` });
   }
+  const backToDispatch = t('ride.cancel.backToDispatch');
   return [
     {
       code: 'rider_no_show',
-      label: 'Yo‘lovchi chiqmadi',
+      label: t('ride.cancel.noShow'),
       disabledBecause: noShowBlock,
-      effect:
-        'Safar yakunlanadi, bekor qilish haqi sizga yoziladi (naqd safarda — yo‘lovchi keyingi safarida to‘laganda). Reytingingizga ta’sir qilmaydi.',
+      effect: t('ride.cancel.noShowEffect'),
     },
     {
       code: 'rider_asked',
-      label: 'Yo‘lovchi bekor qilishni so‘radi',
+      label: t('ride.cancel.riderAsked'),
       disabledBecause: null,
-      effect: BACK_TO_DISPATCH,
+      effect: backToDispatch,
     },
     {
       code: 'car_problem',
-      label: 'Avtomobil nosoz',
+      label: t('ride.cancel.carProblem'),
       disabledBecause: null,
-      effect: BACK_TO_DISPATCH,
+      effect: backToDispatch,
     },
     {
       code: 'cannot_reach',
-      label: 'Manzilga yetib borolmayman',
+      label: t('ride.cancel.cannotReach'),
       disabledBecause: null,
-      effect: BACK_TO_DISPATCH,
+      effect: backToDispatch,
     },
-    { code: 'other', label: 'Boshqa sabab', disabledBecause: null, effect: BACK_TO_DISPATCH },
+    {
+      code: 'other',
+      label: t('ride.cancel.otherReason'),
+      disabledBecause: null,
+      effect: backToDispatch,
+    },
   ];
 }
 
@@ -181,14 +188,12 @@ export function cashBreakdown(ride: CashRide, liveWaiting?: number): CashBreakdo
 
 /** "Yo‘lovchi bonusi 1 400 so‘m — SFF balansingizga to‘laydi", or null without one. */
 export function bonusNote(bonus: number): string | null {
-  return bonus > 0 ? `Yo‘lovchi bonusi ${som(bonus)} — SFF balansingizga to‘laydi` : null;
+  return bonus > 0 ? t('ride.flow.bonusNote', { amount: som(bonus) }) : null;
 }
 
 /** "shundan 3 000 so‘m — …" under the big number, or null when nothing is owed. */
 export function owedFeeNote(owedFee: number): string | null {
-  return owedFee > 0
-    ? `shundan ${som(owedFee)} — yo‘lovchining oldingi bekor qilingan safari uchun`
-    : null;
+  return owedFee > 0 ? t('ride.flow.owedNote', { amount: som(owedFee) }) : null;
 }
 
 /**
@@ -197,11 +202,13 @@ export function owedFeeNote(owedFee: number): string | null {
  */
 export function cashPartsText(cash: CashBreakdown): string | null {
   const parts: string[] = [];
-  if (cash.fare > 0) parts.push(`Narx ${som(cash.fare)}`);
-  if (cash.discount > 0) parts.push(`− hamroh chegirmasi ${som(cash.discount)}`);
-  if (cash.bonus > 0) parts.push(`− yo‘lovchi bonusi ${som(cash.bonus)}`);
-  if (cash.waiting > 0) parts.push(`+ kutish ${som(cash.waiting)}`);
-  if (cash.owedFee > 0) parts.push(`+ oldingi safar ${som(cash.owedFee)}`);
+  if (cash.fare > 0) parts.push(t('ride.flow.partFare', { amount: som(cash.fare) }));
+  if (cash.discount > 0) {
+    parts.push(t('ride.flow.partPoolDiscount', { amount: som(cash.discount) }));
+  }
+  if (cash.bonus > 0) parts.push(t('ride.flow.partBonus', { amount: som(cash.bonus) }));
+  if (cash.waiting > 0) parts.push(t('ride.flow.partWaiting', { amount: som(cash.waiting) }));
+  if (cash.owedFee > 0) parts.push(t('ride.flow.partOwed', { amount: som(cash.owedFee) }));
   if (parts.length < 2) return null;
   // a card ride starts with the waiting: no leading "+"
   return parts.join(' ').replace(/^\+ /, '');
@@ -209,47 +216,42 @@ export function cashPartsText(cash: CashBreakdown): string | null {
 
 /** The offer's extra line for fees the rider owes (collected in cash with this fare). */
 export function offerOwedFeeLine(owedFee: number | null | undefined): string | null {
-  return owedFee && owedFee > 0
-    ? `+ ${som(owedFee)} oldingi bekor qilingan safar uchun (naqd)`
-    : null;
+  return owedFee && owedFee > 0 ? t('ride.offer.owedFee', { amount: som(owedFee) }) : null;
 }
 
 export type OfferFailure = 'taken' | 'expired' | 'gone' | 'offline' | 'network' | 'other';
 
-/** Why accepting an offer failed, from the API's answer (409/404 messages of DispatchService). */
+/**
+ * Why accepting an offer failed, from the API's answer (409/404 messages of DispatchService,
+ * in the account's language: Uzbek or Russian).
+ */
 export function offerFailure(error: unknown): OfferFailure {
   if (isApiError(error, 0)) return 'network';
   if (isApiError(error, 404)) return 'gone';
   if (isApiError(error, 409)) {
     const m = error.message.toLowerCase();
-    if (m.includes('boshqa haydovchi')) return 'taken';
-    if (m.includes('amal qilmaydi')) return 'expired';
-    if (m.includes('liniyaga')) return 'offline';
+    if (m.includes('boshqa haydovchi') || m.includes('другому водителю')) return 'taken';
+    if (m.includes('amal qilmaydi') || m.includes('недействительно')) return 'expired';
+    if (m.includes('liniyaga') || m.includes('на линию')) return 'offline';
     return 'taken';
   }
   return 'other';
 }
 
-export const OFFER_FAILURE_TEXT: Record<OfferFailure, { title: string; text: string }> = {
-  taken: {
-    title: 'Buyurtmani boshqa haydovchi oldi',
-    text: 'Siz tez harakat qildingiz, lekin boshqa haydovchi birinchi bo‘ldi. Liniyada qoling — keyingi buyurtma tez orada keladi.',
-  },
-  expired: {
-    title: 'Taklif vaqti tugadi',
-    text: 'Buyurtma keyingi haydovchiga o‘tdi. Liniyada qoling, yangi taklif keladi.',
-  },
-  gone: {
-    title: 'Buyurtma endi mavjud emas',
-    text: 'Boshqa haydovchi oldi yoki yo‘lovchi bekor qildi. Liniyada qoling — yangi taklif keladi.',
-  },
-  offline: {
-    title: 'Siz liniyada emassiz',
-    text: 'Buyurtma olish uchun avval liniyaga chiqing.',
-  },
-  network: {
-    title: 'Internet aloqasi yo‘q',
-    text: 'Javob yuborilmadi. Aloqani tekshiring.',
-  },
-  other: { title: 'Buyurtmani olib bo‘lmadi', text: 'Birozdan so‘ng qayta urinib ko‘ring.' },
-};
+/** The closed-offer screen's words for a failure. */
+export function offerFailureText(failure: OfferFailure): { title: string; text: string } {
+  switch (failure) {
+    case 'taken':
+      return { title: t('ride.offer.takenTitle'), text: t('ride.offer.takenText') };
+    case 'expired':
+      return { title: t('ride.offer.expiredTitle'), text: t('ride.offer.expiredText') };
+    case 'gone':
+      return { title: t('ride.offer.goneTitle'), text: t('ride.offer.goneText') };
+    case 'offline':
+      return { title: t('ride.offer.offlineTitle'), text: t('ride.offer.offlineText') };
+    case 'network':
+      return { title: t('ride.offer.networkTitle'), text: t('ride.offer.networkText') };
+    default:
+      return { title: t('ride.offer.otherTitle'), text: t('ride.offer.otherText') };
+  }
+}

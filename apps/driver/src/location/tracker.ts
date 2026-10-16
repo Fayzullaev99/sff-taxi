@@ -5,6 +5,7 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { driver } from '../api/driver';
 import { BRAND } from '../config';
+import { liveTable, t } from '../i18n/dictionary';
 import { isApiError } from '../lib/api-client';
 import { fixRejection, type GpsState, INITIAL_GPS_STATE } from '../lib/gps-quality';
 import {
@@ -163,12 +164,13 @@ TaskManager.defineTask<{ locations?: Location.LocationObject[] }>(
   },
 );
 
-const NOTIFICATION_BODY: Record<LocationPolicy['phase'], string> = {
-  idle: 'Liniyadasiz: buyurtma kutilmoqda',
-  to_pickup: 'Yo‘lovchiga ketyapsiz: joylashuv yuborilmoqda',
-  waiting: 'Yo‘lovchini kutyapsiz',
-  on_trip: 'Safar davom etmoqda: joylashuv yuborilmoqda',
-};
+/** The foreground service's notification, in the app's language when the service starts. */
+const NOTIFICATION_BODY: Record<LocationPolicy['phase'], string> = liveTable({
+  idle: 'home.tracking.idle',
+  to_pickup: 'home.tracking.toPickup',
+  waiting: 'home.tracking.waiting',
+  on_trip: 'home.tracking.onTrip',
+});
 
 function watchOptions(policy: LocationPolicy): Location.LocationOptions {
   return {
@@ -188,7 +190,7 @@ function taskOptions(policy: LocationPolicy): Location.LocationTaskOptions {
     pausesUpdatesAutomatically: false,
     showsBackgroundLocationIndicator: true,
     foregroundService: {
-      notificationTitle: 'SFF Taxi Haydovchi',
+      notificationTitle: t('common.app.name'),
       notificationBody: NOTIFICATION_BODY[policy.phase],
       notificationColor: BRAND,
       killServiceOnDestroy: true,

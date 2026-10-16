@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n/dictionary';
 import { ApiError } from './api-client';
 import {
   amountToCollect,
@@ -6,6 +7,7 @@ import {
   canCancel,
   cashToCollect,
   offerFailure,
+  offerFailureText,
   stepOf,
 } from './ride-flow';
 
@@ -72,5 +74,26 @@ describe('cashToCollect', () => {
     expect(cashToCollect('cash', { quoted: 12_000, waiting: 1_000, total: 13_000 })).toBe(13_000);
     expect(cashToCollect('card', { quoted: 12_000, waiting: 1_000, total: 13_000 })).toBe(1_000);
     expect(cashToCollect('card', { quoted: 12_000, waiting: 0, total: null })).toBe(0);
+  });
+});
+
+describe('in Russian', () => {
+  afterEach(() => setLanguage('uz'));
+
+  it('words the steps, cancel reasons and closed offers', () => {
+    setLanguage('ru');
+    expect(stepOf('driver_assigned')?.button).toBe('Я на месте');
+    expect(stepOf('in_progress')?.button).toBe('Завершить поездку');
+    const noShow = cancelChoices('driver_arrived', 95).find((c) => c.code === 'rider_no_show')!;
+    expect(noShow.label).toBe('Пассажир не вышел');
+    expect(noShow.disabledBecause).toBe('Подождите ещё 1:35');
+    expect(cancelChoices('driver_assigned', null)[1]!.effect).toMatch(/надёжности/);
+    expect(offerFailureText('taken').title).toBe('Заказ взял другой водитель');
+  });
+
+  it('reads the API answer in Russian too', () => {
+    expect(offerFailure(new ApiError(409, 'Заказ передан другому водителю'))).toBe('taken');
+    expect(offerFailure(new ApiError(409, 'Предложение уже недействительно'))).toBe('expired');
+    expect(offerFailure(new ApiError(409, 'Сначала выйдите на линию'))).toBe('offline');
   });
 });

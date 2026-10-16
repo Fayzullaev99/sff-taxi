@@ -2,6 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { memo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { DriverRide } from '../api/types';
+import { useT } from '../i18n';
 import { formatPhone } from '../lib/format';
 import { cargoLines, parcelLines, SERVICE_LABELS, serviceOf, showRecipient } from '../lib/service';
 import { call } from '../ui/actions';
@@ -14,6 +15,7 @@ import { colors, space } from '../ui/theme';
  * sender is not in the car). Nothing for a taxi ride.
  */
 export const ServiceCard = memo(function ServiceCard(props: { ride: DriverRide }) {
+  const { t } = useT();
   const { ride } = props;
   const service = serviceOf(ride);
   if (service === 'taxi') return null;
@@ -34,18 +36,24 @@ export const ServiceCard = memo(function ServiceCard(props: { ride: DriverRide }
       {recipient ? (
         <View style={styles.recipient}>
           <View style={{ flex: 1 }}>
-            <Muted>Qabul qiluvchi</Muted>
-            <Text style={styles.name}>{recipient.recipientName ?? 'Qabul qiluvchi'}</Text>
+            <Muted>{t('ride.service.recipient')}</Muted>
+            <Text style={styles.name}>
+              {recipient.recipientName ?? t('ride.service.recipient')}
+            </Text>
             {recipient.recipientPhone ? (
               <Muted>{formatPhone(recipient.recipientPhone)}</Muted>
             ) : null}
           </View>
           {recipient.recipientPhone ? (
-            <Button title="Qo‘ng‘iroq" icon="call" onPress={() => call(recipient.recipientPhone)} />
+            <Button
+              title={t('ride.flow.call')}
+              icon="call"
+              onPress={() => call(recipient.recipientPhone)}
+            />
           ) : null}
         </View>
       ) : service === 'delivery' ? (
-        <Muted>Qabul qiluvchi posilkani olganingizdan keyin ko‘rinadi.</Muted>
+        <Muted>{t('ride.service.recipientLater')}</Muted>
       ) : null}
     </Card>
   );

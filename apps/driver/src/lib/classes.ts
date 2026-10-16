@@ -1,12 +1,13 @@
 import type { DriverClasses, RideClass } from '../api/types';
+import { liveTable, t } from '../i18n/dictionary';
 
-/** Taxi class names (apps/api src/lib/ride-classes.ts). */
-export const CLASS_NAMES: Record<RideClass, string> = {
-  economy: 'Ekonom',
-  comfort: 'Komfort',
-  minivan: 'Miniven',
-  business: 'Biznes',
-};
+/** Taxi class names (apps/api src/lib/ride-classes.ts), in the app's language on access. */
+export const CLASS_NAMES: Record<RideClass, string> = liveTable({
+  economy: 'common.classes.economy',
+  comfort: 'common.classes.comfort',
+  minivan: 'common.classes.minivan',
+  business: 'common.classes.business',
+});
 
 const names = (list: RideClass[]) => list.map((c) => CLASS_NAMES[c] ?? c).join(', ');
 
@@ -19,12 +20,12 @@ export function classesText(c: DriverClasses) {
   return {
     own: CLASS_NAMES[c.own] ?? c.own,
     rides: names(c.rides),
-    toggle: `${names(c.lower)} buyurtmalarini ham olaman`,
+    toggle: t('home.classes.toggle', { classes: names(c.lower) }),
     toggleHint: c.takesLower
-      ? 'Arzonroq sinf buyurtmalari ham keladi: bo‘sh turish kamayadi.'
-      : `Faqat ${CLASS_NAMES[c.own]} buyurtmalari keladi.`,
+      ? t('home.classes.toggleOn')
+      : t('home.classes.toggleOff', { class: CLASS_NAMES[c.own] }),
     qualifies: others.length
-      ? `Avtomobilingiz ${names(others)} talablariga ham mos: sinfni o‘zgartirish uchun operatorga murojaat qiling (texnik ko‘rik).`
-      : 'Sinfni o‘zgartirish uchun operatorga murojaat qiling (texnik ko‘rik).',
+      ? t('home.classes.qualifiesOthers', { classes: names(others) })
+      : t('home.classes.qualifies'),
   };
 }
