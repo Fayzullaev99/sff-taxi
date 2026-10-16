@@ -195,7 +195,10 @@ searching ──> driver_assigned ──> driver_arrived ──> in_progress ─
   when the driver arrives, and if the ride is cancelled after a car was found. Parcels have
   their recipient and loads their customer, so it is refused there (a table check too).
   `GET rides/passengers` lists recent passengers for the order screen; operators find rides
-  by the passenger's phone too.
+  by the passenger's phone too. Because those SMS carry a driver's phone and a live link and
+  cancelling before arrival is free, a rider may place at most 5 such orders in 24 hours and
+  2 for the same passenger phone (409 with the reason; operators' phone orders are not
+  limited).
 - **ETAs for the rider**: the car's road ETA to the pickup while it comes (`driverEta`,
   `driver.location.etaS`) and to the destination during the trip (`destinationEta`,
   `driver.location.destinationEtaS`), each one router call per ride per 15 s, cached in Redis.
