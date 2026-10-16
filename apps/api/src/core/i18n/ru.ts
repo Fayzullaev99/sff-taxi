@@ -101,6 +101,10 @@ export const RU: Record<string, string> = {
   'Mashina yetib borgan oraliq manzil o‘zgarmaydi':
     'Остановку, до которой машина уже доехала, изменить нельзя',
   'Oraliq manzillar o‘zgarmadi': 'Остановки не изменились',
+  'Boshqa odam uchun kuniga {0} tadan ko‘p buyurtma berilmaydi':
+    'Для другого человека можно заказать не больше {0} поездок в сутки',
+  'Bu raqamga bugun allaqachon {0} marta buyurtma berildi':
+    'На этот номер сегодня уже заказано {0} раза',
   'Manzillar o‘zgardi: bonus qayta hisoblandi': 'Адреса изменились: бонус пересчитан',
   'Narx o‘zgardi: yangi narxni qayta ko‘rib tasdiqlang':
     'Цена изменилась: посмотрите и подтвердите новую цену',
