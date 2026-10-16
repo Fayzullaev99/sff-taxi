@@ -182,6 +182,31 @@ describe('ordering for someone else', { timeout: 120_000 }, () => {
     ).rejects.toThrow(/rides_passenger_check/);
   });
 
+  it('caps orders for someone else: a few a day, two per phone number', async () => {
+    const rider = await signIn(app);
+    const http = api(app, rider.accessToken);
+    const other = (n: number) => ({ name: 'Mehmon', phone: `+99890555${1000 + n}` });
+    // an order placed and cancelled at once (free before the car arrives) still counts
+    const orderAndCancel = async (n: number) => {
+      const q = await quote(rider);
+      const ride = (await order(rider, q.quoteId, { passenger: other(n) }).expect(201)).body;
+      await http.post(`/v1/rides/${ride.id}/cancel`).send({}).expect(200);
+    };
+    // two for the same person are fine, the third is not (SMS go to that phone)
+    await orderAndCancel(1);
+    await orderAndCancel(1);
+    const third = await order(rider, (await quote(rider)).quoteId, { passenger: other(1) });
+    expect(third.status).toBe(409);
+    expect(third.body.message).toBe('Bu raqamga bugun allaqachon 2 marta buyurtma berildi');
+    // other numbers until the day's five are used up
+    for (let n = 2; n <= 4; n++) await orderAndCancel(n);
+    const sixth = await order(rider, (await quote(rider)).quoteId, { passenger: other(5) });
+    expect(sixth.status).toBe(409);
+    expect(sixth.body.message).toBe('Boshqa odam uchun kuniga 5 tadan ko‘p buyurtma berilmaydi');
+    // an order for oneself is not counted
+    await order(rider, (await quote(rider)).quoteId).expect(201);
+  });
+
   it('takes a passenger in a phone order and texts them, not only the caller', async () => {
     const driver = await createDriver(app, { at: GULISTON, topup: 50_000 });
     const caller = uniquePhone();

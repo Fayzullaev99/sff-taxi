@@ -60,6 +60,7 @@ import {
 import { depositAmount } from '../../lib/deposit.js';
 import { MAX_PASSENGERS, REAR_SEATS_MAX } from '../../lib/pool.js';
 import {
+  lockedStopCount,
   mergeStops,
   nextStopIndex,
   stopsChangeAllowed,
@@ -850,6 +851,7 @@ export class RidesService {
       .executeTakeFirstOrThrow();
     const how = await this.rideTerms(quote, input, rider.gender);
     const passenger = forOther(input.passenger, rider.phone, quote.service);
+    if (passenger) await this.assertForOtherAllowance(user.userId, passenger.phone);
     const deposit = quote.scheduled_for
       ? depositAmount(how.fare.total, await this.settings.booking())
       : 0;
@@ -1889,7 +1891,7 @@ export class RidesService {
     const ride = await this.findRide(rideId);
     if (ride.rider_id !== user.userId) throw new NotFoundException('Buyurtma topilmadi');
     this.assertStopsChange(ride, stops);
-    const priced = await this.repriceStops(ride, stops);
+    const priced = await this.repriceStops(ride, stops, await this.carPosition(ride));
     const discount = await this.promos.reprice(
       this.db.kysely,
       ride.id,
@@ -1918,8 +1920,11 @@ export class RidesService {
     await this.db.transaction(async (trx) => {
       const ride = await this.lockRide(trx, rideId);
       if (ride.rider_id !== user.userId) throw new NotFoundException('Buyurtma topilmadi');
+      // the rider's credit balance is read and reserved below: the same lock as an order,
+      // a referral revoke or a release takes, so two of them cannot spend one balance
+      await sql`select pg_advisory_xact_lock(hashtext(${ride.rider_id}))`.execute(trx);
       this.assertStopsChange(ride, input.stops);
-      const priced = await this.repriceStops(ride, input.stops);
+      const priced = await this.repriceStops(ride, input.stops, await this.carPosition(ride));
       if (priced.fare.total !== input.confirmTotal) {
         throw new ConflictException({
           message: 'Narx o‘zgardi: yangi narxni qayta ko‘rib tasdiqlang',
@@ -1974,6 +1979,33 @@ export class RidesService {
     return this.riderView(user, rideId);
   }
 
+  /**
+   * Orders for someone else send that person SMS with the driver's phone and a live link, and
+   * cancelling before the car arrives is free: a rider gets a few a day, and a few per phone
+   * number, so nobody can flood a stranger (and burn drivers' time) with order–cancel loops.
+   */
+  private async assertForOtherAllowance(riderId: string, passengerPhone: string): Promise<void> {
+    const since = new Date(Date.now() - 24 * 3_600_000);
+    const rows = await this.db.kysely
+      .selectFrom('rides')
+      .select(['passenger_phone'])
+      .where('rider_id', '=', riderId)
+      .where('passenger_phone', 'is not', null)
+      .where('requested_at', '>=', since)
+      .execute();
+    if (rows.length >= FOR_OTHER_DAY_MAX) {
+      throw new ConflictException(
+        msg('Boshqa odam uchun kuniga {0} tadan ko‘p buyurtma berilmaydi', FOR_OTHER_DAY_MAX),
+      );
+    }
+    const samePhone = rows.filter((r) => r.passenger_phone === passengerPhone).length;
+    if (samePhone >= FOR_OTHER_SAME_PHONE_MAX) {
+      throw new ConflictException(
+        msg('Bu raqamga bugun allaqachon {0} marta buyurtma berildi', FOR_OTHER_SAME_PHONE_MAX),
+      );
+    }
+  }
+
   private assertStopsChange(ride: Ride, stops: Point[]): void {
     const refusal = stopsChangeCheck(ride, stops);
     switch (refusal) {
@@ -1998,14 +2030,48 @@ export class RidesService {
     }
   }
 
-  /** The ride priced again through other stops: its tariff snapshot, class and options. */
-  private async repriceStops(ride: Ride, stops: Point[]) {
+  /**
+   * Where the car is during the trip (a fix younger than CAR_FIX_MAX_MINUTES), else null: a
+   * change made on the trip is priced through it, so the road already driven towards a stop
+   * the rider then drops stays in the fare (the driver drove it).
+   */
+  private async carPosition(ride: Ride): Promise<Point | null> {
+    if (ride.status !== 'in_progress' || !ride.driver_id) return null;
+    const d = await this.db.kysely
+      .selectFrom('drivers')
+      .select(['lat', 'lng', 'located_at'])
+      .where('user_id', '=', ride.driver_id)
+      .executeTakeFirst();
+    if (!d || d.lat === null || d.lng === null || !d.located_at) return null;
+    if (Date.now() - d.located_at.getTime() > CAR_FIX_MAX_MINUTES * 60_000) return null;
+    // a fix from before the car reached or left its last stop says nothing about where it
+    // is now: that stop (already in the route) is the better anchor
+    const lastStopEvent = ride.stops.reduce(
+      (t, s) =>
+        Math.max(
+          t,
+          Date.parse(String(s.leftAt ?? '')) || 0,
+          Date.parse(String(s.arrivedAt ?? '')) || 0,
+        ),
+      0,
+    );
+    if (d.located_at.getTime() <= lastStopEvent) return null;
+    return { lat: d.lat, lng: d.lng };
+  }
+
+  /**
+   * The ride priced again through other stops: its tariff snapshot, class and options. On the
+   * trip the road goes pickup → reached stops → the car → the stops still ahead → drop-off.
+   */
+  private async repriceStops(ride: Ride, stops: Point[], car: Point | null = null) {
     const pickup = { lat: ride.pickup_lat, lng: ride.pickup_lng };
     const dropoff = { lat: ride.dropoff_lat, lng: ride.dropoff_lng };
+    const locked = lockedStopCount(ride.stops);
+    const waypoints = car ? [...stops.slice(0, locked), car, ...stops.slice(locked)] : stops;
     const [city, route, match] = await Promise.all([
       this.geo.city(ride.city_id),
-      stops.length
-        ? this.routing.via([pickup, ...stops, dropoff])
+      waypoints.length
+        ? this.routing.via([pickup, ...waypoints, dropoff])
         : this.routing.route(pickup, dropoff),
       // a fixed route price is the price between two towns: never with stops
       stops.length ? null : this.routes.match(pickup, dropoff),
@@ -3461,6 +3527,12 @@ function quotedFare(fares: unknown, rideClass: RideClass): Fare {
   }
   return fare;
 }
+
+/** Orders for someone else per rider in 24 h, and per passenger phone (SMS go to that phone). */
+const FOR_OTHER_DAY_MAX = 5;
+const FOR_OTHER_SAME_PHONE_MAX = 2;
+/** A driver fix older than this says nothing about where the car is now. */
+const CAR_FIX_MAX_MINUTES = 10;
 
 /**
  * Who rides when ordered for someone else: taxi rides only (a parcel has its recipient, a

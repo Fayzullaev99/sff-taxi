@@ -104,7 +104,11 @@ Yandex about price dynamics (MA §1.9). The engine is `src/lib/tariff.ts` (pure,
   refetches, the driver gets a push ("Yo‘lovchi manzillarni o‘zgartirdi") and an in-app
   alert with the new cash. Card rides are not changed (the fare is prepaid: a second
   charge or a partial refund mid-ride would be needed; cancel and order again, the
-  prepayment is refunded in full), nor shared rides, cargo or deliveries. The rider's ETA
+  prepayment is refunded in full), nor shared rides, cargo or deliveries. A change made
+  **on the trip** is priced through the car: pickup → the stops already reached → the car's
+  last fix (if under 10 minutes old) → the stops still ahead → drop-off, so the road the
+  driver already drove towards a stop the rider then drops stays in the fare; the preview
+  and the change use the same road. The rider's ETA
   on the trip and the map frame point at the next unvisited stop (`nextStopIndex`,
   `driver.location.nextStopIndex`), not at the drop-off. During the trip the driver marks each stop "arrived" and "driving on"
   (`POST driver/rides/:id/stops/:index/arrive|leave`, in order; a skipped stop stays

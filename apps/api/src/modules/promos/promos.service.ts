@@ -252,6 +252,9 @@ export class PromosService {
         cityId: null,
       });
       if (!check.ok) {
+        // an existing but unusable code is a miss too, or the block never fires for
+        // someone probing which codes exist
+        await this.limiter.recordFailure(limit);
         throw new ConflictException({ message: check.message, reason: check.reason });
       }
       await this.db.kysely

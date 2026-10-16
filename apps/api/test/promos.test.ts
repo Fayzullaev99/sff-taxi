@@ -236,6 +236,16 @@ describe('rider promo codes, referrals and ride credit', () => {
       ).toBe('Bu promokod faol emas');
       const bad = await http.post('/v1/promos').send({ code: 'a!' }).expect(400);
       expect(bad.body.statusCode).toBe(400);
+      // an existing but unusable code counts as a miss like an unknown one: after ten
+      // misses in an hour the rider is blocked, so nobody probes which codes exist
+      const prober = api(app, (await signIn(app)).accessToken);
+      for (let i = 0; i < 10; i++) {
+        await prober.post('/v1/promos').send({ code: expired.code }).expect(409);
+      }
+      const blocked = await prober.post('/v1/promos').send({ code: off.code }).expect(429);
+      expect(blocked.body.message).toBe(
+        'Noto‘g‘ri kod ko‘p marta kiritildi. Bir soatdan keyin qayta urinib ko‘ring',
+      );
 
       // a comfort-only code: no discount on economy, with the reason; comfort gets it
       const comfort = await promo({ classes: ['comfort'], kind: 'fixed', value: 3000 });
