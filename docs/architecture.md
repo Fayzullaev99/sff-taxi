@@ -104,7 +104,11 @@ Yandex about price dynamics (MA §1.9). The engine is `src/lib/tariff.ts` (pure,
   refetches, the driver gets a push ("Yo‘lovchi manzillarni o‘zgartirdi") and an in-app
   alert with the new cash. Card rides are not changed (the fare is prepaid: a second
   charge or a partial refund mid-ride would be needed; cancel and order again, the
-  prepayment is refunded in full), nor shared rides, cargo or deliveries. The rider's ETA
+  prepayment is refunded in full), nor shared rides, cargo or deliveries. A change made
+  **on the trip** is priced through the car: pickup → the stops already reached → the car's
+  last fix (if under 10 minutes old) → the stops still ahead → drop-off, so the road the
+  driver already drove towards a stop the rider then drops stays in the fare; the preview
+  and the change use the same road. The rider's ETA
   on the trip and the map frame point at the next unvisited stop (`nextStopIndex`,
   `driver.location.nextStopIndex`), not at the drop-off. During the trip the driver marks each stop "arrived" and "driving on"
   (`POST driver/rides/:id/stops/:index/arrive|leave`, in order; a skipped stop stays
@@ -191,7 +195,10 @@ searching ──> driver_assigned ──> driver_arrived ──> in_progress ─
   when the driver arrives, and if the ride is cancelled after a car was found. Parcels have
   their recipient and loads their customer, so it is refused there (a table check too).
   `GET rides/passengers` lists recent passengers for the order screen; operators find rides
-  by the passenger's phone too.
+  by the passenger's phone too. Because those SMS carry a driver's phone and a live link and
+  cancelling before arrival is free, a rider may place at most 5 such orders in 24 hours and
+  2 for the same passenger phone (409 with the reason; operators' phone orders are not
+  limited).
 - **ETAs for the rider**: the car's road ETA to the pickup while it comes (`driverEta`,
   `driver.location.etaS`) and to the destination during the trip (`destinationEta`,
   `driver.location.destinationEtaS`), each one router call per ride per 15 s, cached in Redis.

@@ -272,6 +272,34 @@ describe('changing the intermediate stops of a ride that is on', { timeout: 120_
     expect(final.canChangeStops).toBe(false);
   });
 
+  it('on the trip the road already driven stays in the price when a stop is dropped', async () => {
+    const driver = await createDriver(app, { at: GULISTON, topup: 50_000 });
+    const rider = await signIn(app);
+    const q = await quote(rider, { stops: [STOP_A, STOP_B] });
+    const ride = await order(rider, q.quoteId);
+    await assign(driver, ride.id);
+    await driver.http.post(`/v1/driver/rides/${ride.id}/arrive`).expect(200);
+    await driver.http.post(`/v1/driver/rides/${ride.id}/start`).send({}).expect(200);
+    await driver.http.post(`/v1/driver/rides/${ride.id}/stops/0/arrive`).expect(200);
+    await driver.http.post(`/v1/driver/rides/${ride.id}/stops/0/leave`).expect(200);
+    // the car has reached the far second stop when the rider drops it: the road is the
+    // same as ordered, only the stop fee goes
+    // (set directly: the location route refuses a jump the car could not have driven)
+    await db
+      .updateTable('drivers')
+      .set({ lat: STOP_B.lat, lng: STOP_B.lng, located_at: new Date() })
+      .where('user_id', '=', driver.id)
+      .execute();
+    const p = (await preview(rider, ride.id, [STOP_A])).body;
+    expect(p.fare.breakdown.stops).toEqual({ count: 1, fee: 1000 });
+    expect(p.fare.after).toBeGreaterThanOrEqual(ride.fare.quoted - 1000);
+    expect(p.fare.after).toBeLessThan(ride.fare.quoted);
+    const changed = (
+      await change(rider, ride.id, [{ ...STOP_A, address: null, landmark: null }], p.fare.after)
+    ).body;
+    expect(changed.fare.quoted).toBe(p.fare.after);
+  });
+
   it('refuses shared, card and cargo rides and rides of someone else', async () => {
     const rider = await signIn(app);
     const shared = await order(rider, (await quote(rider)).quoteId, { shareable: true });
