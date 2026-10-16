@@ -1,6 +1,8 @@
 {
-  "CFBundleDisplayName": "SFF Taxi",
-  "NSLocationWhenInUseUsageDescription": "Taksi sizni qayerdan olib ketishini aniqlash va haydovchiga ko‘rsatish uchun joylashuvingiz kerak.",
-  "NSCameraUsageDescription": "Shikoyatga rasm qo‘shish uchun suratga olish.",
-  "NSPhotoLibraryUsageDescription": "Shikoyatga rasm qo‘shish uchun galereyadan tanlash."
+  "ios": {
+    "CFBundleDisplayName": "SFF Taxi",
+    "NSLocationWhenInUseUsageDescription": "Taksi sizni qayerdan olib ketishini aniqlash va haydovchiga ko‘rsatish uchun joylashuvingiz kerak.",
+    "NSCameraUsageDescription": "Shikoyatga rasm qo‘shish uchun suratga olish.",
+    "NSPhotoLibraryUsageDescription": "Shikoyatga rasm qo‘shish uchun galereyadan tanlash."
+  }
 }
